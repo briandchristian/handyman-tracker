@@ -122,6 +122,74 @@ app.post('/api/login', async (req, res) => {
   res.json({ token });
 });
 
+// Public Customer Bid Route (no authentication required)
+app.post('/api/customer-bid', async (req, res) => {
+  try {
+    const { name, email, phone, address, projectName, projectDescription } = req.body;
+
+    // Validation
+    if (!name || !email || !phone) {
+      return res.status(400).json({ msg: 'Name, email, and phone are required' });
+    }
+
+    if (!projectName || !projectDescription) {
+      return res.status(400).json({ msg: 'Project name and description are required' });
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ msg: 'Invalid email format' });
+    }
+
+    // Check if customer already exists by email
+    let customer = await Customer.findOne({ email });
+
+    if (customer) {
+      // Customer exists, add new project to existing customer
+      customer.projects.push({
+        name: projectName,
+        description: projectDescription,
+        status: 'Pending',
+        createdAt: new Date()
+      });
+      await customer.save();
+      res.json({ 
+        msg: 'Bid request submitted successfully! We found your existing account and added this project to it.',
+        customer: {
+          name: customer.name,
+          email: customer.email
+        }
+      });
+    } else {
+      // Create new customer with the project
+      const newCustomer = new Customer({
+        name,
+        email,
+        phone,
+        address: address || '',
+        projects: [{
+          name: projectName,
+          description: projectDescription,
+          status: 'Pending',
+          createdAt: new Date()
+        }]
+      });
+      await newCustomer.save();
+      res.status(201).json({ 
+        msg: 'Bid request submitted successfully! We will contact you soon.',
+        customer: {
+          name: newCustomer.name,
+          email: newCustomer.email
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Error submitting customer bid:', err);
+    res.status(500).json({ msg: 'Server error during bid submission', error: err.message });
+  }
+});
+
 // Customer Routes (protected)
 app.get('/api/customers', authMiddleware, async (req, res) => {
   try {
