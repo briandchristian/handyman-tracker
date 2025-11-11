@@ -1,6 +1,6 @@
 <div align="center">
 
-![QA Leader | CSM | Navy Vet](https://raw.githubusercontent.com/briandchristian/briandchristian/main/icon.svg)
+![QA Leader | CSM | Navy Vet](https://raw.githubusercontent.com/briandchristian/briandchristian/main/GithubIcon.svg)
 
 **@briandchristian** • *“2-week releases → <1 hour. Quality at speed.”*
 
