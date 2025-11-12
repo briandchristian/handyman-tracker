@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
+import API_BASE_URL from '../config/api';
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
@@ -16,7 +17,7 @@ export default function Customers() {
   }, []);
 
   const fetchCustomers = async () => {
-    const res = await axios.get('http://localhost:5000/api/customers', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+    const res = await axios.get(`${API_BASE_URL}/api/customers`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
     const customersData = res.data;
     // Debug: Log customer IDs
     console.log('Fetched customers:', customersData.map(c => ({ id: c._id, name: c.name, projects: c.projects?.length || 0 })));
@@ -25,7 +26,7 @@ export default function Customers() {
 
   const addCustomer = async () => {
     try {
-      await axios.post('http://localhost:5000/api/customers', newCustomer, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      await axios.post(`${API_BASE_URL}/api/customers`, newCustomer, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       // Clear the form fields after successful addition
       setNewCustomer({ name: '', email: '', phone: '', address: '' });
       fetchCustomers();
@@ -36,7 +37,7 @@ export default function Customers() {
   };
 
   const deleteCustomer = async (id) => {
-    await axios.delete(`http://localhost:5000/api/customers/${id}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+    await axios.delete(`${API_BASE_URL}/api/customers/${id}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
     fetchCustomers();
   };
 
@@ -47,7 +48,7 @@ export default function Customers() {
         return;
       }
       
-      await axios.post(`http://localhost:5000/api/customers/${newProject.customerId}/projects`, 
+      await axios.post(`${API_BASE_URL}/api/customers/${newProject.customerId}/projects`, 
         { name: newProject.name, description: newProject.description, status: 'Pending' }, 
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
@@ -60,7 +61,7 @@ export default function Customers() {
       
       // Refresh the selected customer to show new project
       if (selectedCustomer) {
-        const res = await axios.get('http://localhost:5000/api/customers', { 
+        const res = await axios.get(`${API_BASE_URL}/api/customers`, { 
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } 
         });
         const updatedCustomer = res.data.find(c => c._id === selectedCustomer._id);
@@ -121,7 +122,7 @@ export default function Customers() {
 
   const saveCustomer = async (customerId) => {
     try {
-      await axios.put(`http://localhost:5000/api/customers/${customerId}`, editCustomer, { 
+      await axios.put(`${API_BASE_URL}/api/customers/${customerId}`, editCustomer, { 
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } 
       });
       setEditingCustomerId(null);

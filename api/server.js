@@ -1,13 +1,52 @@
-require('dotenv').config();
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
+import 'dotenv/config';
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 
 const app = express();
+
+// Trust proxy to get real client IPs (important for LAN connections)
+app.set('trust proxy', true);
+
+// Helper function to get client IP address (defined early for use in middleware)
+const getClientIp = (req) => {
+  // Try multiple methods to get the real client IP
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    // X-Forwarded-For can contain multiple IPs, get the first one (original client)
+    return forwarded.split(',')[0].trim();
+  }
+  
+  // Express's req.ip (works with trust proxy setting)
+  if (req.ip) {
+    // Remove IPv6 prefix if present (::ffff:192.168.1.1 -> 192.168.1.1)
+    return req.ip.replace(/^::ffff:/, '');
+  }
+  
+  // Fallback to socket address
+  if (req.socket && req.socket.remoteAddress) {
+    return req.socket.remoteAddress.replace(/^::ffff:/, '');
+  }
+  
+  // Last resort
+  return 'Unknown';
+};
+
 app.use(cors());
 app.use(express.json());
+
+// Debug middleware - log authentication-related requests with IP
+app.use((req, res, next) => {
+  const authEndpoints = ['/api/login', '/api/register'];
+  if (authEndpoints.includes(req.url)) {
+    const timestamp = new Date().toISOString();
+    const clientIp = getClientIp(req);
+    console.log(`[${timestamp}] 📥 ${req.method} ${req.url} - IP: ${clientIp}`);
+  }
+  next();
+});
 
 // MongoDB connection
 const connectDB = async () => {
@@ -64,12 +103,22 @@ const User = mongoose.model('User', userSchema);
 // Middleware for auth
 const authMiddleware = (req, res, next) => {
   const token = req.header('Authorization')?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ msg: 'No token' });
+  const clientIp = getClientIp(req);
+  const timestamp = new Date().toISOString();
+  const endpoint = req.originalUrl || req.url;
+  
+  if (!token) {
+    console.log(`[${timestamp}] ❌ AUTH FAILED - No token provided - IP: ${clientIp} - Endpoint: ${endpoint}`);
+    return res.status(401).json({ msg: 'No token' });
+  }
+  
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
+    console.log(`[${timestamp}] ✅ AUTH SUCCESS - User ID: ${decoded.id} - IP: ${clientIp} - Endpoint: ${endpoint}`);
     next();
   } catch (err) {
+    console.log(`[${timestamp}] ❌ AUTH FAILED - Invalid/Expired token - IP: ${clientIp} - Endpoint: ${endpoint} - Error: ${err.message}`);
     res.status(401).json({ msg: 'Invalid token' });
   }
 };
@@ -80,23 +129,29 @@ const authMiddleware = (req, res, next) => {
 app.post('/api/register', async (req, res) => {
   try {
     const { username, password } = req.body;
+    const clientIp = getClientIp(req);
+    const timestamp = new Date().toISOString();
 
     // Validation
     if (!username || !password) {
+      console.log(`[${timestamp}] ❌ REGISTRATION FAILED - Missing credentials - IP: ${clientIp}`);
       return res.status(400).json({ msg: 'Username and password are required' });
     }
 
     if (username.length < 3) {
+      console.log(`[${timestamp}] ❌ REGISTRATION FAILED - Username too short: "${username}" - IP: ${clientIp}`);
       return res.status(400).json({ msg: 'Username must be at least 3 characters' });
     }
 
     if (password.length < 6) {
+      console.log(`[${timestamp}] ❌ REGISTRATION FAILED - Password too short for user: "${username}" - IP: ${clientIp}`);
       return res.status(400).json({ msg: 'Password must be at least 6 characters' });
     }
 
     // Check if user already exists
     const existingUser = await User.findOne({ username });
     if (existingUser) {
+      console.log(`[${timestamp}] ❌ REGISTRATION FAILED - Username already exists: "${username}" - IP: ${clientIp}`);
       return res.status(400).json({ msg: 'Username already exists' });
     }
 
@@ -105,21 +160,50 @@ app.post('/api/register', async (req, res) => {
     const user = new User({ username, password: hashed });
     await user.save();
 
+    console.log(`[${timestamp}] ✅ REGISTRATION SUCCESS - New user: "${username}" - IP: ${clientIp}`);
     res.status(201).json({ msg: 'User registered successfully' });
   } catch (err) {
-    console.error('Registration error:', err);
+    const timestamp = new Date().toISOString();
+    const clientIp = getClientIp(req);
+    console.error(`[${timestamp}] ❌ REGISTRATION ERROR - IP: ${clientIp} - Error:`, err.message);
     res.status(500).json({ msg: 'Server error during registration' });
   }
 });
 
 app.post('/api/login', async (req, res) => {
-  const { username, password } = req.body;
-  const user = await User.findOne({ username });
-  if (!user || !await bcrypt.compare(password, user.password)) {
-    return res.status(400).json({ msg: 'Invalid credentials' });
+  try {
+    const { username, password } = req.body;
+    const clientIp = getClientIp(req);
+    const timestamp = new Date().toISOString();
+    
+    // Validation
+    if (!username || !password) {
+      console.log(`[${timestamp}] ❌ LOGIN FAILED - Missing credentials - IP: ${clientIp}`);
+      return res.status(400).json({ msg: 'Username and password are required' });
+    }
+    
+    const user = await User.findOne({ username });
+    
+    if (!user) {
+      console.log(`[${timestamp}] ❌ LOGIN FAILED - User not found: "${username}" - IP: ${clientIp}`);
+      return res.status(400).json({ msg: 'Invalid credentials' });
+    }
+    
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch) {
+      console.log(`[${timestamp}] ❌ LOGIN FAILED - Invalid password for user: "${username}" - IP: ${clientIp}`);
+      return res.status(400).json({ msg: 'Invalid credentials' });
+    }
+    
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    console.log(`[${timestamp}] ✅ LOGIN SUCCESS - User: "${username}" - IP: ${clientIp}`);
+    res.json({ token });
+  } catch (err) {
+    const timestamp = new Date().toISOString();
+    const clientIp = getClientIp(req);
+    console.error(`[${timestamp}] ❌ LOGIN ERROR - IP: ${clientIp} - Error:`, err.message);
+    res.status(500).json({ msg: 'Server error during login' });
   }
-  const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-  res.json({ token });
 });
 
 // Public Customer Bid Route (no authentication required)
@@ -510,4 +594,13 @@ app.delete('/api/customers/:customerId/projects/:projectId/materials/:materialId
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`🚀 Server running on port ${PORT} (accessible on LAN)`);
+  console.log(`📝 Authentication logging: ENABLED (with IP detection)`);
+  console.log(`   - Login attempts will be logged`);
+  console.log(`   - Token validation will be tracked`);
+  console.log(`   - Client IP addresses will be recorded`);
+  console.log(`   - Trust proxy: ENABLED for LAN clients`);
+  console.log(`${'='.repeat(60)}\n`);
+});
