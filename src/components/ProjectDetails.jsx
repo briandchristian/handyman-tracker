@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
+import API_BASE_URL from '../config/api';
 
 export default function ProjectDetails() {
   const { customerId, projectId } = useParams();
@@ -14,11 +15,7 @@ export default function ProjectDetails() {
   const [scheduleDate, setScheduleDate] = useState('');
   const [newMaterial, setNewMaterial] = useState({ item: '', quantity: 0, cost: 0 });
 
-  useEffect(() => {
-    fetchProject();
-  }, [customerId, projectId]);
-
-  const fetchProject = async () => {
+  const fetchProject = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -32,7 +29,7 @@ export default function ProjectDetails() {
       console.log('Fetching customer with ID:', customerId);
       console.log('Customer ID type:', typeof customerId);
       
-      const res = await axios.get(`http://localhost:5000/api/customers/${customerId}`, { 
+      const res = await axios.get(`${API_BASE_URL}/api/customers/${customerId}`, { 
         headers: { Authorization: `Bearer ${token}` } 
       });
       
@@ -81,7 +78,11 @@ export default function ProjectDetails() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [customerId, projectId]);
+
+  useEffect(() => {
+    fetchProject();
+  }, [fetchProject]);
 
   const submitBid = async () => {
     if (!bidAmount || bidAmount <= 0) {
@@ -89,7 +90,7 @@ export default function ProjectDetails() {
       return;
     }
     try {
-      await axios.put(`http://localhost:5000/api/customers/${customerId}/projects/${projectId}/bid`, 
+      await axios.put(`${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/bid`, 
         { bidAmount: parseFloat(bidAmount) }, 
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
@@ -107,7 +108,7 @@ export default function ProjectDetails() {
       return;
     }
     try {
-      await axios.put(`http://localhost:5000/api/customers/${customerId}/projects/${projectId}/bill`, 
+      await axios.put(`${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/bill`, 
         { billAmount: parseFloat(billAmount) }, 
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
@@ -125,7 +126,7 @@ export default function ProjectDetails() {
       return;
     }
     try {
-      await axios.put(`http://localhost:5000/api/customers/${customerId}/projects/${projectId}/schedule`, 
+      await axios.put(`${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/schedule`, 
         { scheduleDate }, 
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
@@ -140,7 +141,7 @@ export default function ProjectDetails() {
   const markCompleted = async () => {
     if (window.confirm('Mark this project as completed?')) {
       try {
-        await axios.put(`http://localhost:5000/api/customers/${customerId}/projects/${projectId}/complete`, 
+        await axios.put(`${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/complete`, 
           {}, 
           { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
         );
@@ -158,7 +159,7 @@ export default function ProjectDetails() {
       return;
     }
     try {
-      await axios.post(`http://localhost:5000/api/customers/${customerId}/projects/${projectId}/materials`, 
+      await axios.post(`${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/materials`, 
         { 
           item: newMaterial.item, 
           quantity: parseFloat(newMaterial.quantity), 
@@ -177,7 +178,7 @@ export default function ProjectDetails() {
   const deleteMaterial = async (materialId) => {
     if (window.confirm('Are you sure you want to delete this material?')) {
       try {
-        await axios.delete(`http://localhost:5000/api/customers/${customerId}/projects/${projectId}/materials/${materialId}`, { 
+        await axios.delete(`${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/materials/${materialId}`, { 
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } 
         });
         fetchProject();
@@ -191,7 +192,7 @@ export default function ProjectDetails() {
   const deleteProject = async () => {
     if (window.confirm('Are you sure you want to delete this project?')) {
       try {
-        await axios.delete(`http://localhost:5000/api/customers/${customerId}/projects/${projectId}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+        await axios.delete(`${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
         navigate('/customers');
       } catch (err) {
         console.error('Error deleting project:', err);
@@ -359,29 +360,78 @@ export default function ProjectDetails() {
       {/* Materials List */}
       <h2 className="text-xl mt-6 text-black">Materials</h2>
       <table className="w-full border-collapse border mt-2">
-        <thead><tr className="text-black"><th className="text-black">Item</th><th className="text-black">Quantity</th><th className="text-black">Cost</th><th className="text-black">Actions</th></tr></thead>
+        <thead>
+          <tr className="text-black bg-gray-50">
+            <th className="text-black text-left p-3 border-b">Item</th>
+            <th className="text-black text-left p-3 border-b">Quantity</th>
+            <th className="text-black text-left p-3 border-b">Cost</th>
+            <th className="text-black text-left p-3 border-b">Actions</th>
+          </tr>
+        </thead>
         <tbody>
           {project.materials && project.materials.length > 0 ? (
             project.materials.map(mat => (
-              <tr key={mat._id} className="text-black">
-                <td className="text-black">{mat.item}</td>
-                <td className="text-black">{mat.quantity}</td>
-                <td className="text-black">${mat.cost}</td>
-                <td><button onClick={() => deleteMaterial(mat._id)} className="bg-red-500 text-white p-1 rounded">Delete</button></td>
+              <tr key={mat._id} className="text-black border-b">
+                <td className="text-black p-2">{mat.item}</td>
+                <td className="text-black p-2">{mat.quantity}</td>
+                <td className="text-black p-2">${parseFloat(mat.cost).toFixed(2)}</td>
+                <td className="p-2">
+                  <button onClick={() => deleteMaterial(mat._id)} className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600">
+                    Delete
+                  </button>
+                </td>
               </tr>
             ))
           ) : (
-            <tr><td colSpan="4" className="text-black text-center">No materials added yet</td></tr>
+            <tr><td colSpan="4" className="text-black text-center p-4">No materials added yet</td></tr>
           )}
         </tbody>
+        {project.materials && project.materials.length > 0 && (
+          <tfoot>
+            <tr className="bg-gray-100 font-bold">
+              <td className="text-black p-3 border-t-2" colSpan="2">Total Material Cost:</td>
+              <td className="text-black p-3 border-t-2 text-lg">
+                ${project.materials.reduce((sum, mat) => sum + parseFloat(mat.cost || 0), 0).toFixed(2)}
+              </td>
+              <td className="border-t-2"></td>
+            </tr>
+          </tfoot>
+        )}
       </table>
       
       {/* Add Material Form */}
-      <div className="mt-4">
-        <input placeholder="Item" value={newMaterial.item} onChange={e => setNewMaterial({ ...newMaterial, item: e.target.value })} className="p-2 border border-gray-300 rounded bg-gray-100 text-black mr-2" />
-        <input type="number" placeholder="Quantity" value={newMaterial.quantity} onChange={e => setNewMaterial({ ...newMaterial, quantity: e.target.value })} className="p-2 border border-gray-300 rounded bg-gray-100 text-black mr-2" />
-        <input type="number" placeholder="Cost" value={newMaterial.cost} onChange={e => setNewMaterial({ ...newMaterial, cost: e.target.value })} className="p-2 border border-gray-300 rounded bg-gray-100 text-black mr-2" />
-        <button onClick={addMaterial} className="bg-green-500 text-white p-2 rounded hover:bg-green-600">Add Material</button>
+      <div className="mt-4 bg-white border border-gray-300 rounded-lg p-4">
+        <h3 className="text-lg font-semibold mb-3 text-black">Add New Material</h3>
+        <div className="flex gap-2 flex-wrap">
+          <input 
+            placeholder="Item" 
+            value={newMaterial.item} 
+            onChange={e => setNewMaterial({ ...newMaterial, item: e.target.value })} 
+            className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[150px]" 
+          />
+          <input 
+            type="number" 
+            step="1"
+            placeholder="Quantity" 
+            value={newMaterial.quantity} 
+            onChange={e => setNewMaterial({ ...newMaterial, quantity: e.target.value })} 
+            className="p-2 border border-gray-300 rounded bg-gray-100 text-black w-32" 
+          />
+          <input 
+            type="number" 
+            step="0.01"
+            placeholder="Cost ($)" 
+            value={newMaterial.cost} 
+            onChange={e => setNewMaterial({ ...newMaterial, cost: e.target.value })} 
+            className="p-2 border border-gray-300 rounded bg-gray-100 text-black w-32" 
+          />
+          <button 
+            onClick={addMaterial} 
+            className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 font-medium"
+          >
+            Add Material
+          </button>
+        </div>
       </div>
       
       <button onClick={deleteProject} className="mt-6 bg-red-500 text-white p-2 rounded">Delete Project</button>

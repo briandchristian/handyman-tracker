@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { format } from 'date-fns';
+import API_BASE_URL from '../config/api';
 
 export default function Dashboard() {
   const [projects, setProjects] = useState([]);
@@ -13,7 +14,7 @@ export default function Dashboard() {
 
   const fetchAllProjects = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/customers', { 
+      const res = await axios.get(`${API_BASE_URL}/api/customers`, { 
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } 
       });
       

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../config/api';
 
 export default function Login({ setToken }) {
   const [username, setUsername] = useState('');
@@ -15,12 +16,46 @@ export default function Login({ setToken }) {
 
   const handleLogin = async () => {
     try {
-      const res = await axios.post('http://localhost:5000/api/login', { username, password });
+      const res = await axios.post(`${API_BASE_URL}/api/login`, { username, password });
       localStorage.setItem('token', res.data.token);
       setToken(res.data.token);
       window.location.href = '/';
     } catch (err) {
-      alert('Login failed');
+      // Detect different types of errors
+      if (!err.response) {
+        // Network error - no response received (connection refused, timeout, etc.)
+        if (err.code === 'ERR_NETWORK' || err.message.includes('Network Error')) {
+          alert(`❌ Cannot connect to server at ${API_BASE_URL}\n\n` +
+                `Possible issues:\n` +
+                `• Server is not running\n` +
+                `• Wrong IP address (check if you're using ${API_BASE_URL})\n` +
+                `• Network connectivity problem\n` +
+                `• Firewall blocking connection\n\n` +
+                `Make sure you're accessing from: http://192.168.50.87:5173`);
+        } else if (err.code === 'ECONNREFUSED') {
+          alert(`❌ Connection Refused!\n\n` +
+                `The server at ${API_BASE_URL} refused the connection.\n\n` +
+                `• Check if the backend server is running\n` +
+                `• Verify you're using the correct URL`);
+        } else {
+          alert(`❌ Network Error\n\n${err.message}\n\nPlease check your connection.`);
+        }
+      } else if (err.response.status === 400) {
+        // Authentication error - invalid credentials
+        alert('❌ Login Failed\n\nInvalid username or password.');
+      } else if (err.response.status === 500) {
+        // Server error
+        alert('❌ Server Error\n\nThe server encountered an error. Please try again later.');
+      } else {
+        // Other errors
+        alert(`❌ Login Failed\n\n${err.response?.data?.msg || err.message}`);
+      }
+      console.error('Login error details:', {
+        code: err.code,
+        message: err.message,
+        response: err.response,
+        config: { url: err.config?.url, method: err.config?.method }
+      });
     }
   };
 
@@ -45,7 +80,7 @@ export default function Login({ setToken }) {
 
   const handleCustomerBid = async () => {
     try {
-      const res = await axios.post('http://localhost:5000/api/customer-bid', {
+      const res = await axios.post(`${API_BASE_URL}/api/customer-bid`, {
         name: customerName,
         email: customerEmail,
         phone: customerPhone,
@@ -62,8 +97,16 @@ export default function Login({ setToken }) {
       setProjectName('');
       setProjectDescription('');
     } catch (err) {
-      const errorMsg = err.response?.data?.msg || 'Failed to submit bid request';
-      alert(errorMsg);
+      if (!err.response) {
+        // Network error
+        alert(`❌ Cannot connect to server\n\n` +
+              `The server at ${API_BASE_URL} is not reachable.\n` +
+              `Please check your internet connection or contact support.`);
+        console.error('Network error submitting bid:', err);
+      } else {
+        const errorMsg = err.response?.data?.msg || 'Failed to submit bid request';
+        alert(`❌ ${errorMsg}`);
+      }
     }
   };
 
