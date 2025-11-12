@@ -34,8 +34,70 @@ const getClientIp = (req) => {
   return 'Unknown';
 };
 
+// MongoDB connection with caching for serverless
+let cachedDb = null;
+
+const connectDB = async () => {
+  if (!process.env.MONGO_URI) {
+    throw new Error('MONGO_URI is not defined in environment variables.');
+  }
+
+  // Use cached connection if available
+  if (cachedDb && mongoose.connection.readyState === 1) {
+    console.log('Using cached MongoDB connection');
+    return cachedDb;
+  }
+
+  try {
+    console.log('Establishing new MongoDB connection...');
+    await mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    });
+    cachedDb = mongoose.connection;
+    console.log('MongoDB connected successfully');
+    return cachedDb;
+  } catch (err) {
+    console.error('MongoDB connection error:', err.message);
+    throw err; // Throw instead of exit in serverless
+  }
+};
+
+// Handle connection events
+mongoose.connection.on('disconnected', () => {
+  console.log('MongoDB disconnected');
+  cachedDb = null;
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('MongoDB connection error:', err);
+  cachedDb = null;
+});
+
+// Connect to MongoDB on startup (for local development)
+if (process.env.VERCEL !== '1') {
+  connectDB().catch(err => {
+    console.error('Failed to connect to MongoDB:', err);
+    process.exit(1);
+  });
+}
+
 app.use(cors());
 app.use(express.json());
+
+// Ensure DB connection before handling requests (for serverless)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error('Database connection failed:', err);
+    return res.status(500).json({ 
+      msg: 'Database connection error. Please try again later.',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
 
 // Debug middleware - log authentication-related requests with IP
 app.use((req, res, next) => {
@@ -47,33 +109,6 @@ app.use((req, res, next) => {
   }
   next();
 });
-
-// MongoDB connection
-const connectDB = async () => {
-  try {
-    if (!process.env.MONGO_URI) {
-      throw new Error('MONGO_URI is not defined in environment variables. Please create a .env file with MONGO_URI.');
-    }
-    
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log('MongoDB connected successfully');
-  } catch (err) {
-    console.error('MongoDB connection error:', err.message);
-    process.exit(1); // Exit process with failure
-  }
-};
-
-// Handle connection events
-mongoose.connection.on('disconnected', () => {
-  console.log('MongoDB disconnected');
-});
-
-mongoose.connection.on('error', (err) => {
-  console.error('MongoDB connection error:', err);
-});
-
-// Connect to MongoDB
-connectDB();
 
 // Models
 const customerSchema = new mongoose.Schema({
