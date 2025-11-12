@@ -36,30 +36,56 @@ const getClientIp = (req) => {
 
 // MongoDB connection with caching for serverless
 let cachedDb = null;
+let isConnecting = false;
 
 const connectDB = async () => {
   if (!process.env.MONGO_URI) {
     throw new Error('MONGO_URI is not defined in environment variables.');
   }
 
-  // Use cached connection if available
+  // Use cached connection if available and ready
   if (cachedDb && mongoose.connection.readyState === 1) {
-    console.log('Using cached MongoDB connection');
     return cachedDb;
   }
 
+  // If already connecting, wait for that connection
+  if (isConnecting) {
+    console.log('Waiting for existing connection attempt...');
+    let attempts = 0;
+    while (isConnecting && attempts < 50) { // Wait up to 5 seconds
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+    if (mongoose.connection.readyState === 1) {
+      return mongoose.connection;
+    }
+  }
+
   try {
+    isConnecting = true;
     console.log('Establishing new MongoDB connection...');
+    
+    // Disconnect if in a bad state
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect();
+    }
+
     await mongoose.connect(process.env.MONGO_URI, {
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 30000, // 30 seconds for serverless cold starts
       socketTimeoutMS: 45000,
+      maxPoolSize: 10,
+      minPoolSize: 2,
     });
+    
     cachedDb = mongoose.connection;
     console.log('MongoDB connected successfully');
     return cachedDb;
   } catch (err) {
     console.error('MongoDB connection error:', err.message);
-    throw err; // Throw instead of exit in serverless
+    cachedDb = null;
+    throw err;
+  } finally {
+    isConnecting = false;
   }
 };
 
@@ -92,9 +118,20 @@ app.use(async (req, res, next) => {
     next();
   } catch (err) {
     console.error('Database connection failed:', err);
-    return res.status(500).json({ 
-      msg: 'Database connection error. Please try again later.',
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    console.error('MongoDB URI present:', !!process.env.MONGO_URI);
+    
+    let errorMsg = 'Database connection error. Please try again.';
+    if (err.message.includes('ENOTFOUND')) {
+      errorMsg = 'Cannot reach database server. Please check your MongoDB connection string.';
+    } else if (err.message.includes('authentication failed')) {
+      errorMsg = 'Database authentication failed. Please check your MongoDB credentials.';
+    } else if (err.message.includes('timeout')) {
+      errorMsg = 'Database connection timed out. Please try again in a moment.';
+    }
+    
+    return res.status(503).json({ 
+      msg: errorMsg,
+      details: process.env.NODE_ENV === 'development' ? err.message : 'Service temporarily unavailable'
     });
   }
 });
