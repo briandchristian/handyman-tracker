@@ -1,24 +1,9 @@
 {
-  "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "api/server.js",
-      "use": "@vercel/node"
+      "source": "/api/:path*",
+      "destination": "/api/:path*"
     }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "api/server.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
-    }
-  ],
-  "env": {
-    "MONGO_URI": "@mongo-uri",
-    "JWT_SECRET": "@jwt-secret"
-  }
+  ]
 }
 
