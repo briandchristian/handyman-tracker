@@ -594,13 +594,20 @@ app.delete('/api/customers/:customerId/projects/:projectId/materials/:materialId
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`🚀 Server running on port ${PORT} (accessible on LAN)`);
-  console.log(`📝 Authentication logging: ENABLED (with IP detection)`);
-  console.log(`   - Login attempts will be logged`);
-  console.log(`   - Token validation will be tracked`);
-  console.log(`   - Client IP addresses will be recorded`);
-  console.log(`   - Trust proxy: ENABLED for LAN clients`);
-  console.log(`${'='.repeat(60)}\n`);
-});
+
+// Only start the server if not in Vercel (serverless) environment
+if (process.env.VERCEL !== '1') {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`🚀 Server running on port ${PORT} (accessible on LAN)`);
+    console.log(`📝 Authentication logging: ENABLED (with IP detection)`);
+    console.log(`   - Login attempts will be logged`);
+    console.log(`   - Token validation will be tracked`);
+    console.log(`   - Client IP addresses will be recorded`);
+    console.log(`   - Trust proxy: ENABLED for LAN clients`);
+    console.log(`${'='.repeat(60)}\n`);
+  });
+}
+
+// Export for Vercel serverless functions
+export default app;
