@@ -131,12 +131,26 @@ const Customer = mongoose.model('Customer', customerSchema);
 
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
-  password: { type: String, required: true }
+  password: { type: String, required: true },
+  email: { type: String, required: true },
+  role: { 
+    type: String, 
+    enum: ['pending', 'admin', 'super-admin'], 
+    default: 'pending' 
+  },
+  status: { 
+    type: String, 
+    enum: ['pending', 'approved', 'rejected'], 
+    default: 'pending' 
+  },
+  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  approvedAt: { type: Date },
+  createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
 
 // Middleware for auth
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
   const token = req.header('Authorization')?.replace('Bearer ', '');
   const clientIp = getClientIp(req);
   const timestamp = new Date().toISOString();
@@ -149,8 +163,21 @@ const authMiddleware = (req, res, next) => {
   
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    console.log(`[${timestamp}] ✅ AUTH SUCCESS - User ID: ${decoded.id} - IP: ${clientIp} - Endpoint: ${endpoint}`);
+    
+    // Fetch user to check status
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      console.log(`[${timestamp}] ❌ AUTH FAILED - User not found - IP: ${clientIp} - Endpoint: ${endpoint}`);
+      return res.status(401).json({ msg: 'User not found' });
+    }
+    
+    if (user.status !== 'approved') {
+      console.log(`[${timestamp}] ❌ AUTH FAILED - User not approved (status: ${user.status}) - IP: ${clientIp} - Endpoint: ${endpoint}`);
+      return res.status(403).json({ msg: 'Your account is pending admin approval', status: user.status });
+    }
+    
+    req.user = { id: decoded.id, role: user.role, username: user.username };
+    console.log(`[${timestamp}] ✅ AUTH SUCCESS - User: ${user.username} (${user.role}) - IP: ${clientIp} - Endpoint: ${endpoint}`);
     next();
   } catch (err) {
     console.log(`[${timestamp}] ❌ AUTH FAILED - Invalid/Expired token - IP: ${clientIp} - Endpoint: ${endpoint} - Error: ${err.message}`);
@@ -158,19 +185,35 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
+// Middleware for admin-only routes
+const adminMiddleware = (req, res, next) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'super-admin') {
+    return res.status(403).json({ msg: 'Access denied. Admin privileges required.' });
+  }
+  next();
+};
+
+// Middleware for super-admin-only routes
+const superAdminMiddleware = (req, res, next) => {
+  if (req.user.role !== 'super-admin') {
+    return res.status(403).json({ msg: 'Access denied. Super admin privileges required.' });
+  }
+  next();
+};
+
 // Routes
 
 // Auth Routes
 app.post('/api/register', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, email } = req.body;
     const clientIp = getClientIp(req);
     const timestamp = new Date().toISOString();
 
     // Validation
-    if (!username || !password) {
+    if (!username || !password || !email) {
       console.log(`[${timestamp}] ❌ REGISTRATION FAILED - Missing credentials - IP: ${clientIp}`);
-      return res.status(400).json({ msg: 'Username and password are required' });
+      return res.status(400).json({ msg: 'Username, password, and email are required' });
     }
 
     if (username.length < 3) {
@@ -183,20 +226,49 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ msg: 'Password must be at least 6 characters' });
     }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ username });
-    if (existingUser) {
-      console.log(`[${timestamp}] ❌ REGISTRATION FAILED - Username already exists: "${username}" - IP: ${clientIp}`);
-      return res.status(400).json({ msg: 'Username already exists' });
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      console.log(`[${timestamp}] ❌ REGISTRATION FAILED - Invalid email: "${email}" - IP: ${clientIp}`);
+      return res.status(400).json({ msg: 'Invalid email format' });
     }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ $or: [{ username }, { email }] });
+    if (existingUser) {
+      console.log(`[${timestamp}] ❌ REGISTRATION FAILED - Username or email already exists: "${username}" - IP: ${clientIp}`);
+      return res.status(400).json({ msg: 'Username or email already exists' });
+    }
+
+    // Check if this is the first user (becomes super-admin automatically)
+    const userCount = await User.countDocuments();
+    const role = userCount === 0 ? 'super-admin' : 'pending';
+    const status = userCount === 0 ? 'approved' : 'pending';
 
     // Hash password and create user
     const hashed = await bcrypt.hash(password, 10);
-    const user = new User({ username, password: hashed });
+    const user = new User({ 
+      username, 
+      password: hashed, 
+      email,
+      role,
+      status
+    });
     await user.save();
 
-    console.log(`[${timestamp}] ✅ REGISTRATION SUCCESS - New user: "${username}" - IP: ${clientIp}`);
-    res.status(201).json({ msg: 'User registered successfully' });
+    console.log(`[${timestamp}] ✅ REGISTRATION SUCCESS - New user: "${username}" (${role}/${status}) - IP: ${clientIp}`);
+    
+    if (userCount === 0) {
+      res.status(201).json({ 
+        msg: 'First user created successfully as super-admin. You can now login.',
+        role: 'super-admin'
+      });
+    } else {
+      res.status(201).json({ 
+        msg: 'Registration successful! Your account is pending admin approval. You will be notified when approved.',
+        status: 'pending'
+      });
+    }
   } catch (err) {
     const timestamp = new Date().toISOString();
     const clientIp = getClientIp(req);
@@ -230,9 +302,34 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ msg: 'Invalid credentials' });
     }
     
+    // Check if user is approved
+    if (user.status === 'pending') {
+      console.log(`[${timestamp}] ❌ LOGIN FAILED - User pending approval: "${username}" - IP: ${clientIp}`);
+      return res.status(403).json({ 
+        msg: 'Your account is pending admin approval. Please wait for an administrator to approve your account.',
+        status: 'pending'
+      });
+    }
+    
+    if (user.status === 'rejected') {
+      console.log(`[${timestamp}] ❌ LOGIN FAILED - User rejected: "${username}" - IP: ${clientIp}`);
+      return res.status(403).json({ 
+        msg: 'Your account has been rejected. Please contact an administrator.',
+        status: 'rejected'
+      });
+    }
+    
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    console.log(`[${timestamp}] ✅ LOGIN SUCCESS - User: "${username}" - IP: ${clientIp}`);
-    res.json({ token });
+    console.log(`[${timestamp}] ✅ LOGIN SUCCESS - User: "${username}" (${user.role}) - IP: ${clientIp}`);
+    res.json({ 
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role
+      }
+    });
   } catch (err) {
     const timestamp = new Date().toISOString();
     const clientIp = getClientIp(req);
@@ -306,6 +403,162 @@ app.post('/api/customer-bid', async (req, res) => {
   } catch (err) {
     console.error('Error submitting customer bid:', err);
     res.status(500).json({ msg: 'Server error during bid submission', error: err.message });
+  }
+});
+
+// Admin User Management Routes
+// Get all users (admin only)
+app.get('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const users = await User.find()
+      .select('-password')
+      .populate('approvedBy', 'username')
+      .sort({ createdAt: -1 });
+    res.json(users);
+  } catch (err) {
+    console.error('Error fetching users:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Get pending users (admin only)
+app.get('/api/admin/users/pending', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const pendingUsers = await User.find({ status: 'pending' })
+      .select('-password')
+      .sort({ createdAt: -1 });
+    res.json(pendingUsers);
+  } catch (err) {
+    console.error('Error fetching pending users:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Approve user (admin only)
+app.put('/api/admin/users/:id/approve', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { role } = req.body; // 'admin' or keep as 'pending' to just approve
+    const userId = req.params.id;
+
+    if (!['admin', 'pending'].includes(role)) {
+      return res.status(400).json({ msg: 'Invalid role. Must be "admin" or "pending".' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ msg: 'User not found' });
+    }
+
+    if (user.status === 'approved') {
+      return res.status(400).json({ msg: 'User is already approved' });
+    }
+
+    user.status = 'approved';
+    user.role = role === 'admin' ? 'admin' : 'admin'; // Approved users become admins
+    user.approvedBy = req.user.id;
+    user.approvedAt = new Date();
+    await user.save();
+
+    console.log(`✅ User approved: ${user.username} by ${req.user.username}`);
+    res.json({ 
+      msg: `User ${user.username} has been approved as ${user.role}`,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        status: user.status
+      }
+    });
+  } catch (err) {
+    console.error('Error approving user:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Reject user (admin only)
+app.put('/api/admin/users/:id/reject', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ msg: 'User not found' });
+    }
+
+    user.status = 'rejected';
+    await user.save();
+
+    console.log(`❌ User rejected: ${user.username} by ${req.user.username}`);
+    res.json({ 
+      msg: `User ${user.username} has been rejected`,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        status: user.status
+      }
+    });
+  } catch (err) {
+    console.error('Error rejecting user:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Delete user (super-admin only)
+app.delete('/api/admin/users/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    // Prevent deleting yourself
+    if (userId === req.user.id) {
+      return res.status(400).json({ msg: 'Cannot delete your own account' });
+    }
+
+    const user = await User.findByIdAndDelete(userId);
+    if (!user) {
+      return res.status(404).json({ msg: 'User not found' });
+    }
+
+    console.log(`🗑️ User deleted: ${user.username} by ${req.user.username}`);
+    res.json({ msg: `User ${user.username} has been deleted` });
+  } catch (err) {
+    console.error('Error deleting user:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Promote user to super-admin (super-admin only)
+app.put('/api/admin/users/:id/promote', authMiddleware, superAdminMiddleware, async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ msg: 'User not found' });
+    }
+
+    if (user.role === 'super-admin') {
+      return res.status(400).json({ msg: 'User is already a super-admin' });
+    }
+
+    user.role = 'super-admin';
+    user.status = 'approved';
+    await user.save();
+
+    console.log(`⬆️ User promoted to super-admin: ${user.username} by ${req.user.username}`);
+    res.json({ 
+      msg: `User ${user.username} has been promoted to super-admin`,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    console.error('Error promoting user:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });
 
