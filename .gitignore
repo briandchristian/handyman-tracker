@@ -31,3 +31,4 @@ Thumbs.db
 # Old directories (legacy structure)
 frontend/
 backend/
+.vercel
