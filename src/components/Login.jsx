@@ -5,6 +5,13 @@ import API_BASE_URL from '../config/api';
 export default function Login({ setToken }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showRegister, setShowRegister] = useState(false);
+  
+  // Admin registration form state
+  const [regUsername, setRegUsername] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regConfirmPassword, setRegConfirmPassword] = useState('');
   
   // Customer bid form state
   const [customerName, setCustomerName] = useState('');
@@ -43,6 +50,10 @@ export default function Login({ setToken }) {
       } else if (err.response.status === 400) {
         // Authentication error - invalid credentials
         alert('❌ Login Failed\n\nInvalid username or password.');
+      } else if (err.response.status === 403) {
+        // Account pending approval or rejected
+        const msg = err.response?.data?.msg || 'Your account requires approval.';
+        alert(`❌ Access Denied\n\n${msg}`);
       } else if (err.response.status === 500) {
         // Server error
         alert('❌ Server Error\n\nThe server encountered an error. Please try again later.');
@@ -56,6 +67,59 @@ export default function Login({ setToken }) {
         response: err.response,
         config: { url: err.config?.url, method: err.config?.method }
       });
+    }
+  };
+
+  const handleRegister = async () => {
+    // Validation
+    if (!regUsername || !regPassword || !regEmail) {
+      alert('❌ All fields are required');
+      return;
+    }
+
+    if (regUsername.length < 3) {
+      alert('❌ Username must be at least 3 characters');
+      return;
+    }
+
+    if (regPassword.length < 6) {
+      alert('❌ Password must be at least 6 characters');
+      return;
+    }
+
+    if (regPassword !== regConfirmPassword) {
+      alert('❌ Passwords do not match');
+      return;
+    }
+
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/register`, {
+        username: regUsername,
+        password: regPassword,
+        email: regEmail
+      });
+      
+      alert(`✅ ${res.data.msg}`);
+      
+      // Clear form
+      setRegUsername('');
+      setRegPassword('');
+      setRegEmail('');
+      setRegConfirmPassword('');
+      setShowRegister(false);
+      
+      // If it's the first user (super-admin), they can login immediately
+      if (res.data.role === 'super-admin') {
+        alert('You can now log in with your credentials!');
+      }
+    } catch (err) {
+      if (!err.response) {
+        alert(`❌ Cannot connect to server\n\nPlease check your internet connection.`);
+      } else {
+        const errorMsg = err.response?.data?.msg || 'Failed to register';
+        alert(`❌ ${errorMsg}`);
+      }
+      console.error('Registration error:', err);
     }
   };
 
@@ -207,8 +271,61 @@ export default function Login({ setToken }) {
             Login
           </button>
           <p className="text-gray-700 mt-4 text-sm">For admin access only.</p>
+          <button 
+            onClick={() => setShowRegister(!showRegister)} 
+            className="text-blue-600 hover:text-blue-800 mt-2 text-sm underline"
+          >
+            {showRegister ? 'Cancel Registration' : 'New Admin? Request Access'}
+          </button>
         </div>
       </div>
+
+      {/* Admin Registration Form (conditional) */}
+      {showRegister && (
+        <div className="flex justify-start mt-6">
+          <div className="p-6 bg-white rounded shadow text-black w-[500px]">
+            <h2 className="text-2xl font-bold mb-4 text-gray-800">Request Admin Access</h2>
+            <p className="text-gray-600 mb-4 text-sm">Your account will need to be approved by an existing administrator.</p>
+            
+            <div className="space-y-3">
+              <input 
+                type="text" 
+                placeholder="Username *" 
+                value={regUsername} 
+                onChange={e => setRegUsername(e.target.value)} 
+                className="block p-2 border bg-white text-black w-full rounded" 
+              />
+              <input 
+                type="email" 
+                placeholder="Email *" 
+                value={regEmail} 
+                onChange={e => setRegEmail(e.target.value)} 
+                className="block p-2 border bg-white text-black w-full rounded" 
+              />
+              <input 
+                type="password" 
+                placeholder="Password (min 6 characters) *" 
+                value={regPassword} 
+                onChange={e => setRegPassword(e.target.value)} 
+                className="block p-2 border bg-white text-black w-full rounded" 
+              />
+              <input 
+                type="password" 
+                placeholder="Confirm Password *" 
+                value={regConfirmPassword} 
+                onChange={e => setRegConfirmPassword(e.target.value)} 
+                className="block p-2 border bg-white text-black w-full rounded" 
+              />
+              <button 
+                onClick={handleRegister} 
+                className="bg-purple-500 text-white p-2 rounded w-full hover:bg-purple-600 font-medium"
+              >
+                Request Access
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

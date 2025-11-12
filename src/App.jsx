@@ -4,6 +4,7 @@ import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Customers from './components/Customers';
 import ProjectDetails from './components/ProjectDetails';
+import UserManagement from './components/UserManagement';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -15,6 +16,7 @@ function App() {
         <Route path="/" element={token ? <Dashboard /> : <Navigate to="/login" />} />
         <Route path="/customers" element={token ? <Customers /> : <Navigate to="/login" />} />
         <Route path="/projects/:customerId/:projectId" element={token ? <ProjectDetails /> : <Navigate to="/login" />} />
+        <Route path="/admin/users" element={token ? <UserManagement /> : <Navigate to="/login" />} />
       </Routes>
     </div>
   );
