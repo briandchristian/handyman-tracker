@@ -504,10 +504,12 @@ function SupplierModal({ supplier, onClose }) {
           )}
 
           {activeTab === 'catalog' && !supplier.isNew && (
-            <div className="bg-gray-50 border border-gray-300 rounded-lg p-8 text-center">
-              <p className="text-gray-600 font-medium">Catalog management coming soon!</p>
-              <p className="text-sm text-gray-600 mt-2">You'll be able to upload price lists and manage product catalogs here.</p>
-            </div>
+            <CatalogTab 
+              supplier={supplier.supplier || supplier} 
+              onUpdate={() => {
+                // Refresh supplier data
+              }}
+            />
           )}
 
           {activeTab === 'orders' && !supplier.isNew && (
@@ -807,6 +809,376 @@ function POCreationModal({ poData, suppliers, onClose, onSuccess }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Catalog Tab Component
+function CatalogTab({ supplier, onUpdate }) {
+  const [catalogItems, setCatalogItems] = useState(supplier.catalog || []);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newItem, setNewItem] = useState({ sku: '', description: '', unit: 'each', price: 0 });
+  const [uploading, setUploading] = useState(false);
+
+  const filteredCatalog = catalogItems.filter(item =>
+    item.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.sku?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const handleAddItem = async () => {
+    if (!newItem.description || newItem.price <= 0) {
+      alert('Description and price are required');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const updatedCatalog = [...catalogItems, { ...newItem, lastUpdated: new Date() }];
+      
+      await axios.put(`${API_BASE_URL}/api/suppliers/${supplier._id}`, {
+        catalog: updatedCatalog
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setCatalogItems(updatedCatalog);
+      setNewItem({ sku: '', description: '', unit: 'each', price: 0 });
+      setShowAddForm(false);
+      alert('✅ Item added to catalog!');
+    } catch (err) {
+      console.error('Error adding catalog item:', err);
+      alert('❌ Failed to add item');
+    }
+  };
+
+  const handleDeleteItem = async (itemToDelete) => {
+    if (!confirm(`Delete "${itemToDelete.description}" from catalog?`)) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const updatedCatalog = catalogItems.filter(item => 
+        !(item.sku === itemToDelete.sku && item.description === itemToDelete.description)
+      );
+      
+      await axios.put(`${API_BASE_URL}/api/suppliers/${supplier._id}`, {
+        catalog: updatedCatalog
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setCatalogItems(updatedCatalog);
+      alert('✅ Item deleted from catalog!');
+    } catch (err) {
+      console.error('Error deleting catalog item:', err);
+      alert('❌ Failed to delete item');
+    }
+  };
+
+  const handleCSVUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.csv')) {
+      alert('Please upload a CSV file');
+      return;
+    }
+
+    setUploading(true);
+    const reader = new FileReader();
+    
+    reader.onload = async (e) => {
+      try {
+        const text = e.target.result;
+        const rows = text.split('\n').map(row => row.split(',').map(cell => cell.trim()));
+        
+        // Skip header row
+        const dataRows = rows.slice(1).filter(row => row.length >= 3 && row[0]);
+        
+        // Parse: assume format is SKU, Description, Unit, Price
+        const parsedItems = dataRows.map(row => ({
+          sku: row[0] || '',
+          description: row[1] || '',
+          unit: row[2] || 'each',
+          price: parseFloat(row[3]) || 0,
+          lastUpdated: new Date()
+        }));
+
+        if (parsedItems.length === 0) {
+          alert('No valid items found in CSV');
+          setUploading(false);
+          return;
+        }
+
+        const token = localStorage.getItem('token');
+        const updatedCatalog = [...catalogItems, ...parsedItems];
+        
+        await axios.put(`${API_BASE_URL}/api/suppliers/${supplier._id}`, {
+          catalog: updatedCatalog
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        setCatalogItems(updatedCatalog);
+        alert(`✅ Imported ${parsedItems.length} items from CSV!`);
+      } catch (err) {
+        console.error('Error parsing CSV:', err);
+        alert('❌ Failed to parse CSV file. Expected format: SKU, Description, Unit, Price');
+      } finally {
+        setUploading(false);
+        event.target.value = '';
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
+  const exportToCSV = () => {
+    if (catalogItems.length === 0) {
+      alert('No items to export');
+      return;
+    }
+
+    const csv = [
+      ['SKU', 'Description', 'Unit', 'Price', 'Last Updated'],
+      ...catalogItems.map(item => [
+        item.sku || '',
+        item.description || '',
+        item.unit || 'each',
+        item.price || 0,
+        item.lastUpdated ? format(new Date(item.lastUpdated), 'yyyy-MM-dd') : ''
+      ])
+    ].map(row => row.join(',')).join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${supplier.name.replace(/\s+/g, '-')}-catalog-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div>
+      {/* Header with Actions */}
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex-1">
+          <h3 className="text-lg font-bold text-black">Product Catalog</h3>
+          <p className="text-sm text-gray-600">{catalogItems.length} items in catalog</p>
+        </div>
+        <div className="flex gap-2">
+          <label className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600 cursor-pointer font-medium">
+            📤 Import CSV
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleCSVUpload}
+              className="hidden"
+              disabled={uploading}
+            />
+          </label>
+          {catalogItems.length > 0 && (
+            <button
+              onClick={exportToCSV}
+              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 font-medium"
+            >
+              📥 Export CSV
+            </button>
+          )}
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 font-medium"
+          >
+            {showAddForm ? 'Cancel' : '+ Add Item'}
+          </button>
+        </div>
+      </div>
+
+      {/* CSV Format Help */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm">
+        <p className="text-black font-medium">📄 CSV Format:</p>
+        <p className="text-gray-600">
+          <code className="bg-white px-2 py-1 rounded">SKU, Description, Unit, Price</code>
+        </p>
+        <p className="text-gray-600 text-xs mt-1">
+          Example: <code className="bg-white px-1 rounded">LUM-2X4-8, 2x4 Lumber 8ft, each, 3.99</code>
+        </p>
+      </div>
+
+      {/* Add Item Form */}
+      {showAddForm && (
+        <div className="bg-white border-2 border-blue-400 rounded-lg p-4 mb-4">
+          <h4 className="font-bold text-black mb-3">Add Catalog Item</h4>
+          <div className="grid grid-cols-4 gap-3">
+            <div>
+              <label htmlFor="cat-sku" className="block text-sm font-medium text-black mb-1">SKU</label>
+              <input
+                id="cat-sku"
+                name="cat-sku"
+                type="text"
+                value={newItem.sku}
+                onChange={(e) => setNewItem({ ...newItem, sku: e.target.value })}
+                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                placeholder="LUM-2X4-8"
+              />
+            </div>
+            <div>
+              <label htmlFor="cat-description" className="block text-sm font-medium text-black mb-1">Description *</label>
+              <input
+                id="cat-description"
+                name="cat-description"
+                type="text"
+                value={newItem.description}
+                onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
+                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                placeholder="2x4 Lumber 8ft"
+              />
+            </div>
+            <div>
+              <label htmlFor="cat-unit" className="block text-sm font-medium text-black mb-1">Unit</label>
+              <select
+                id="cat-unit"
+                name="cat-unit"
+                value={newItem.unit}
+                onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
+                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+              >
+                <option value="each">each</option>
+                <option value="box">box</option>
+                <option value="ft">ft</option>
+                <option value="yd">yd</option>
+                <option value="lb">lb</option>
+                <option value="gallon">gallon</option>
+                <option value="pack">pack</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="cat-price" className="block text-sm font-medium text-black mb-1">Price *</label>
+              <input
+                id="cat-price"
+                name="cat-price"
+                type="number"
+                step="0.01"
+                value={newItem.price}
+                onChange={(e) => setNewItem({ ...newItem, price: parseFloat(e.target.value) || 0 })}
+                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                placeholder="0.00"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-3">
+            <button
+              onClick={() => {
+                setShowAddForm(false);
+                setNewItem({ sku: '', description: '', unit: 'each', price: 0 });
+              }}
+              className="px-3 py-1 border border-gray-300 rounded text-black bg-white hover:bg-gray-100 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAddItem}
+              className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm font-medium"
+            >
+              Add to Catalog
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Search */}
+      {catalogItems.length > 0 && (
+        <div className="mb-4">
+          <input
+            type="text"
+            placeholder="Search catalog by SKU or description..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+          />
+        </div>
+      )}
+
+      {/* Catalog Items Table */}
+      {catalogItems.length === 0 ? (
+        <div className="bg-gray-50 border border-gray-300 rounded-lg p-8 text-center">
+          <p className="text-gray-600 font-medium mb-2">No catalog items yet</p>
+          <p className="text-sm text-gray-600">
+            Add items manually or import from a CSV file to get started.
+          </p>
+        </div>
+      ) : (
+        <div className="bg-white border border-gray-300 rounded-lg overflow-hidden">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50">
+                <th className="text-left p-3 text-black font-semibold text-sm">SKU</th>
+                <th className="text-left p-3 text-black font-semibold text-sm">Description</th>
+                <th className="text-left p-3 text-black font-semibold text-sm">Unit</th>
+                <th className="text-left p-3 text-black font-semibold text-sm">Price</th>
+                <th className="text-left p-3 text-black font-semibold text-sm">Last Updated</th>
+                <th className="text-left p-3 text-black font-semibold text-sm">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredCatalog.map((item, idx) => (
+                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="p-3 text-gray-600 text-sm">{item.sku || '-'}</td>
+                  <td className="p-3 text-black">{item.description}</td>
+                  <td className="p-3 text-gray-600 text-sm">{item.unit}</td>
+                  <td className="p-3 text-black font-semibold">${item.price?.toFixed(2)}</td>
+                  <td className="p-3 text-gray-600 text-xs">
+                    {item.lastUpdated ? format(new Date(item.lastUpdated), 'MMM d, yyyy') : '-'}
+                  </td>
+                  <td className="p-3">
+                    <button
+                      onClick={() => handleDeleteItem(item)}
+                      className="text-red-600 hover:text-red-800 text-sm"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          
+          {filteredCatalog.length === 0 && searchTerm && (
+            <div className="p-4 text-center text-gray-600">
+              No items match "{searchTerm}"
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quick Stats */}
+      {catalogItems.length > 0 && (
+        <div className="mt-4 grid grid-cols-3 gap-4">
+          <div className="bg-gray-50 border border-gray-300 rounded p-3">
+            <p className="text-sm text-gray-600">Total Items</p>
+            <p className="text-2xl font-bold text-black">{catalogItems.length}</p>
+          </div>
+          <div className="bg-gray-50 border border-gray-300 rounded p-3">
+            <p className="text-sm text-gray-600">Avg Price</p>
+            <p className="text-2xl font-bold text-black">
+              ${catalogItems.length > 0 
+                ? (catalogItems.reduce((sum, i) => sum + (i.price || 0), 0) / catalogItems.length).toFixed(2)
+                : '0.00'
+              }
+            </p>
+          </div>
+          <div className="bg-gray-50 border border-gray-300 rounded p-3">
+            <p className="text-sm text-gray-600">Last Updated</p>
+            <p className="text-sm font-medium text-black">
+              {catalogItems.length > 0 && catalogItems[0].lastUpdated
+                ? format(new Date(catalogItems[0].lastUpdated), 'MMM d, yyyy')
+                : 'N/A'
+              }
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
