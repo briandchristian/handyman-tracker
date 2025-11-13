@@ -60,7 +60,10 @@ export default function Dashboard() {
     <div className="p-6 text-black">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-black">Handyman Tracker Dashboard</h1>
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
+          <Link to="/purchase-orders" className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">
+            📋 Orders
+          </Link>
           <Link to="/suppliers" className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
             🏪 Suppliers
           </Link>
