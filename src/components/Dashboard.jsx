@@ -61,11 +61,14 @@ export default function Dashboard() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-black">Handyman Tracker Dashboard</h1>
         <div className="flex gap-3">
+          <Link to="/suppliers" className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+            🏪 Suppliers
+          </Link>
           <Link to="/admin/users" className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600">
-            👥 Manage Users
+            👥 Users
           </Link>
           <Link to="/customers" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-            Manage Customers
+            Customers
           </Link>
         </div>
       </div>
