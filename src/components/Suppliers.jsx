@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
+import QuickReorder from './QuickReorder';
 
 export default function Suppliers() {
   const [suppliers, setSuppliers] = useState([]);
@@ -13,6 +14,8 @@ export default function Suppliers() {
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [showModal, setShowModal] = useState(false);
+  const [showPOModal, setShowPOModal] = useState(false);
+  const [poData, setPOData] = useState(null);
 
   const categories = ['Electrical', 'Plumbing', 'Lumber', 'Hardware', 'HVAC', 'Roofing', 'Flooring', 'Paint'];
 
@@ -79,6 +82,11 @@ export default function Suppliers() {
     }
   };
 
+  const handleCreatePO = (itemsBySupplier) => {
+    setPOData(itemsBySupplier);
+    setShowPOModal(true);
+  };
+
   if (loading) {
     return (
       <div className="p-8 text-black">
@@ -89,13 +97,18 @@ export default function Suppliers() {
   }
 
   return (
-    <div className="p-6 text-black">
+    <div className="p-6 text-black pr-[400px]">
       {/* Header */}
       <div className="mb-6">
         <div className="flex justify-between items-center mb-4">
-          <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-            Dashboard
-          </Link>
+          <div className="flex gap-3">
+            <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+              Dashboard
+            </Link>
+            <Link to="/purchase-orders" className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">
+              📋 View POs ({stats.openPOs || 0})
+            </Link>
+          </div>
           <button
             onClick={() => {
               setSelectedSupplier({ name: '', contactName: '', phone: '', email: '', categories: [], isNew: true });
@@ -287,6 +300,26 @@ export default function Suppliers() {
           }}
         />
       )}
+
+      {/* PO Creation Modal */}
+      {showPOModal && poData && (
+        <POCreationModal
+          poData={poData}
+          suppliers={suppliers}
+          onClose={() => {
+            setShowPOModal(false);
+            setPOData(null);
+          }}
+          onSuccess={() => {
+            setShowPOModal(false);
+            setPOData(null);
+            fetchSuppliers(); // Refresh to update stats
+          }}
+        />
+      )}
+
+      {/* Quick Reorder Panel */}
+      <QuickReorder onCreatePO={handleCreatePO} />
     </div>
   );
 }
@@ -522,6 +555,255 @@ function SupplierModal({ supplier, onClose }) {
             className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 font-medium"
           >
             {supplier.isNew ? 'Create Supplier' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// PO Creation Modal Component
+function POCreationModal({ poData, suppliers, onClose, onSuccess }) {
+  const [selectedSupplier, setSelectedSupplier] = useState('');
+  const [items, setItems] = useState([]);
+  const [notes, setNotes] = useState('');
+  const [expectedDelivery, setExpectedDelivery] = useState('');
+
+  useEffect(() => {
+    // If only one supplier, auto-select it
+    const supplierIds = Object.keys(poData);
+    if (supplierIds.length === 1 && supplierIds[0] !== 'no-supplier') {
+      setSelectedSupplier(supplierIds[0]);
+      setItems(poData[supplierIds[0]].items.map(item => ({
+        ...item,
+        unitPrice: 0
+      })));
+    }
+  }, [poData]);
+
+  const handleSupplierChange = (supplierId) => {
+    setSelectedSupplier(supplierId);
+    if (poData[supplierId]) {
+      setItems(poData[supplierId].items.map(item => ({
+        ...item,
+        unitPrice: 0
+      })));
+    }
+  };
+
+  const updateItemPrice = (itemId, price) => {
+    setItems(items.map(i => 
+      i._id === itemId ? { ...i, unitPrice: parseFloat(price) || 0 } : i
+    ));
+  };
+
+  const calculateSubtotal = () => {
+    return items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+  };
+
+  const createPO = async () => {
+    if (!selectedSupplier) {
+      alert('Please select a supplier');
+      return;
+    }
+
+    if (items.some(item => item.unitPrice === 0)) {
+      if (!confirm('Some items have no price set. Continue anyway?')) {
+        return;
+      }
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const subtotal = calculateSubtotal();
+      const tax = subtotal * 0.08; // 8% tax, make configurable later
+      const shipping = 0; // Add shipping logic later
+      const total = subtotal + tax + shipping;
+
+      const poPayload = {
+        supplier: selectedSupplier,
+        items: items.map(item => ({
+          sku: item.sku || '',
+          description: item.name,
+          quantity: item.quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+          total: item.quantity * item.unitPrice
+        })),
+        subtotal,
+        tax,
+        shipping,
+        total,
+        notes,
+        expectedDelivery: expectedDelivery || null,
+        status: 'Draft'
+      };
+
+      await axios.post(`${API_BASE_URL}/api/purchase-orders`, poPayload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      alert('✅ Purchase Order created successfully!');
+      onSuccess();
+    } catch (err) {
+      console.error('Error creating PO:', err);
+      alert('❌ Failed to create purchase order: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const supplierList = Object.entries(poData).filter(([id]) => id !== 'no-supplier');
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        {/* Modal Header */}
+        <div className="sticky top-0 bg-white border-b border-gray-300 p-6 flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-black">Create Purchase Order</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-600 hover:text-gray-900 text-2xl font-bold"
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Modal Content */}
+        <div className="p-6 space-y-4">
+          {/* Supplier Selection */}
+          <div>
+            <label className="block text-sm font-medium text-black mb-1">Select Supplier *</label>
+            <select
+              value={selectedSupplier}
+              onChange={(e) => handleSupplierChange(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+            >
+              <option value="">-- Select Supplier --</option>
+              {supplierList.map(([id, data]) => (
+                <option key={id} value={id}>{data.supplier?.name || 'Unknown Supplier'}</option>
+              ))}
+            </select>
+            {supplierList.length === 0 && (
+              <p className="text-sm text-red-600 mt-1">⚠️ No suppliers assigned to items. Please assign suppliers in inventory.</p>
+            )}
+          </div>
+
+          {/* Items List */}
+          {items.length > 0 && (
+            <div>
+              <h3 className="font-bold text-black mb-2">Items</h3>
+              <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-300">
+                      <th className="text-left p-2 text-black text-sm">Item</th>
+                      <th className="text-left p-2 text-black text-sm">Qty</th>
+                      <th className="text-left p-2 text-black text-sm">Unit</th>
+                      <th className="text-left p-2 text-black text-sm">Unit Price</th>
+                      <th className="text-left p-2 text-black text-sm">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map(item => (
+                      <tr key={item._id} className="border-b border-gray-200">
+                        <td className="p-2 text-black">{item.name}</td>
+                        <td className="p-2 text-black">{item.quantity}</td>
+                        <td className="p-2 text-black">{item.unit}</td>
+                        <td className="p-2">
+                          <input
+                            type="number"
+                            value={item.unitPrice}
+                            onChange={(e) => updateItemPrice(item._id, e.target.value)}
+                            className="w-24 p-1 border border-gray-300 rounded text-black bg-white"
+                            placeholder="0.00"
+                            step="0.01"
+                          />
+                        </td>
+                        <td className="p-2 text-black font-medium">
+                          ${(item.quantity * item.unitPrice).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-300 font-bold">
+                      <td colSpan="4" className="p-2 text-right text-black">Subtotal:</td>
+                      <td className="p-2 text-black">${calculateSubtotal().toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                      <td colSpan="4" className="p-2 text-right text-gray-600 text-sm">Tax (8%):</td>
+                      <td className="p-2 text-gray-600 text-sm">${(calculateSubtotal() * 0.08).toFixed(2)}</td>
+                    </tr>
+                    <tr className="font-bold text-lg">
+                      <td colSpan="4" className="p-2 text-right text-black">Total:</td>
+                      <td className="p-2 text-black">${(calculateSubtotal() * 1.08).toFixed(2)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Additional Details */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="po-expected-delivery" className="block text-sm font-medium text-black mb-1">
+                Expected Delivery Date (Optional)
+              </label>
+              <div className="relative">
+                <div className="absolute left-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-blue-600 text-lg">
+                  📅
+                </div>
+                <input
+                  id="po-expected-delivery"
+                  name="po-expected-delivery"
+                  type="date"
+                  value={expectedDelivery}
+                  onChange={(e) => setExpectedDelivery(e.target.value)}
+                  className="w-full p-2 pl-10 pr-3 border-2 border-blue-400 rounded text-black bg-white hover:border-blue-500 focus:border-blue-600 focus:ring-2 focus:ring-blue-200 cursor-pointer text-base"
+                  style={{ colorScheme: 'light' }}
+                />
+              </div>
+              <p className="text-xs text-gray-600 mt-1">👆 Click field to open calendar picker</p>
+            </div>
+            <div>
+              <label htmlFor="po-status" className="block text-sm font-medium text-black mb-1">Status</label>
+              <select 
+                id="po-status"
+                name="po-status"
+                className="w-full p-2 border border-gray-300 rounded text-black bg-gray-100" 
+                disabled
+              >
+                <option>Draft</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="po-notes" className="block text-sm font-medium text-black mb-1">Notes</label>
+            <textarea
+              id="po-notes"
+              name="po-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded text-black bg-white h-24 resize-none"
+              placeholder="Add any notes for this purchase order..."
+            />
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-300 p-6 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded text-black bg-white hover:bg-gray-100 font-medium"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={createPO}
+            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 font-medium"
+          >
+            Create Purchase Order
           </button>
         </div>
       </div>
