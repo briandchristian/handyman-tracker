@@ -746,25 +746,43 @@ function POCreationModal({ poData, suppliers, onClose, onSuccess }) {
           {/* Additional Details */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-black mb-1">Expected Delivery Date</label>
-              <input
-                type="date"
-                value={expectedDelivery}
-                onChange={(e) => setExpectedDelivery(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
-              />
+              <label htmlFor="po-expected-delivery" className="block text-sm font-medium text-black mb-1">
+                Expected Delivery Date (Optional)
+              </label>
+              <div className="relative">
+                <div className="absolute left-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-blue-600 text-lg">
+                  📅
+                </div>
+                <input
+                  id="po-expected-delivery"
+                  name="po-expected-delivery"
+                  type="date"
+                  value={expectedDelivery}
+                  onChange={(e) => setExpectedDelivery(e.target.value)}
+                  className="w-full p-2 pl-10 pr-3 border-2 border-blue-400 rounded text-black bg-white hover:border-blue-500 focus:border-blue-600 focus:ring-2 focus:ring-blue-200 cursor-pointer text-base"
+                  style={{ colorScheme: 'light' }}
+                />
+              </div>
+              <p className="text-xs text-gray-600 mt-1">👆 Click field to open calendar picker</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-black mb-1">Status</label>
-              <select className="w-full p-2 border border-gray-300 rounded text-black bg-white" disabled>
+              <label htmlFor="po-status" className="block text-sm font-medium text-black mb-1">Status</label>
+              <select 
+                id="po-status"
+                name="po-status"
+                className="w-full p-2 border border-gray-300 rounded text-black bg-gray-100" 
+                disabled
+              >
                 <option>Draft</option>
               </select>
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-black mb-1">Notes</label>
+            <label htmlFor="po-notes" className="block text-sm font-medium text-black mb-1">Notes</label>
             <textarea
+              id="po-notes"
+              name="po-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full p-2 border border-gray-300 rounded text-black bg-white h-24 resize-none"

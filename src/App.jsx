@@ -7,6 +7,7 @@ import ProjectDetails from './components/ProjectDetails';
 import UserManagement from './components/UserManagement';
 import Suppliers from './components/Suppliers';
 import PurchaseOrders from './components/PurchaseOrders';
+import Inventory from './components/Inventory';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -21,6 +22,7 @@ function App() {
         <Route path="/admin/users" element={token ? <UserManagement /> : <Navigate to="/login" />} />
         <Route path="/suppliers" element={token ? <Suppliers /> : <Navigate to="/login" />} />
         <Route path="/purchase-orders" element={token ? <PurchaseOrders /> : <Navigate to="/login" />} />
+        <Route path="/inventory" element={token ? <Inventory /> : <Navigate to="/login" />} />
       </Routes>
     </div>
   );
