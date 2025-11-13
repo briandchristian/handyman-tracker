@@ -186,6 +186,102 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
+// Supplier Schema
+const supplierSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  logo: String,
+  contactName: String,
+  phone: String,
+  email: String,
+  address: {
+    street: String,
+    city: String,
+    state: String,
+    zip: String,
+    country: String
+  },
+  categories: [String], // ['Electrical', 'Plumbing', 'Lumber', etc.]
+  leadTimeDays: { type: Number, default: 0 }, // Average lead time
+  minimumOrder: { type: Number, default: 0 },
+  paymentTerms: String, // 'Net 30', 'COD', etc.
+  taxRate: Number,
+  shippingMethod: String,
+  website: String,
+  notes: String,
+  isFavorite: { type: Boolean, default: false },
+  isActive: { type: Boolean, default: true },
+  catalog: [{
+    sku: String,
+    description: String,
+    unit: String, // 'each', 'box', 'ft', etc.
+    price: Number,
+    lastUpdated: { type: Date, default: Date.now }
+  }],
+  attachments: [{
+    name: String,
+    url: String,
+    type: String, // 'price-list', 'catalog', 'contract', etc.
+    uploadedAt: { type: Date, default: Date.now }
+  }],
+  createdAt: { type: Date, default: Date.now },
+  lastOrderDate: Date,
+  totalSpent: { type: Number, default: 0 }
+});
+const Supplier = mongoose.model('Supplier', supplierSchema);
+
+// Purchase Order Schema
+const purchaseOrderSchema = new mongoose.Schema({
+  poNumber: { type: String, unique: true, required: true },
+  supplier: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', required: true },
+  status: { 
+    type: String, 
+    enum: ['Draft', 'Sent', 'Confirmed', 'Received', 'Paid', 'Cancelled'], 
+    default: 'Draft' 
+  },
+  items: [{
+    sku: String,
+    description: String,
+    quantity: Number,
+    unit: String,
+    unitPrice: Number,
+    total: Number
+  }],
+  subtotal: Number,
+  tax: Number,
+  shipping: Number,
+  total: Number,
+  notes: String,
+  attachments: [{
+    name: String,
+    url: String,
+    type: String, // 'quote', 'invoice', 'delivery-photo', etc.
+    uploadedAt: { type: Date, default: Date.now }
+  }],
+  orderDate: { type: Date, default: Date.now },
+  expectedDelivery: Date,
+  receivedDate: Date,
+  paidDate: Date,
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdAt: { type: Date, default: Date.now }
+});
+const PurchaseOrder = mongoose.model('PurchaseOrder', purchaseOrderSchema);
+
+// Inventory Item Schema (for par levels and auto-reorder)
+const inventoryItemSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  sku: String,
+  description: String,
+  category: String,
+  currentStock: { type: Number, default: 0 },
+  unit: String,
+  parLevel: { type: Number, default: 0 }, // Minimum stock level
+  autoReorder: { type: Boolean, default: false },
+  preferredSupplier: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier' },
+  lastRestocked: Date,
+  createdAt: { type: Date, default: Date.now }
+});
+const InventoryItem = mongoose.model('InventoryItem', inventoryItemSchema);
+
 // Middleware for auth
 const authMiddleware = async (req, res, next) => {
   const token = req.header('Authorization')?.replace('Bearer ', '');
@@ -914,6 +1010,277 @@ app.delete('/api/customers/:customerId/projects/:projectId/materials/:materialId
     res.json({ msg: 'Material deleted', materials: project.materials });
   } catch (err) {
     console.error('Error deleting material:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// ===== SUPPLIER ROUTES =====
+
+// Get all suppliers with stats
+app.get('/api/suppliers', authMiddleware, async (req, res) => {
+  try {
+    const { category, favorites, search } = req.query;
+    
+    let query = { isActive: true };
+    if (category) query.categories = category;
+    if (favorites === 'true') query.isFavorite = true;
+    if (search) query.name = { $regex: search, $options: 'i' };
+    
+    const suppliers = await Supplier.find(query).sort({ name: 1 });
+    
+    // Calculate stats
+    const totalSuppliers = suppliers.length;
+    const openPOs = await PurchaseOrder.countDocuments({ 
+      status: { $in: ['Draft', 'Sent', 'Confirmed'] } 
+    });
+    
+    const thisMonth = new Date();
+    thisMonth.setDate(1);
+    thisMonth.setHours(0, 0, 0, 0);
+    
+    const monthlySpend = await PurchaseOrder.aggregate([
+      { $match: { orderDate: { $gte: thisMonth }, status: { $ne: 'Cancelled' } } },
+      { $group: { _id: null, total: { $sum: '$total' } } }
+    ]);
+    
+    const lowStockItems = await InventoryItem.countDocuments({
+      $expr: { $lt: ['$currentStock', '$parLevel'] },
+      parLevel: { $gt: 0 }
+    });
+    
+    res.json({
+      suppliers,
+      stats: {
+        totalSuppliers,
+        openPOs,
+        monthlySpend: monthlySpend[0]?.total || 0,
+        lowStockItems
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching suppliers:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Get single supplier with details
+app.get('/api/suppliers/:id', authMiddleware, async (req, res) => {
+  try {
+    const supplier = await Supplier.findById(req.params.id);
+    if (!supplier) {
+      return res.status(404).json({ msg: 'Supplier not found' });
+    }
+    
+    // Get order history
+    const orders = await PurchaseOrder.find({ supplier: req.params.id })
+      .sort({ orderDate: -1 })
+      .limit(20);
+    
+    res.json({ supplier, orders });
+  } catch (err) {
+    console.error('Error fetching supplier:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Create supplier
+app.post('/api/suppliers', authMiddleware, async (req, res) => {
+  try {
+    const supplier = new Supplier(req.body);
+    await supplier.save();
+    res.status(201).json(supplier);
+  } catch (err) {
+    console.error('Error creating supplier:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Update supplier
+app.put('/api/suppliers/:id', authMiddleware, async (req, res) => {
+  try {
+    const supplier = await Supplier.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+    if (!supplier) {
+      return res.status(404).json({ msg: 'Supplier not found' });
+    }
+    res.json(supplier);
+  } catch (err) {
+    console.error('Error updating supplier:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Delete supplier
+app.delete('/api/suppliers/:id', authMiddleware, async (req, res) => {
+  try {
+    const supplier = await Supplier.findByIdAndUpdate(
+      req.params.id,
+      { isActive: false },
+      { new: true }
+    );
+    if (!supplier) {
+      return res.status(404).json({ msg: 'Supplier not found' });
+    }
+    res.json({ msg: 'Supplier archived' });
+  } catch (err) {
+    console.error('Error deleting supplier:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Toggle favorite
+app.put('/api/suppliers/:id/favorite', authMiddleware, async (req, res) => {
+  try {
+    const supplier = await Supplier.findById(req.params.id);
+    if (!supplier) {
+      return res.status(404).json({ msg: 'Supplier not found' });
+    }
+    supplier.isFavorite = !supplier.isFavorite;
+    await supplier.save();
+    res.json(supplier);
+  } catch (err) {
+    console.error('Error toggling favorite:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// ===== PURCHASE ORDER ROUTES =====
+
+// Get all purchase orders
+app.get('/api/purchase-orders', authMiddleware, async (req, res) => {
+  try {
+    const { status, supplierId } = req.query;
+    let query = {};
+    if (status) query.status = status;
+    if (supplierId) query.supplier = supplierId;
+    
+    const pos = await PurchaseOrder.find(query)
+      .populate('supplier', 'name')
+      .populate('createdBy', 'username')
+      .sort({ orderDate: -1 });
+    res.json(pos);
+  } catch (err) {
+    console.error('Error fetching purchase orders:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Generate next PO number
+async function generatePONumber() {
+  const year = new Date().getFullYear();
+  const lastPO = await PurchaseOrder.findOne({
+    poNumber: new RegExp(`^PO-${year}`)
+  }).sort({ createdAt: -1 });
+  
+  if (!lastPO) {
+    return `PO-${year}-0001`;
+  }
+  
+  const lastNum = parseInt(lastPO.poNumber.split('-')[2]);
+  const nextNum = (lastNum + 1).toString().padStart(4, '0');
+  return `PO-${year}-${nextNum}`;
+}
+
+// Create purchase order
+app.post('/api/purchase-orders', authMiddleware, async (req, res) => {
+  try {
+    const poNumber = await generatePONumber();
+    const po = new PurchaseOrder({
+      ...req.body,
+      poNumber,
+      createdBy: req.user.id
+    });
+    await po.save();
+    
+    // Update supplier's last order date and total spent
+    await Supplier.findByIdAndUpdate(po.supplier, {
+      lastOrderDate: po.orderDate,
+      $inc: { totalSpent: po.total }
+    });
+    
+    res.status(201).json(po);
+  } catch (err) {
+    console.error('Error creating purchase order:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Update purchase order
+app.put('/api/purchase-orders/:id', authMiddleware, async (req, res) => {
+  try {
+    const po = await PurchaseOrder.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    ).populate('supplier', 'name');
+    
+    if (!po) {
+      return res.status(404).json({ msg: 'Purchase order not found' });
+    }
+    res.json(po);
+  } catch (err) {
+    console.error('Error updating purchase order:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// ===== INVENTORY ROUTES =====
+
+// Get inventory items (with low stock alert)
+app.get('/api/inventory', authMiddleware, async (req, res) => {
+  try {
+    const { lowStock } = req.query;
+    let query = {};
+    
+    if (lowStock === 'true') {
+      // Find items where currentStock < parLevel
+      const items = await InventoryItem.find({
+        parLevel: { $gt: 0 }
+      }).populate('preferredSupplier', 'name');
+      
+      const lowStockItems = items.filter(item => item.currentStock < item.parLevel);
+      return res.json(lowStockItems);
+    }
+    
+    const items = await InventoryItem.find(query)
+      .populate('preferredSupplier', 'name')
+      .sort({ name: 1 });
+    res.json(items);
+  } catch (err) {
+    console.error('Error fetching inventory:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Create/Update inventory item
+app.post('/api/inventory', authMiddleware, async (req, res) => {
+  try {
+    const item = new InventoryItem(req.body);
+    await item.save();
+    res.status(201).json(item);
+  } catch (err) {
+    console.error('Error creating inventory item:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.put('/api/inventory/:id', authMiddleware, async (req, res) => {
+  try {
+    const item = await InventoryItem.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    ).populate('preferredSupplier', 'name');
+    
+    if (!item) {
+      return res.status(404).json({ msg: 'Inventory item not found' });
+    }
+    res.json(item);
+  } catch (err) {
+    console.error('Error updating inventory item:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });

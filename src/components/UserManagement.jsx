@@ -171,11 +171,11 @@ export default function UserManagement() {
   if (error) {
     return (
       <div className="p-8 text-black">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
           {error}
         </div>
-        <Link to="/" className="text-blue-600 hover:underline mt-4 inline-block">
-          ← Back to Dashboard
+        <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 inline-block">
+          Dashboard
         </Link>
       </div>
     );
@@ -184,7 +184,9 @@ export default function UserManagement() {
   return (
     <div className="p-8 text-black">
       <div className="mb-6">
-        <Link to="/" className="text-blue-600 hover:underline">← Back to Dashboard</Link>
+        <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 inline-block mb-4">
+          Dashboard
+        </Link>
         <h1 className="text-3xl font-bold text-black mt-4">User Management</h1>
         <p className="text-gray-600 mt-2">Manage admin users and approve pending requests</p>
       </div>

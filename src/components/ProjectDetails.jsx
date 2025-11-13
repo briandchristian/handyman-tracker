@@ -204,7 +204,7 @@ export default function ProjectDetails() {
   if (loading) {
     return (
       <div className="p-6 text-black">
-        <Link to="/customers" className="text-blue-500 mb-4 inline-block">← Back to Customers</Link>
+        <Link to="/customers" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 inline-block mb-4">Back to Customers</Link>
         <div className="text-xl">Loading project details...</div>
       </div>
     );
@@ -213,7 +213,7 @@ export default function ProjectDetails() {
   if (error) {
     return (
       <div className="p-6 text-black">
-        <Link to="/customers" className="text-blue-500 mb-4 inline-block">← Back to Customers</Link>
+        <Link to="/customers" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 inline-block mb-4">Back to Customers</Link>
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
           <h2 className="text-xl font-bold mb-2">Error Loading Project</h2>
           <p>{error}</p>
@@ -231,7 +231,7 @@ export default function ProjectDetails() {
   if (!project) {
     return (
       <div className="p-6 text-black">
-        <Link to="/customers" className="text-blue-500 mb-4 inline-block">← Back to Customers</Link>
+        <Link to="/customers" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 inline-block mb-4">Back to Customers</Link>
         <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
           <h2 className="text-xl font-bold mb-2">Project Not Found</h2>
           <p>Unable to find the requested project.</p>
@@ -249,7 +249,7 @@ export default function ProjectDetails() {
   return (
     <div className="p-6 text-black">
       <div className="flex justify-between items-center mb-4">
-        <Link to="/customers" className="text-blue-500 hover:text-blue-700">← Back to Customers</Link>
+        <Link to="/customers" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Back to Customers</Link>
         <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
           Dashboard
         </Link>
