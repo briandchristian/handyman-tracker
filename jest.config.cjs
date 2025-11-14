@@ -1,6 +1,7 @@
 module.exports = {
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+  maxWorkers: 2, // Limit parallel test execution to prevent resource exhaustion
   moduleNameMapper: {
     '\\.(css|less|scss|sass)$': '<rootDir>/__mocks__/styleMock.js',
     '^@/config/api$': '<rootDir>/src/config/__mocks__/api.js',

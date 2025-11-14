@@ -57,8 +57,9 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-6 text-black">
-      <div className="flex justify-between items-center mb-6">
+    <div className="p-4 md:p-6 text-black">
+      {/* Desktop buttons - hidden on mobile (mobile nav handles this) */}
+      <div className="hidden lg:flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-black">Dashboard</h1>
         <div className="flex gap-3 flex-wrap">
           <Link to="/inventory" className="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600">
@@ -77,6 +78,11 @@ export default function Dashboard() {
             Customers
           </Link>
         </div>
+      </div>
+      
+      {/* Mobile heading only */}
+      <div className="lg:hidden mb-6">
+        <h1 className="text-2xl font-bold text-black">Dashboard</h1>
       </div>
 
       {/* Project Statistics */}

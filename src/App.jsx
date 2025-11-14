@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -8,12 +8,16 @@ import UserManagement from './components/UserManagement';
 import Suppliers from './components/Suppliers';
 import PurchaseOrders from './components/PurchaseOrders';
 import Inventory from './components/Inventory';
+import MobileNav from './components/MobileNav';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
+  const location = useLocation();
+  const showMobileNav = token && location.pathname !== '/login';
 
   return (
     <div className="min-h-screen bg-gray-100">
+      {showMobileNav && <MobileNav />}
       <Routes>
         <Route path="/login" element={<Login setToken={setToken} />} />
         <Route path="/" element={token ? <Dashboard /> : <Navigate to="/login" />} />

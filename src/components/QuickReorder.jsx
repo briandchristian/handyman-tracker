@@ -95,13 +95,23 @@ export default function QuickReorder({ onCreatePO }) {
   const totalItems = reorderCart.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <div className={`fixed right-0 top-0 h-full bg-white border-l-2 border-gray-300 shadow-xl transition-all duration-300 z-40 ${isExpanded ? 'w-96' : 'w-12'}`}>
+    <div className={`fixed right-0 top-0 h-full bg-white border-l-2 border-gray-300 shadow-xl transition-all duration-300 z-40 
+      ${isExpanded ? 'w-96 max-w-full' : 'w-12'} 
+      lg:block ${!isExpanded && 'hidden lg:block'}`}>
       {/* Toggle Button */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="absolute -left-10 top-4 bg-blue-500 text-white px-3 py-2 rounded-l hover:bg-blue-600 font-bold"
+        className="absolute -left-10 top-4 bg-blue-500 text-white px-3 py-2 rounded-l hover:bg-blue-600 font-bold lg:flex hidden"
       >
         {isExpanded ? '→' : '🛒'}
+      </button>
+      
+      {/* Mobile Toggle (Bottom FAB) */}
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="lg:hidden fixed bottom-4 right-4 bg-blue-500 text-white w-14 h-14 rounded-full shadow-lg hover:bg-blue-600 flex items-center justify-center text-2xl z-50"
+      >
+        🛒
       </button>
 
       {isExpanded && (

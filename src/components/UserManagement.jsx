@@ -182,13 +182,13 @@ export default function UserManagement() {
   }
 
   return (
-    <div className="p-8 text-black">
+    <div className="p-4 md:p-8 text-black">
       <div className="mb-6">
-        <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 inline-block mb-4">
+        <Link to="/" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 inline-block mb-4 text-sm md:text-base">
           Dashboard
         </Link>
-        <h1 className="text-3xl font-bold text-black mt-4">User Management</h1>
-        <p className="text-gray-600 mt-2">Manage admin users and approve pending requests</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-black mt-4">User Management</h1>
+        <p className="text-gray-600 mt-2 text-sm md:text-base">Manage admin users and approve pending requests</p>
       </div>
 
       {/* Tabs */}
@@ -254,7 +254,8 @@ export default function UserManagement() {
         <div>
           <h2 className="text-2xl font-bold text-black mb-4">All Users</h2>
           <div className="bg-white border border-gray-300 rounded-lg shadow-sm overflow-hidden">
-            <table className="w-full border-collapse">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse min-w-[700px]">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
                   <th className="text-left p-4 text-black font-semibold">Username</th>
@@ -309,6 +310,7 @@ export default function UserManagement() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}

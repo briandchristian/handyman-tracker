@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
+import CameraCapture from './CameraCapture';
 
 // Helper functions (outside component so modal can use them)
 const getStatusBadge = (status) => {
@@ -89,18 +90,18 @@ export default function PurchaseOrders() {
   }
 
   return (
-    <div className="p-6 text-black">
+    <div className="p-4 md:p-6 text-black">
       {/* Header */}
       <div className="mb-6">
-        <div className="flex justify-between items-center mb-4">
-          <Link to="/suppliers" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+          <Link to="/suppliers" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 text-sm md:text-base">
             Back to Suppliers
           </Link>
-          <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+          <Link to="/" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 text-sm md:text-base">
             Dashboard
           </Link>
         </div>
-        <h1 className="text-3xl font-bold text-black">Purchase Orders</h1>
+        <h1 className="text-2xl md:text-3xl font-bold text-black">Purchase Orders</h1>
         <p className="text-gray-600 mt-2">Manage and track all purchase orders</p>
       </div>
 
@@ -174,7 +175,8 @@ export default function PurchaseOrders() {
             </Link>
           </div>
         ) : (
-          <table className="w-full border-collapse">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse min-w-[800px]">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="text-left p-4 text-black font-semibold">PO Number</th>
@@ -224,6 +226,7 @@ export default function PurchaseOrders() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -249,6 +252,9 @@ export default function PurchaseOrders() {
 // PO Detail Modal Component
 function PODetailModal({ po, onClose, onUpdate }) {
   console.log('PODetailModal rendering with:', po);
+  
+  const [showCamera, setShowCamera] = useState(false);
+  const [attachedPhotos, setAttachedPhotos] = useState([]);
   
   // Safety check first
   if (!po || !po.items || !Array.isArray(po.items)) {
@@ -636,7 +642,56 @@ function PODetailModal({ po, onClose, onUpdate }) {
               placeholder="Add notes about this order..."
             />
           </div>
+
+          {/* Photo Attachments */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <h4 className="font-bold text-black">📸 Photos</h4>
+              <button
+                onClick={() => setShowCamera(true)}
+                className="bg-purple-500 text-white px-3 py-1 rounded hover:bg-purple-600 text-sm font-medium"
+              >
+                📷 Take Photo
+              </button>
+            </div>
+            
+            {attachedPhotos.length > 0 ? (
+              <div className="grid grid-cols-3 gap-2">
+                {attachedPhotos.map((photo, idx) => (
+                  <div key={idx} className="relative group">
+                    <img
+                      src={photo}
+                      alt={`Attachment ${idx + 1}`}
+                      className="w-full h-24 object-cover rounded border border-gray-300"
+                    />
+                    <button
+                      onClick={() => setAttachedPhotos(attachedPhotos.filter((_, i) => i !== idx))}
+                      className="absolute top-1 right-1 bg-red-500 text-white w-6 h-6 rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-gray-50 border border-gray-300 rounded-lg p-4 text-center text-gray-600 text-sm">
+                No photos attached. Use camera to add photos (invoices, damage, delivery).
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Camera Modal */}
+        {showCamera && (
+          <CameraCapture
+            title="Attach Photo to PO"
+            onCapture={(imageData) => {
+              setAttachedPhotos([...attachedPhotos, imageData]);
+              setShowCamera(false);
+            }}
+            onClose={() => setShowCamera(false)}
+          />
+        )}
 
         {/* Modal Footer */}
         <div className="sticky bottom-0 bg-gray-50 border-t border-gray-300 p-6 flex justify-between items-center">

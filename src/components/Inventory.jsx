@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
+import BarcodeScanner from './BarcodeScanner';
 
 export default function Inventory() {
   const [items, setItems] = useState([]);
@@ -14,6 +15,7 @@ export default function Inventory() {
   const [selectedItem, setSelectedItem] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
 
   const categories = ['Electrical', 'Plumbing', 'Lumber', 'Hardware', 'HVAC', 'Roofing', 'Flooring', 'Paint'];
 
@@ -75,17 +77,26 @@ export default function Inventory() {
   };
 
   const filteredItems = items.filter(item => {
-    // Search filter
-    if (searchTerm && !item.name.toLowerCase().includes(searchTerm.toLowerCase())) {
-      return false;
+    // Search filter - search by name OR SKU
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      const matchesName = item.name.toLowerCase().includes(search);
+      const matchesSKU = item.sku && item.sku.toLowerCase().includes(search);
+      if (!matchesName && !matchesSKU) {
+        return false;
+      }
     }
     // Category filter
     if (categoryFilter && item.category !== categoryFilter) {
       return false;
     }
     // Stock filter
-    if (stockFilter === 'low' && getStockStatus(item) !== 'low') {
-      return false;
+    if (stockFilter === 'low') {
+      const status = getStockStatus(item);
+      // Show both low and out of stock when filtering by 'low'
+      if (status !== 'low' && status !== 'out') {
+        return false;
+      }
     }
     if (stockFilter === 'out' && getStockStatus(item) !== 'out') {
       return false;
@@ -113,6 +124,20 @@ export default function Inventory() {
     setShowAdjustModal(true);
   };
 
+  const handleBarcodeScan = (code) => {
+    console.log('Scanned code:', code);
+    // Search for item by SKU
+    const found = items.find(item => item.sku === code);
+    if (found) {
+      openStockAdjust(found);
+      alert(`✅ Found: ${found.name}`);
+    } else {
+      // Search in search box
+      setSearchTerm(code);
+      alert(`🔍 Searching for: ${code}`);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-8 text-black">
@@ -126,14 +151,20 @@ export default function Inventory() {
     <div className="p-6 text-black">
       {/* Header */}
       <div className="mb-6">
-        <div className="flex justify-between items-center mb-4">
-          <div className="flex gap-3">
-            <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+          <div className="flex gap-2 flex-wrap">
+            <Link to="/" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 text-sm md:text-base">
               Dashboard
             </Link>
-            <Link to="/suppliers" className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+            <Link to="/suppliers" className="bg-green-500 text-white px-3 py-2 rounded hover:bg-green-600 text-sm md:text-base">
               Suppliers
             </Link>
+            <button
+              onClick={() => setShowScanner(true)}
+              className="bg-purple-500 text-white px-3 py-2 rounded hover:bg-purple-600 text-sm md:text-base"
+            >
+              📱 Scan Barcode
+            </button>
           </div>
           <button
             onClick={() => {
@@ -149,12 +180,12 @@ export default function Inventory() {
               });
               setShowModal(true);
             }}
-            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 text-sm md:text-base w-full sm:w-auto"
           >
             + Add Item
           </button>
         </div>
-        <h1 className="text-3xl font-bold text-black">Inventory Management</h1>
+        <h1 className="text-2xl md:text-3xl font-bold text-black">Inventory Management</h1>
         <p className="text-gray-600 mt-2">Track stock levels and manage par levels</p>
       </div>
 
@@ -276,7 +307,8 @@ export default function Inventory() {
             )}
           </div>
         ) : (
-          <table className="w-full border-collapse">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse min-w-[900px]">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="text-left p-4 text-black font-semibold">Item Name</th>
@@ -355,6 +387,7 @@ export default function Inventory() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -388,6 +421,15 @@ export default function Inventory() {
             setSelectedItem(null);
             fetchInventory();
           }}
+        />
+      )}
+
+      {/* Barcode Scanner */}
+      {showScanner && (
+        <BarcodeScanner
+          title="Scan Item Barcode"
+          onScan={handleBarcodeScan}
+          onClose={() => setShowScanner(false)}
         />
       )}
     </div>

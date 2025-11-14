@@ -24,8 +24,13 @@ process.env.JWT_SECRET = 'test-secret-key';
 process.env.MONGO_URI = 'mongodb://test';
 process.env.VERCEL = '1'; // Prevent server from listening in tests
 
-// Import server after setting up mocks
-import app from '../server.js';
+let app;
+
+beforeAll(async () => {
+  // Import server after mocks are configured (dynamic import)
+  const appModule = await import('../server.js');
+  app = appModule.default;
+});
 
 describe('Backend Utility Functions', () => {
   describe('getClientIp() - IP Detection Logic', () => {
