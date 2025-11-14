@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+After any code change, always run the relevant tests using the terminal.
+If tests fail, fix them immediately—never leave broken tests.
