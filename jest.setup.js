@@ -27,6 +27,79 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
+// Mock navigator.mediaDevices (for BarcodeScanner/Camera components)
+const mockMediaStream = {
+  getTracks: jest.fn(() => [
+    {
+      stop: jest.fn(),
+      kind: 'video',
+      label: 'Mock Camera',
+    },
+  ]),
+  getVideoTracks: jest.fn(() => [
+    {
+      stop: jest.fn(),
+      kind: 'video',
+      label: 'Mock Camera',
+    },
+  ]),
+};
+
+Object.defineProperty(global.navigator, 'mediaDevices', {
+  writable: true,
+  value: {
+    getUserMedia: jest.fn().mockResolvedValue(mockMediaStream),
+    enumerateDevices: jest.fn().mockResolvedValue([]),
+  },
+});
+
+// Mock BarcodeDetector API (not widely supported, so mock it)
+global.window.BarcodeDetector = jest.fn().mockImplementation(() => ({
+  detect: jest.fn().mockResolvedValue([]),
+}));
+
+// Mock FileReader (used for CSV imports)
+global.FileReader = jest.fn().mockImplementation(() => ({
+  readAsText: jest.fn(),
+  readAsDataURL: jest.fn(),
+  onload: null,
+  onerror: null,
+  result: '',
+}));
+
+// Mock URL.createObjectURL and revokeObjectURL
+global.URL.createObjectURL = jest.fn(() => 'mock-object-url');
+global.URL.revokeObjectURL = jest.fn();
+
+// Mock window.print
+global.window.print = jest.fn();
+
+// Mock window.open for print dialogs
+global.window.open = jest.fn(() => ({
+  document: {
+    write: jest.fn(),
+    close: jest.fn(),
+  },
+  print: jest.fn(),
+  close: jest.fn(),
+}));
+
+// Mock document.createElement for file downloads/uploads
+const originalCreateElement = document.createElement.bind(document);
+document.createElement = jest.fn((tagName) => {
+  const element = originalCreateElement(tagName);
+  if (tagName === 'a') {
+    // Mock anchor element for downloads
+    element.click = jest.fn();
+    element.remove = jest.fn();
+  }
+  if (tagName === 'input') {
+    // Mock file input
+    element.click = jest.fn();
+  }
+  return element;
+});
+
 // Mock localStorage with actual storage
 const localStorageMock = (() => {
   let store = {};
