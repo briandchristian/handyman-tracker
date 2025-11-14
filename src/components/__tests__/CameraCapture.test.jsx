@@ -174,29 +174,35 @@ describe('CameraCapture Component - Phase 2E Mobile Features', () => {
     const startButton = screen.getByText(/📷 Start Camera/i);
     fireEvent.click(startButton);
     
-    await waitFor(() => {
-      const buttons = screen.getAllByRole('button');
-      const cameraButton = buttons.find(btn => 
-        btn.textContent === '📷' && 
-        btn.className.includes('rounded-full')
-      );
-      
-      if (cameraButton) {
-        fireEvent.click(cameraButton);
-      }
-    });
-    
-    // Wait for video
+    // Wait for video to be ready
     await waitFor(() => {
       const video = document.querySelector('video');
       expect(video).toBeInTheDocument();
     });
     
-    // Click retake
+    // Capture photo
     await waitFor(() => {
-      const retakeButton = screen.getByText(/Retake/i);
-      fireEvent.click(retakeButton);
+      const buttons = screen.getAllByRole('button');
+      const cameraButton = buttons.find(btn => 
+        btn.textContent.trim() === '📷' && 
+        btn.className.includes('rounded-full')
+      );
+      
+      if (cameraButton) {
+        fireEvent.click(cameraButton);
+      } else {
+        throw new Error('Camera button not found');
+      }
     });
+    
+    // Wait for captured image to be set and retake button to appear
+    await waitFor(() => {
+      const retakeButtons = screen.getAllByRole('button').filter(btn => 
+        btn.textContent.includes('Retake') || btn.textContent.includes('🔄')
+      );
+      expect(retakeButtons.length).toBeGreaterThan(0);
+      fireEvent.click(retakeButtons[0]);
+    }, { timeout: 2000 });
     
     // Should show start camera again
     await waitFor(() => {
@@ -271,6 +277,15 @@ describe('CameraCapture Component - Phase 2E Mobile Features', () => {
   });
 
   test('should cleanup on unmount', async () => {
+    // Create a fresh mock stream for this test
+    const testMockStop = jest.fn();
+    const testMockStream = {
+      getTracks: () => [{
+        stop: testMockStop
+      }]
+    };
+    mockGetUserMedia.mockResolvedValue(testMockStream);
+    
     const { unmount } = render(<CameraCapture onCapture={mockOnCapture} onClose={mockOnClose} />);
     
     const startButton = screen.getByText(/📷 Start Camera/i);
@@ -280,17 +295,24 @@ describe('CameraCapture Component - Phase 2E Mobile Features', () => {
       expect(mockGetUserMedia).toHaveBeenCalled();
     });
     
-    // Wait for video to be set up
+    // Wait for video to be set up and stream to be active
     await waitFor(() => {
       const video = document.querySelector('video');
       expect(video).toBeInTheDocument();
+      // Ensure stream is set
+      expect(video.srcObject).toBeTruthy();
     });
     
+    // Give React time to set up the stream in component state
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Unmount component - cleanup should run
     unmount();
     
+    // Cleanup should be synchronous, but wait a bit to ensure it completes
     await waitFor(() => {
-      expect(mockStop).toHaveBeenCalled();
-    });
+      expect(testMockStop).toHaveBeenCalled();
+    }, { timeout: 500 });
   });
 
   test('should show cancel button when no photo captured', () => {

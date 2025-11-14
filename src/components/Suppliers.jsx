@@ -161,8 +161,9 @@ export default function Suppliers() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-black mb-1">Category</label>
+            <label htmlFor="category-filter" className="block text-sm font-medium text-black mb-1">Category</label>
             <select
+              id="category-filter"
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
               className="w-full p-2 border border-gray-300 rounded text-black bg-white"
@@ -411,8 +412,9 @@ function SupplierModal({ supplier, onClose }) {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-black mb-1">Supplier Name *</label>
+                  <label htmlFor="supplier-name" className="block text-sm font-medium text-black mb-1">Supplier Name *</label>
                   <input
+                    id="supplier-name"
                     type="text"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -420,8 +422,9 @@ function SupplierModal({ supplier, onClose }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-black mb-1">Contact Name</label>
+                  <label htmlFor="contact-name" className="block text-sm font-medium text-black mb-1">Contact Name</label>
                   <input
+                    id="contact-name"
                     type="text"
                     value={formData.contactName}
                     onChange={(e) => setFormData({ ...formData, contactName: e.target.value })}
@@ -432,8 +435,9 @@ function SupplierModal({ supplier, onClose }) {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-black mb-1">Phone</label>
+                  <label htmlFor="supplier-phone" className="block text-sm font-medium text-black mb-1">Phone</label>
                   <input
+                    id="supplier-phone"
                     type="tel"
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
@@ -441,8 +445,9 @@ function SupplierModal({ supplier, onClose }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-black mb-1">Email</label>
+                  <label htmlFor="supplier-email" className="block text-sm font-medium text-black mb-1">Email</label>
                   <input
+                    id="supplier-email"
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -452,8 +457,9 @@ function SupplierModal({ supplier, onClose }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-black mb-1">Website</label>
+                <label htmlFor="supplier-website" className="block text-sm font-medium text-black mb-1">Website</label>
                 <input
+                  id="supplier-website"
                   type="url"
                   value={formData.website}
                   onChange={(e) => setFormData({ ...formData, website: e.target.value })}
@@ -464,8 +470,9 @@ function SupplierModal({ supplier, onClose }) {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-black mb-1">Lead Time (days)</label>
+                  <label htmlFor="lead-time-days" className="block text-sm font-medium text-black mb-1">Lead Time (days)</label>
                   <input
+                    id="lead-time-days"
                     type="number"
                     value={formData.leadTimeDays}
                     onChange={(e) => setFormData({ ...formData, leadTimeDays: parseInt(e.target.value) || 0 })}
@@ -473,8 +480,9 @@ function SupplierModal({ supplier, onClose }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-black mb-1">Minimum Order ($)</label>
+                  <label htmlFor="minimum-order" className="block text-sm font-medium text-black mb-1">Minimum Order ($)</label>
                   <input
+                    id="minimum-order"
                     type="number"
                     value={formData.minimumOrder}
                     onChange={(e) => setFormData({ ...formData, minimumOrder: parseFloat(e.target.value) || 0 })}
@@ -484,8 +492,9 @@ function SupplierModal({ supplier, onClose }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-black mb-1">Payment Terms</label>
+                <label htmlFor="payment-terms" className="block text-sm font-medium text-black mb-1">Payment Terms</label>
                 <input
+                  id="payment-terms"
                   type="text"
                   value={formData.paymentTerms}
                   onChange={(e) => setFormData({ ...formData, paymentTerms: e.target.value })}
@@ -495,8 +504,9 @@ function SupplierModal({ supplier, onClose }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-black mb-1">Notes</label>
+                <label htmlFor="supplier-notes" className="block text-sm font-medium text-black mb-1">Notes</label>
                 <textarea
+                  id="supplier-notes"
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   className="w-full p-2 border border-gray-300 rounded text-black bg-white h-24 resize-none"
