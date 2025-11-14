@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 export default function CameraCapture({ onCapture, onClose, title = "Take Photo" }) {
   const [stream, setStream] = useState(null);
@@ -13,14 +13,23 @@ export default function CameraCapture({ onCapture, onClose, title = "Take Photo"
       });
       
       setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
     } catch (err) {
       console.error('Error accessing camera:', err);
       alert('❌ Could not access camera. Please check permissions.');
     }
   };
+
+  // Effect to set video srcObject when stream is available
+  useEffect(() => {
+    if (stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+    return () => {
+      if (videoRef.current && videoRef.current.srcObject) {
+        videoRef.current.srcObject = null;
+      }
+    };
+  }, [stream]);
 
   const stopCamera = () => {
     if (stream) {
@@ -63,6 +72,15 @@ export default function CameraCapture({ onCapture, onClose, title = "Take Photo"
     stopCamera();
     onClose();
   };
+
+  // Cleanup effect to stop camera when component unmounts or stream changes
+  useEffect(() => {
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [stream]);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
