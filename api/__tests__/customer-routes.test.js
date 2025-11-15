@@ -22,16 +22,33 @@ beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
   const mongoUri = mongoServer.getUri();
   
+  // Set MONGO_URI before importing server so it uses our in-memory DB
+  process.env.MONGO_URI = mongoUri;
+  
   await mongoose.disconnect();
   await mongoose.connect(mongoUri);
   
-  // Import app
+  // Import app (this registers the models)
   const appModule = await import('../server.js');
   app = appModule.default;
   
-  // Create test user and get auth token
-  testUserId = new mongoose.Types.ObjectId().toString();
-  authToken = jwt.sign({ id: testUserId }, process.env.JWT_SECRET, { expiresIn: '1h' });
+  // Wait a bit for models to be registered and server to connect
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  // Create test user in database and get auth token
+  const User = mongoose.model('User');
+  testUserId = new mongoose.Types.ObjectId();
+  const testUser = new User({
+    _id: testUserId,
+    username: 'testuser',
+    email: 'test@example.com',
+    password: 'hashedpassword',
+    role: 'admin',
+    status: 'approved'
+  });
+  await testUser.save();
+  
+  authToken = jwt.sign({ id: testUserId.toString() }, process.env.JWT_SECRET, { expiresIn: '1h' });
 });
 
 afterAll(async () => {
@@ -40,10 +57,36 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
+  // Clear all collections except users (we need the test user to persist)
   const collections = mongoose.connection.collections;
   for (const key in collections) {
-    await collections[key].deleteMany({});
+    if (key !== 'users') {
+      await collections[key].deleteMany({});
+    }
   }
+});
+
+// Helper function to ensure test user exists
+const ensureTestUser = async () => {
+  const User = mongoose.model('User');
+  let existingUser = await User.findById(testUserId);
+  if (!existingUser) {
+    const testUser = new User({
+      _id: testUserId,
+      username: 'testuser',
+      email: 'test@example.com',
+      password: 'hashedpassword',
+      role: 'admin',
+      status: 'approved'
+    });
+    existingUser = await testUser.save();
+  }
+  return existingUser;
+};
+
+beforeEach(async () => {
+  // Ensure test user exists before each test
+  await ensureTestUser();
 });
 
 describe('GET /api/customers', () => {
@@ -64,6 +107,8 @@ describe('GET /api/customers', () => {
   });
 
   test('should return all customers', async () => {
+    await ensureTestUser();
+    
     // Create some customers
     const Customer = mongoose.model('Customer');
     await Customer.create([
@@ -138,6 +183,8 @@ describe('GET /api/customers/:id', () => {
   });
 
   test('should return 404 for non-existent customer', async () => {
+    await ensureTestUser();
+    
     const fakeId = new mongoose.Types.ObjectId().toString();
     
     const response = await request(app)
@@ -158,6 +205,8 @@ describe('GET /api/customers/:id', () => {
   });
 
   test('should ensure projects array exists', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .get(`/api/customers/${customerId}`)
       .set('Authorization', `Bearer ${authToken}`);
@@ -168,6 +217,8 @@ describe('GET /api/customers/:id', () => {
   });
 
   test('should return customer with projects', async () => {
+    await ensureTestUser();
+    
     const Customer = mongoose.model('Customer');
     const customer = await Customer.create({
       name: 'Customer with Projects',
@@ -198,6 +249,8 @@ describe('POST /api/customers', () => {
   });
 
   test('should create new customer', async () => {
+    await ensureTestUser();
+    
     const customerData = {
       name: 'New Customer',
       email: 'new@test.com',
@@ -223,6 +276,8 @@ describe('POST /api/customers', () => {
   });
 
   test('should initialize projects array if not provided', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .post('/api/customers')
       .set('Authorization', `Bearer ${authToken}`)
@@ -238,6 +293,8 @@ describe('POST /api/customers', () => {
   });
 
   test('should accept customer with projects', async () => {
+    await ensureTestUser();
+    
     const customerData = {
       name: 'Customer With Projects',
       email: 'withprojects@test.com',
@@ -292,6 +349,8 @@ describe('PUT /api/customers/:id', () => {
   });
 
   test('should update customer name', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .put(`/api/customers/${customerId}`)
       .set('Authorization', `Bearer ${authToken}`)
@@ -307,6 +366,8 @@ describe('PUT /api/customers/:id', () => {
   });
 
   test('should update customer email', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .put(`/api/customers/${customerId}`)
       .set('Authorization', `Bearer ${authToken}`)
@@ -317,6 +378,8 @@ describe('PUT /api/customers/:id', () => {
   });
 
   test('should update customer phone', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .put(`/api/customers/${customerId}`)
       .set('Authorization', `Bearer ${authToken}`)
@@ -327,6 +390,8 @@ describe('PUT /api/customers/:id', () => {
   });
 
   test('should update customer address', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .put(`/api/customers/${customerId}`)
       .set('Authorization', `Bearer ${authToken}`)
@@ -337,6 +402,8 @@ describe('PUT /api/customers/:id', () => {
   });
 
   test('should update multiple fields at once', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .put(`/api/customers/${customerId}`)
       .set('Authorization', `Bearer ${authToken}`)
@@ -355,6 +422,8 @@ describe('PUT /api/customers/:id', () => {
   });
 
   test('should return 404 for non-existent customer', async () => {
+    await ensureTestUser();
+    
     const fakeId = new mongoose.Types.ObjectId().toString();
     
     const response = await request(app)
@@ -399,6 +468,8 @@ describe('DELETE /api/customers/:id', () => {
   });
 
   test('should delete customer', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .delete(`/api/customers/${customerId}`)
       .set('Authorization', `Bearer ${authToken}`);
@@ -413,6 +484,8 @@ describe('DELETE /api/customers/:id', () => {
   });
 
   test('should handle deletion of non-existent customer gracefully', async () => {
+    await ensureTestUser();
+    
     const fakeId = new mongoose.Types.ObjectId().toString();
     
     const response = await request(app)
@@ -447,6 +520,8 @@ describe('POST /api/customers/:customerId/projects', () => {
   });
 
   test('should add project to customer', async () => {
+    await ensureTestUser();
+    
     const projectData = {
       name: 'New Project',
       description: 'Project description',
@@ -470,6 +545,8 @@ describe('POST /api/customers/:customerId/projects', () => {
   });
 
   test('should return 404 for non-existent customer', async () => {
+    await ensureTestUser();
+    
     const fakeId = new mongoose.Types.ObjectId().toString();
     
     const response = await request(app)
@@ -482,6 +559,8 @@ describe('POST /api/customers/:customerId/projects', () => {
   });
 
   test('should add multiple projects to same customer', async () => {
+    await ensureTestUser();
+
     // Add first project
     await request(app)
       .post(`/api/customers/${customerId}/projects`)
@@ -497,6 +576,7 @@ describe('POST /api/customers/:customerId/projects', () => {
     // Verify both projects exist
     const Customer = mongoose.model('Customer');
     const customer = await Customer.findById(customerId);
+    expect(customer).not.toBeNull();
     expect(customer.projects).toHaveLength(2);
   });
 });
@@ -528,6 +608,8 @@ describe('DELETE /api/customers/:customerId/projects/:projectId', () => {
   });
 
   test('should delete project', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .delete(`/api/customers/${customerId}/projects/${projectId}`)
       .set('Authorization', `Bearer ${authToken}`);
@@ -538,10 +620,13 @@ describe('DELETE /api/customers/:customerId/projects/:projectId', () => {
     // Verify deletion
     const Customer = mongoose.model('Customer');
     const customer = await Customer.findById(customerId);
+    expect(customer).not.toBeNull();
     expect(customer.projects).toHaveLength(0);
   });
 
   test('should return 404 for non-existent customer', async () => {
+    await ensureTestUser();
+    
     const fakeId = new mongoose.Types.ObjectId().toString();
     
     const response = await request(app)
@@ -574,6 +659,8 @@ describe('PUT /api/customers/:customerId/projects/:projectId/bid', () => {
   });
 
   test('should update bid amount and status', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .put(`/api/customers/${customerId}/projects/${projectId}/bid`)
       .set('Authorization', `Bearer ${authToken}`)
@@ -585,6 +672,8 @@ describe('PUT /api/customers/:customerId/projects/:projectId/bid', () => {
   });
 
   test('should return 404 for non-existent customer', async () => {
+    await ensureTestUser();
+    
     const fakeId = new mongoose.Types.ObjectId().toString();
     
     const response = await request(app)
@@ -629,6 +718,8 @@ describe('PUT /api/customers/:customerId/projects/:projectId/schedule', () => {
   });
 
   test('should schedule project', async () => {
+    await ensureTestUser();
+    
     const scheduleDate = new Date('2024-12-25');
     
     const response = await request(app)
@@ -662,6 +753,8 @@ describe('PUT /api/customers/:customerId/projects/:projectId/complete', () => {
   });
 
   test('should mark project as completed', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .put(`/api/customers/${customerId}/projects/${projectId}/complete`)
       .set('Authorization', `Bearer ${authToken}`);
@@ -691,6 +784,8 @@ describe('POST /api/customers/:customerId/projects/:projectId/materials', () => 
   });
 
   test('should add material to project', async () => {
+    await ensureTestUser();
+    
     const material = {
       item: 'Lumber',
       quantity: 100,
@@ -734,6 +829,8 @@ describe('DELETE /api/customers/:customerId/projects/:projectId/materials/:mater
   });
 
   test('should delete material from project', async () => {
+    await ensureTestUser();
+    
     const response = await request(app)
       .delete(`/api/customers/${customerId}/projects/${projectId}/materials/${materialId}`)
       .set('Authorization', `Bearer ${authToken}`);

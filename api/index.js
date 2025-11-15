@@ -169,7 +169,7 @@ const Customer = mongoose.model('Customer', customerSchema);
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  email: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
   role: { 
     type: String, 
     enum: ['pending', 'admin', 'super-admin'], 
@@ -373,10 +373,12 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ msg: 'Username or email already exists' });
     }
 
-    // Check if this is the first user (becomes super-admin automatically)
-    const userCount = await User.countDocuments();
-    const role = userCount === 0 ? 'super-admin' : 'pending';
-    const status = userCount === 0 ? 'approved' : 'pending';
+    // Check if a super-admin already exists (atomic check to prevent race condition)
+    // This is more reliable than counting all users, as it directly checks for the condition we care about
+    const existingSuperAdmin = await User.findOne({ role: 'super-admin' });
+    const isFirstUser = !existingSuperAdmin;
+    const role = isFirstUser ? 'super-admin' : 'pending';
+    const status = isFirstUser ? 'approved' : 'pending';
 
     // Hash password and create user
     const hashed = await bcrypt.hash(password, 10);
@@ -389,9 +391,32 @@ app.post('/api/register', async (req, res) => {
     });
     await user.save();
 
+    // After save, verify we're still the only super-admin (handle race condition)
+    // If multiple super-admins were created simultaneously, keep only the first one
+    if (isFirstUser && role === 'super-admin') {
+      const allSuperAdmins = await User.find({ role: 'super-admin' }).sort({ createdAt: 1 });
+      if (allSuperAdmins.length > 1) {
+        // Multiple super-admins exist - keep only the first one (oldest by createdAt)
+        const firstSuperAdmin = allSuperAdmins[0];
+        if (user._id.toString() !== firstSuperAdmin._id.toString()) {
+          // We're not the first super-admin, downgrade to pending
+          user.role = 'pending';
+          user.status = 'pending';
+          await user.save();
+          console.log(`[${timestamp}] ⚠️ RACE CONDITION HANDLED - User "${username}" downgraded from super-admin to pending - IP: ${clientIp}`);
+          
+          res.status(201).json({ 
+            msg: 'Registration successful! Your account is pending admin approval. You will be notified when approved.',
+            status: 'pending'
+          });
+          return;
+        }
+      }
+    }
+
     console.log(`[${timestamp}] ✅ REGISTRATION SUCCESS - New user: "${username}" (${role}/${status}) - IP: ${clientIp}`);
     
-    if (userCount === 0) {
+    if (isFirstUser && role === 'super-admin') {
       res.status(201).json({ 
         msg: 'First user created successfully as super-admin. You can now login.',
         role: 'super-admin'
@@ -570,11 +595,12 @@ app.get('/api/admin/users/pending', authMiddleware, adminMiddleware, async (req,
 // Approve user (admin only)
 app.put('/api/admin/users/:id/approve', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const { role } = req.body; // 'admin' or keep as 'pending' to just approve
+    const { role } = req.body; // 'admin' to approve as admin, or omit/undefined to approve with current role
     const userId = req.params.id;
 
-    if (!['admin', 'pending'].includes(role)) {
-      return res.status(400).json({ msg: 'Invalid role. Must be "admin" or "pending".' });
+    // Role is optional - if provided, must be 'admin'
+    if (role && role !== 'admin') {
+      return res.status(400).json({ msg: 'Invalid role. Must be "admin" if provided.' });
     }
 
     const user = await User.findById(userId);
@@ -587,7 +613,9 @@ app.put('/api/admin/users/:id/approve', authMiddleware, adminMiddleware, async (
     }
 
     user.status = 'approved';
-    user.role = role === 'admin' ? 'admin' : 'admin'; // Approved users become admins
+    // Approved users become admins (per ADMIN_APPROVAL_SYSTEM.md: "Approve: User becomes an admin and can log in")
+    // The role parameter is for future extensibility, but currently all approved users become admins
+    user.role = 'admin';
     user.approvedBy = req.user.id;
     user.approvedAt = new Date();
     await user.save();
@@ -699,11 +727,6 @@ app.put('/api/admin/users/:id/promote', authMiddleware, superAdminMiddleware, as
 app.get('/api/customers', authMiddleware, async (req, res) => {
   try {
     const customers = await Customer.find();
-    // Debug: Log all customer IDs
-    console.log('All customers:', customers.map(c => ({ 
-      id: c._id.toString(), 
-      name: c.name 
-    })));
     res.json(customers);
   } catch (err) {
     console.error('Error fetching customers:', err);
@@ -714,9 +737,6 @@ app.get('/api/customers', authMiddleware, async (req, res) => {
 app.get('/api/customers/:id', authMiddleware, async (req, res) => {
   try {
     const customerId = req.params.id.trim();
-    console.log('Fetching customer with ID:', customerId);
-    console.log('ID length:', customerId.length);
-    console.log('ID type:', typeof customerId);
     
     // Validate MongoDB ObjectId format
     if (!mongoose.Types.ObjectId.isValid(customerId)) {
@@ -756,28 +776,8 @@ app.get('/api/customers/:id', authMiddleware, async (req, res) => {
     }
     
     if (!customer) {
-      console.error('Customer not found with ID:', customerId);
-      // List all customer IDs for debugging
-      const allCustomers = await Customer.find({}, '_id name');
-      const customerList = allCustomers.map(c => ({ 
-        id: c._id.toString(), 
-        idType: typeof c._id,
-        name: c.name 
-      }));
-      console.log('Available customers:', customerList);
-      console.log('Searching for ID:', customerId);
-      console.log('Available IDs:', customerList.map(c => c.id));
-      
-      // Check if the ID exists but with different format
-      const matchingId = customerList.find(c => c.id === customerId || c.id.toLowerCase() === customerId.toLowerCase());
-      if (matchingId) {
-        console.log('Found matching ID with different case:', matchingId);
-      }
-      
       return res.status(404).json({ 
-        msg: 'Customer not found', 
-        id: customerId,
-        availableCustomers: customerList
+        msg: 'Customer not found'
       });
     }
     
@@ -785,8 +785,6 @@ app.get('/api/customers/:id', authMiddleware, async (req, res) => {
     if (!customer.projects) {
       customer.projects = [];
     }
-    console.log('Customer found:', customer.name, 'with', customer.projects.length, 'projects');
-    console.log('Customer ID:', customer._id.toString());
     res.json(customer);
   } catch (err) {
     console.error('Error fetching customer:', err);

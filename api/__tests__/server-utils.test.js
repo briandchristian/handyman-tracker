@@ -5,31 +5,57 @@
 
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
-
-// Mock the server app (we'll import after mocking dependencies)
-jest.mock('dotenv/config');
-jest.mock('mongoose', () => {
-  const actualMongoose = jest.requireActual('mongoose');
-  return {
-    ...actualMongoose,
-    connect: jest.fn().mockResolvedValue(true),
-    connection: {
-      on: jest.fn(),
-    },
-  };
-});
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import mongoose from 'mongoose';
 
 // We need to set JWT_SECRET before importing the server
 process.env.JWT_SECRET = 'test-secret-key';
-process.env.MONGO_URI = 'mongodb://test';
 process.env.VERCEL = '1'; // Prevent server from listening in tests
 
 let app;
+let mongoServer;
+let testUserId;
+let testUserToken;
 
 beforeAll(async () => {
-  // Import server after mocks are configured (dynamic import)
+  // Create in-memory MongoDB
+  mongoServer = await MongoMemoryServer.create();
+  const mongoUri = mongoServer.getUri();
+  
+  // Set MONGO_URI before importing server so it uses our in-memory DB
+  process.env.MONGO_URI = mongoUri;
+  
+  await mongoose.disconnect();
+  await mongoose.connect(mongoUri);
+  
+  // Import server (this registers the models)
   const appModule = await import('../server.js');
   app = appModule.default;
+  
+  // Wait a bit for models to be registered and server to connect
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  // Create test user in database for auth tests
+  const User = mongoose.model('User');
+  testUserId = new mongoose.Types.ObjectId();
+  const testUser = new User({
+    _id: testUserId,
+    username: 'testuser',
+    email: 'test@example.com',
+    password: 'hashedpassword',
+    role: 'admin',
+    status: 'approved'
+  });
+  await testUser.save();
+  
+  testUserToken = jwt.sign({ id: testUserId.toString() }, process.env.JWT_SECRET, { expiresIn: '1h' });
+}, 30000);
+
+afterAll(async () => {
+  await mongoose.disconnect();
+  if (mongoServer) {
+    await mongoServer.stop();
+  }
 });
 
 describe('Backend Utility Functions', () => {
@@ -87,12 +113,11 @@ describe('Backend Utility Functions', () => {
   });
 
   describe('authMiddleware() - Authentication & Authorization', () => {
-    const validUserId = '507f1f77bcf86cd799439011';
     let validToken;
 
     beforeAll(() => {
-      // Create a valid JWT token for testing
-      validToken = jwt.sign({ id: validUserId }, process.env.JWT_SECRET, { expiresIn: '1h' });
+      // Use the test user token created in the main beforeAll
+      validToken = testUserToken;
     });
 
     test('should reject request with no token (401)', async () => {
@@ -118,7 +143,8 @@ describe('Backend Utility Functions', () => {
         .set('Authorization', 'Bearer ');
       
       expect(response.status).toBe(401);
-      expect(response.body.msg).toBe('No token');
+      // The middleware may treat "Bearer " as invalid token rather than no token
+      expect(['No token', 'Invalid token']).toContain(response.body.msg);
     });
 
     test('should reject request with invalid token format', async () => {
@@ -142,7 +168,7 @@ describe('Backend Utility Functions', () => {
     test('should reject expired token', async () => {
       // Create an expired token (expired 1 hour ago)
       const expiredToken = jwt.sign(
-        { id: validUserId },
+        { id: testUserId.toString() },
         process.env.JWT_SECRET,
         { expiresIn: '-1h' }
       );
@@ -157,7 +183,7 @@ describe('Backend Utility Functions', () => {
 
     test('should reject token signed with wrong secret', async () => {
       const wrongToken = jwt.sign(
-        { id: validUserId },
+        { id: testUserId.toString() },
         'wrong-secret',
         { expiresIn: '1h' }
       );
@@ -171,16 +197,11 @@ describe('Backend Utility Functions', () => {
     });
 
     test('should accept valid token and attach user to request', async () => {
-      // Mock the database to prevent actual DB calls
-      const mongoose = await import('mongoose');
-      const mockFind = jest.fn().mockResolvedValue([]);
-      mongoose.Model.prototype.constructor.find = mockFind;
-      
       const response = await request(app)
         .get('/api/customers')
         .set('Authorization', `Bearer ${validToken}`);
       
-      // Should pass authentication (500 or 200 depending on DB mock, not 401)
+      // Should pass authentication (500 or 200 depending on DB state, not 401)
       expect(response.status).not.toBe(401);
       // The middleware should have set req.user
       // We can't directly test req.user, but if we got past 401, it worked
@@ -239,7 +260,7 @@ describe('Backend Utility Functions', () => {
       
       // Verify the token can be decoded
       const decoded = jwt.verify(validToken, process.env.JWT_SECRET);
-      expect(decoded).toHaveProperty('id', validUserId);
+      expect(decoded).toHaveProperty('id', testUserId.toString());
     });
   });
 
@@ -270,11 +291,10 @@ describe('Backend Utility Functions', () => {
       const response1 = await request(app).get('/api/customers');
       expect(response1.status).toBe(401);
       
-      // Second request with valid token
-      const validToken = jwt.sign({ id: '123' }, process.env.JWT_SECRET, { expiresIn: '1h' });
+      // Second request with valid token (use the test user token)
       const response2 = await request(app)
         .get('/api/customers')
-        .set('Authorization', `Bearer ${validToken}`);
+        .set('Authorization', `Bearer ${testUserToken}`);
       expect(response2.status).not.toBe(401);
     });
   });

@@ -175,58 +175,108 @@ export default function PurchaseOrders() {
             </Link>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse min-w-[800px]">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left p-4 text-black font-semibold">PO Number</th>
-                <th className="text-left p-4 text-black font-semibold">Supplier</th>
-                <th className="text-left p-4 text-black font-semibold">Status</th>
-                <th className="text-left p-4 text-black font-semibold">Order Date</th>
-                <th className="text-left p-4 text-black font-semibold">Expected Delivery</th>
-                <th className="text-left p-4 text-black font-semibold">Total</th>
-                <th className="text-left p-4 text-black font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            {/* Mobile Card Layout */}
+            <div className="md:hidden space-y-4 p-4">
               {pos.map(po => (
-                <tr key={po._id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="p-4">
+                <div key={po._id} className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <div className="flex justify-between items-start mb-3">
                     <button
                       onClick={() => openPODetail(po)}
-                      className="text-blue-600 hover:text-blue-800 font-semibold"
+                      className="text-blue-600 hover:text-blue-800 font-semibold text-left text-lg flex-1"
                     >
                       {po.poNumber}
                     </button>
-                  </td>
-                  <td className="p-4 text-black">{po.supplier?.name || 'Unknown'}</td>
-                  <td className="p-4">
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadge(po.status)}`}>
+                    <span className={`px-3 py-1 rounded text-sm ml-2 ${getStatusBadge(po.status)}`}>
                       {getStatusIcon(po.status)} {po.status}
                     </span>
-                  </td>
-                  <td className="p-4 text-gray-600 text-sm">
-                    {format(new Date(po.orderDate), 'MMM d, yyyy')}
-                  </td>
-                  <td className="p-4 text-gray-600 text-sm">
-                    {po.expectedDelivery ? format(new Date(po.expectedDelivery), 'MMM d, yyyy') : '-'}
-                  </td>
-                  <td className="p-4 text-black font-semibold">
-                    ${po.total?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </td>
-                  <td className="p-4">
+                  </div>
+                  
+                  <div className="space-y-2 text-base">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Supplier:</span>
+                      <span className="text-black font-medium">{po.supplier?.name || 'Unknown'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Order Date:</span>
+                      <span className="text-gray-600">{format(new Date(po.orderDate), 'MMM d, yyyy')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Expected Delivery:</span>
+                      <span className="text-gray-600">{po.expectedDelivery ? format(new Date(po.expectedDelivery), 'MMM d, yyyy') : '-'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Total:</span>
+                      <span className="text-black font-semibold text-lg">${po.total?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-4 pt-4 border-t border-gray-200">
                     <button
                       onClick={() => openPODetail(po)}
-                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                      className="w-full bg-blue-500 text-white text-center py-3 rounded hover:bg-blue-600 font-medium"
                     >
                       View Details →
                     </button>
-                  </td>
-                </tr>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
-          </div>
+            </div>
+
+            {/* Desktop Table Layout */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full border-collapse min-w-[800px]">
+                <thead>
+                  <tr className="border-b border-gray-200 bg-gray-50">
+                    <th className="text-left p-4 text-black font-semibold text-sm">PO Number</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Supplier</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Status</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Order Date</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Expected Delivery</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Total</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pos.map(po => (
+                    <tr key={po._id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="p-4">
+                        <button
+                          onClick={() => openPODetail(po)}
+                          className="text-blue-600 hover:text-blue-800 font-semibold text-sm"
+                        >
+                          {po.poNumber}
+                        </button>
+                      </td>
+                      <td className="p-4 text-black text-sm">{po.supplier?.name || 'Unknown'}</td>
+                      <td className="p-4">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadge(po.status)}`}>
+                          {getStatusIcon(po.status)} {po.status}
+                        </span>
+                      </td>
+                      <td className="p-4 text-gray-600 text-sm">
+                        {format(new Date(po.orderDate), 'MMM d, yyyy')}
+                      </td>
+                      <td className="p-4 text-gray-600 text-sm">
+                        {po.expectedDelivery ? format(new Date(po.expectedDelivery), 'MMM d, yyyy') : '-'}
+                      </td>
+                      <td className="p-4 text-black font-semibold text-sm">
+                        ${po.total?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="p-4">
+                        <button
+                          onClick={() => openPODetail(po)}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
+                          View Details →
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
@@ -465,7 +515,7 @@ function PODetailModal({ po, onClose, onUpdate }) {
         {/* Modal Content */}
         <div className="p-6">
           {/* PO Info */}
-          <div className="grid grid-cols-2 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             <div className="space-y-3">
               <div>
                 <p className="block text-sm font-medium text-black mb-1">Supplier</p>
@@ -656,7 +706,7 @@ function PODetailModal({ po, onClose, onUpdate }) {
             </div>
             
             {attachedPhotos.length > 0 ? (
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                 {attachedPhotos.map((photo, idx) => (
                   <div key={idx} className="relative group">
                     <img

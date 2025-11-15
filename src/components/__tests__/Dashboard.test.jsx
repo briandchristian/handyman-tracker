@@ -44,8 +44,11 @@ describe('Dashboard Component', () => {
     render(<BrowserRouter><Dashboard /></BrowserRouter>);
 
     await waitFor(() => {
-      expect(screen.getByText('Project 1')).toBeInTheDocument();
-      expect(screen.getByText('Customer 1')).toBeInTheDocument();
+      // Use getAllByText since Project 1 and Customer 1 appear in both mobile and desktop views
+      const projectElements = screen.getAllByText('Project 1');
+      expect(projectElements.length).toBeGreaterThan(0);
+      const customerElements = screen.getAllByText('Customer 1');
+      expect(customerElements.length).toBeGreaterThan(0);
     });
   });
 

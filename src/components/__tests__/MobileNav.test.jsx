@@ -115,10 +115,31 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
   test('should handle logout', async () => {
     localStorage.setItem('token', 'test-token');
     
-    // Mock window.location.assign instead of trying to redefine location
-    const mockAssign = jest.fn();
-    delete window.location;
-    window.location = { assign: mockAssign, href: '' };
+    // Mock window.location.href to track if it's set
+    // Note: jsdom doesn't fully implement navigation, so we can't test the actual navigation
+    // but we can verify that the logout logic runs (localStorage is cleared)
+    const originalHref = window.location.href;
+    let hrefValue = originalHref;
+    
+    // Try to mock href setter - if it fails, that's okay, we'll just test localStorage
+    try {
+      delete window.location;
+      window.location = {
+        href: originalHref,
+        assign: jest.fn(),
+        replace: jest.fn(),
+        reload: jest.fn()
+      };
+      Object.defineProperty(window.location, 'href', {
+        get: () => hrefValue,
+        set: (value) => {
+          hrefValue = value;
+        },
+        configurable: true
+      });
+    } catch (e) {
+      // If we can't mock href, that's okay - we'll just verify localStorage
+    }
     
     render(<BrowserRouter><MobileNav /></BrowserRouter>);
     
@@ -131,12 +152,14 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
       fireEvent.click(logoutButton);
     });
     
-    // Should clear token
+    // Should clear token - this is the main functionality we're testing
     expect(localStorage.getItem('token')).toBeNull();
     
-    // The component sets window.location.href = '/login'
-    // In JSDOM, this might not work perfectly, but we verify token is cleared
-    // which is the main functionality
+    // Note: In jsdom, window.location.href assignment may not work as expected
+    // The component attempts to set window.location.href = '/login', but jsdom
+    // doesn't fully implement navigation. The important part (clearing localStorage) is tested above.
+    // Don't check href in jsdom as it doesn't properly implement navigation
+    // The href check is intentionally removed to avoid jsdom navigation limitations
   });
 
   test('should show navigation icons', async () => {
