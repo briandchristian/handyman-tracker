@@ -175,23 +175,23 @@ export default function Login({ setToken }) {
   };
 
   return (
-    <div className="min-h-screen p-8">
+    <div className="min-h-screen p-4 md:p-8">
       {/* Top Row: Logo - Upper Left */}
-      <div className="flex justify-start items-start mb-8">
+      <div className="flex justify-center md:justify-start items-start mb-6 md:mb-8">
         <div className="flex-shrink-0">
           <img 
             src="/logo.png" 
             alt="Handyman Tracker Logo" 
-            className="w-80 h-80 object-contain"
+            className="w-48 h-48 md:w-80 md:h-80 object-contain"
           />
         </div>
       </div>
 
       {/* Middle Row: Request a Bid (left, under logo) */}
-      <div className="flex justify-start mb-6">
-        <div className="p-6 bg-white rounded shadow text-black w-[500px]">
-          <h2 className="text-2xl font-bold mb-4 text-gray-800">Request a Bid</h2>
-          <p className="text-gray-600 mb-4 text-sm">New customer? Submit your project details and we'll get back to you!</p>
+      <div className="flex justify-center md:justify-start mb-6">
+        <div className="p-4 md:p-6 bg-white rounded shadow text-black w-full max-w-[500px]">
+          <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-800">Request a Bid</h2>
+          <p className="text-gray-600 mb-4 text-base md:text-sm">New customer? Submit your project details and we'll get back to you!</p>
           
           <div className="space-y-3">
             <input 
@@ -199,14 +199,14 @@ export default function Login({ setToken }) {
               placeholder="Your Name *" 
               value={customerName} 
               onChange={e => setCustomerName(e.target.value)} 
-              className="block p-2 border bg-white text-black w-full rounded" 
+              className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
             />
             <input 
               type="email" 
               placeholder="Email *" 
               value={customerEmail} 
               onChange={e => setCustomerEmail(e.target.value)} 
-              className="block p-2 border bg-white text-black w-full rounded" 
+              className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
             />
             <input 
               type="tel" 
@@ -214,31 +214,31 @@ export default function Login({ setToken }) {
               value={customerPhone} 
               onChange={handlePhoneChange} 
               maxLength="12"
-              className="block p-2 border bg-white text-black w-full rounded" 
+              className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
             />
             <input 
               type="text" 
               placeholder="Address (optional)" 
               value={customerAddress} 
               onChange={e => setCustomerAddress(e.target.value)} 
-              className="block p-2 border bg-white text-black w-full rounded" 
+              className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
             />
             <input 
               type="text" 
               placeholder="Project Name *" 
               value={projectName} 
               onChange={e => setProjectName(e.target.value)} 
-              className="block p-2 border bg-white text-black w-full rounded" 
+              className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
             />
             <textarea 
               placeholder="Project Description *" 
               value={projectDescription} 
               onChange={e => setProjectDescription(e.target.value)} 
-              className="block p-2 border bg-white text-black w-full rounded h-24 resize-none" 
+              className="block p-4 md:p-2 border bg-white text-black w-full rounded h-24 resize-none text-base md:text-sm" 
             />
             <button 
               onClick={handleCustomerBid} 
-              className="bg-green-500 text-white p-2 rounded w-full hover:bg-green-600 font-medium"
+              className="bg-green-500 text-white p-4 md:p-2 rounded w-full hover:bg-green-600 font-medium text-base md:text-sm"
             >
               Submit Bid Request
             </button>
@@ -247,33 +247,33 @@ export default function Login({ setToken }) {
       </div>
 
       {/* Bottom Row: Admin Login (left, below Request a Bid) */}
-      <div className="flex justify-start">
-        <div className="p-6 bg-white rounded shadow text-black w-[500px]">
-          <h2 className="text-2xl font-bold mb-4 text-gray-800">Admin Login</h2>
+      <div className="flex justify-center md:justify-start">
+        <div className="p-4 md:p-6 bg-white rounded shadow text-black w-full max-w-[500px]">
+          <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-800">Admin Login</h2>
           <input 
             type="text" 
             placeholder="Username" 
             value={username} 
             onChange={e => setUsername(e.target.value)} 
-            className="block mb-2 p-2 border bg-white text-black w-full rounded" 
+            className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
           />
           <input 
             type="password" 
             placeholder="Password" 
             value={password} 
             onChange={e => setPassword(e.target.value)} 
-            className="block mb-2 p-2 border bg-white text-black w-full rounded" 
+            className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
           />
           <button 
             onClick={handleLogin} 
-            className="bg-blue-500 text-white p-2 rounded w-full hover:bg-blue-600"
+            className="bg-blue-500 text-white p-4 md:p-2 rounded w-full hover:bg-blue-600 font-medium text-base md:text-sm"
           >
             Login
           </button>
-          <p className="text-gray-700 mt-4 text-sm">For admin access only.</p>
+          <p className="text-gray-700 mt-4 text-base md:text-sm">For admin access only.</p>
           <button 
             onClick={() => setShowRegister(!showRegister)} 
-            className="text-blue-600 hover:text-blue-800 mt-2 text-sm underline"
+            className="text-blue-600 hover:text-blue-800 mt-2 text-base md:text-sm underline py-2"
           >
             {showRegister ? 'Cancel Registration' : 'New Admin? Request Access'}
           </button>
@@ -282,10 +282,10 @@ export default function Login({ setToken }) {
 
       {/* Admin Registration Form (conditional) */}
       {showRegister && (
-        <div className="flex justify-start mt-6">
-          <div className="p-6 bg-white rounded shadow text-black w-[500px]">
-            <h2 className="text-2xl font-bold mb-4 text-gray-800">Request Admin Access</h2>
-            <p className="text-gray-600 mb-4 text-sm">Your account will need to be approved by an existing administrator.</p>
+        <div className="flex justify-center md:justify-start mt-6">
+          <div className="p-4 md:p-6 bg-white rounded shadow text-black w-full max-w-[500px]">
+            <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-800">Request Admin Access</h2>
+            <p className="text-gray-600 mb-4 text-base md:text-sm">Your account will need to be approved by an existing administrator.</p>
             
             <div className="space-y-3">
               <input 
@@ -293,32 +293,32 @@ export default function Login({ setToken }) {
                 placeholder="Username *" 
                 value={regUsername} 
                 onChange={e => setRegUsername(e.target.value)} 
-                className="block p-2 border bg-white text-black w-full rounded" 
+                className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
               />
               <input 
                 type="email" 
                 placeholder="Email *" 
                 value={regEmail} 
                 onChange={e => setRegEmail(e.target.value)} 
-                className="block p-2 border bg-white text-black w-full rounded" 
+                className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
               />
               <input 
                 type="password" 
                 placeholder="Password (min 6 characters) *" 
                 value={regPassword} 
                 onChange={e => setRegPassword(e.target.value)} 
-                className="block p-2 border bg-white text-black w-full rounded" 
+                className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
               />
               <input 
                 type="password" 
                 placeholder="Confirm Password *" 
                 value={regConfirmPassword} 
                 onChange={e => setRegConfirmPassword(e.target.value)} 
-                className="block p-2 border bg-white text-black w-full rounded" 
+                className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
               />
               <button 
                 onClick={handleRegister} 
-                className="bg-purple-500 text-white p-2 rounded w-full hover:bg-purple-600 font-medium"
+                className="bg-purple-500 text-white p-4 md:p-2 rounded w-full hover:bg-purple-600 font-medium text-base md:text-sm"
               >
                 Request Access
               </button>

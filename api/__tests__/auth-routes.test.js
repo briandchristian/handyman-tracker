@@ -28,7 +28,8 @@ beforeAll(async () => {
   await mongoose.connect(mongoUri);
   
   // Import app after database is connected
-  const appModule = await import('../server.js');
+  // Use index.js which has the full admin approval system
+  const appModule = await import('../index.js');
   app = appModule.default;
 });
 
@@ -52,17 +53,22 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'newuser',
-          password: 'password123'
+          password: 'password123',
+          email: 'newuser@example.com'
         });
       
       expect(response.status).toBe(201);
-      expect(response.body).toHaveProperty('msg', 'User registered successfully');
+      // First user gets different message, subsequent users get pending approval message
+      expect(response.body).toHaveProperty('msg');
+      expect(['First user created successfully as super-admin. You can now login.', 
+              'Registration successful! Your account is pending admin approval. You will be notified when approved.']).toContain(response.body.msg);
       
       // Verify user was actually created in database
       const User = mongoose.model('User');
       const user = await User.findOne({ username: 'newuser' });
       expect(user).toBeTruthy();
       expect(user.username).toBe('newuser');
+      expect(user.email).toBe('newuser@example.com');
       
       // Verify password was hashed
       expect(user.password).not.toBe('password123');
@@ -77,7 +83,8 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'secureuser',
-          password: plainPassword
+          password: plainPassword,
+          email: 'secureuser@example.com'
         });
       
       const User = mongoose.model('User');
@@ -93,7 +100,8 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'abc',
-          password: 'password123'
+          password: 'password123',
+          email: 'abc@example.com'
         });
       
       expect(response.status).toBe(201);
@@ -103,8 +111,9 @@ describe('POST /api/register', () => {
       const response = await request(app)
         .post('/api/register')
         .send({
-          username: 'testuser',
-          password: '123456'
+          username: `testuser${Date.now()}`,
+          password: '123456',
+          email: `testuser${Date.now()}@example.com`
         });
       
       expect(response.status).toBe(201);
@@ -116,7 +125,8 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: longUsername,
-          password: 'password123'
+          password: 'password123',
+          email: 'longuser@example.com'
         });
       
       expect(response.status).toBe(201);
@@ -128,31 +138,45 @@ describe('POST /api/register', () => {
       const response = await request(app)
         .post('/api/register')
         .send({
-          password: 'password123'
+          password: 'password123',
+          email: 'test@example.com'
         });
       
       expect(response.status).toBe(400);
-      expect(response.body.msg).toBe('Username and password are required');
+      expect(response.body.msg).toBe('Username, password, and email are required');
     });
 
     test('should reject registration without password', async () => {
       const response = await request(app)
         .post('/api/register')
         .send({
-          username: 'testuser'
+          username: 'testuser',
+          email: 'test@example.com'
         });
       
       expect(response.status).toBe(400);
-      expect(response.body.msg).toBe('Username and password are required');
+      expect(response.body.msg).toBe('Username, password, and email are required');
     });
 
-    test('should reject registration without both username and password', async () => {
+    test('should reject registration without email', async () => {
+      const response = await request(app)
+        .post('/api/register')
+        .send({
+          username: 'testuser',
+          password: 'password123'
+        });
+      
+      expect(response.status).toBe(400);
+      expect(response.body.msg).toBe('Username, password, and email are required');
+    });
+
+    test('should reject registration without all required fields', async () => {
       const response = await request(app)
         .post('/api/register')
         .send({});
       
       expect(response.status).toBe(400);
-      expect(response.body.msg).toBe('Username and password are required');
+      expect(response.body.msg).toBe('Username, password, and email are required');
     });
 
     test('should reject username shorter than 3 characters', async () => {
@@ -160,7 +184,8 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'ab',
-          password: 'password123'
+          password: 'password123',
+          email: 'test@example.com'
         });
       
       expect(response.status).toBe(400);
@@ -172,7 +197,8 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'testuser',
-          password: '12345'
+          password: '12345',
+          email: 'test@example.com'
         });
       
       expect(response.status).toBe(400);
@@ -184,11 +210,12 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: '',
-          password: 'password123'
+          password: 'password123',
+          email: 'test@example.com'
         });
       
       expect(response.status).toBe(400);
-      expect(response.body.msg).toBe('Username and password are required');
+      expect(response.body.msg).toBe('Username, password, and email are required');
     });
 
     test('should reject empty string password', async () => {
@@ -196,11 +223,25 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'testuser',
-          password: ''
+          password: '',
+          email: 'test@example.com'
         });
       
       expect(response.status).toBe(400);
-      expect(response.body.msg).toBe('Username and password are required');
+      expect(response.body.msg).toBe('Username, password, and email are required');
+    });
+
+    test('should reject invalid email format', async () => {
+      const response = await request(app)
+        .post('/api/register')
+        .send({
+          username: 'testuser',
+          password: 'password123',
+          email: 'invalid-email'
+        });
+      
+      expect(response.status).toBe(400);
+      expect(response.body.msg).toBe('Invalid email format');
     });
   });
 
@@ -211,7 +252,8 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'existinguser',
-          password: 'password123'
+          password: 'password123',
+          email: 'existing@example.com'
         });
     });
 
@@ -220,11 +262,25 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'existinguser',
-          password: 'differentpass'
+          password: 'differentpass',
+          email: 'different@example.com'
         });
       
       expect(response.status).toBe(400);
-      expect(response.body.msg).toBe('Username already exists');
+      expect(response.body.msg).toBe('Username or email already exists');
+    });
+
+    test('should reject registration with duplicate email', async () => {
+      const response = await request(app)
+        .post('/api/register')
+        .send({
+          username: 'differentuser',
+          password: 'password123',
+          email: 'existing@example.com'
+        });
+      
+      expect(response.status).toBe(400);
+      expect(response.body.msg).toBe('Username or email already exists');
     });
 
     test('should handle case-sensitive usernames correctly', async () => {
@@ -233,7 +289,8 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'ExistingUser', // Different case
-          password: 'password123'
+          password: 'password123',
+          email: 'existinguser2@example.com'
         });
       
       // Should succeed since case is different
@@ -247,7 +304,8 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'user@123',
-          password: 'password123'
+          password: 'password123',
+          email: 'user123@example.com'
         });
       
       expect(response.status).toBe(201);
@@ -257,8 +315,9 @@ describe('POST /api/register', () => {
       const response = await request(app)
         .post('/api/register')
         .send({
-          username: 'testuser',
-          password: 'P@ssw0rd!#$%'
+          username: `testuser${Date.now()}`,
+          password: 'P@ssw0rd!#$%',
+          email: `testuser${Date.now()}@example.com`
         });
       
       expect(response.status).toBe(201);
@@ -269,7 +328,8 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'user本',
-          password: 'password123'
+          password: 'password123',
+          email: 'user@example.com'
         });
       
       expect(response.status).toBe(201);
@@ -280,7 +340,8 @@ describe('POST /api/register', () => {
         .post('/api/register')
         .send({
           username: 'testuser ',
-          password: 'password123'
+          password: 'password123',
+          email: 'testuser@example.com'
         });
       
       // Should either succeed or fail consistently
@@ -296,14 +357,66 @@ describe('POST /api/login', () => {
   };
 
   beforeEach(async () => {
+    // Clear any existing testuser first
+    const User = mongoose.model('User');
+    await User.deleteMany({ username: testUser.username });
+    
     // Register a user before each login test
-    await request(app)
+    // First user becomes super-admin automatically, so they can login
+    const registerResponse = await request(app)
       .post('/api/register')
-      .send(testUser);
+      .send({
+        ...testUser,
+        email: 'testuser@example.com'
+      });
+    
+    // If registration failed, try to find existing user
+    if (registerResponse.status !== 201) {
+      const existingUser = await User.findOne({ username: testUser.username });
+      if (existingUser && existingUser.status === 'pending') {
+        existingUser.status = 'approved';
+        existingUser.role = 'admin';
+        await existingUser.save();
+      }
+    } else {
+      // If not first user, need to approve them for login to work
+      const user = await User.findOne({ username: testUser.username });
+      if (user && user.status === 'pending') {
+        user.status = 'approved';
+        user.role = 'admin';
+        await user.save();
+      }
+    }
   });
 
   describe('Successful Login', () => {
     test('should login with valid credentials', async () => {
+      // Ensure user exists and is approved with correct password
+      const User = mongoose.model('User');
+      let user = await User.findOne({ username: testUser.username });
+      
+      if (!user) {
+        // Create user directly with hashed password
+        const bcrypt = await import('bcryptjs');
+        const hashedPassword = await bcrypt.hash(testUser.password, 10);
+        user = new User({
+          username: testUser.username,
+          email: 'testuser@example.com',
+          password: hashedPassword,
+          role: 'admin',
+          status: 'approved'
+        });
+        await user.save();
+      } else {
+        // Update existing user to ensure correct password and status
+        const bcrypt = await import('bcryptjs');
+        const hashedPassword = await bcrypt.hash(testUser.password, 10);
+        user.password = hashedPassword;
+        user.status = 'approved';
+        user.role = 'admin';
+        await user.save();
+      }
+      
       const response = await request(app)
         .post('/api/login')
         .send(testUser);
@@ -315,10 +428,34 @@ describe('POST /api/login', () => {
     });
 
     test('should return valid JWT token', async () => {
+      // Ensure user exists with correct password
+      const User = mongoose.model('User');
+      let user = await User.findOne({ username: testUser.username });
+      if (!user || user.status !== 'approved') {
+        const bcrypt = await import('bcryptjs');
+        const hashedPassword = await bcrypt.hash(testUser.password, 10);
+        if (!user) {
+          user = new User({
+            username: testUser.username,
+            email: 'testuser@example.com',
+            password: hashedPassword,
+            role: 'admin',
+            status: 'approved'
+          });
+          await user.save();
+        } else {
+          user.password = hashedPassword;
+          user.status = 'approved';
+          user.role = 'admin';
+          await user.save();
+        }
+      }
+      
       const response = await request(app)
         .post('/api/login')
         .send(testUser);
       
+      expect(response.status).toBe(200);
       const token = response.body.token;
       
       // Verify JWT structure (3 parts separated by dots)
@@ -332,24 +469,71 @@ describe('POST /api/login', () => {
     });
 
     test('should include user ID in JWT payload', async () => {
+      // Ensure user exists with correct password
+      const User = mongoose.model('User');
+      let user = await User.findOne({ username: testUser.username });
+      if (!user || user.status !== 'approved') {
+        const bcrypt = await import('bcryptjs');
+        const hashedPassword = await bcrypt.hash(testUser.password, 10);
+        if (!user) {
+          user = new User({
+            username: testUser.username,
+            email: 'testuser@example.com',
+            password: hashedPassword,
+            role: 'admin',
+            status: 'approved'
+          });
+          await user.save();
+        } else {
+          user.password = hashedPassword;
+          user.status = 'approved';
+          user.role = 'admin';
+          await user.save();
+        }
+      }
+      
       const response = await request(app)
         .post('/api/login')
         .send(testUser);
       
+      expect(response.status).toBe(200);
       const decoded = jwt.verify(response.body.token, process.env.JWT_SECRET);
       
       // Get user from database
-      const User = mongoose.model('User');
-      const user = await User.findOne({ username: testUser.username });
+      const dbUser = await User.findOne({ username: testUser.username });
       
-      expect(decoded.id).toBe(user._id.toString());
+      expect(decoded.id).toBe(dbUser._id.toString());
     });
 
     test('should set token expiration to 1 hour', async () => {
+      // Ensure user exists with correct password
+      const User = mongoose.model('User');
+      let user = await User.findOne({ username: testUser.username });
+      if (!user || user.status !== 'approved') {
+        const bcrypt = await import('bcryptjs');
+        const hashedPassword = await bcrypt.hash(testUser.password, 10);
+        if (!user) {
+          user = new User({
+            username: testUser.username,
+            email: 'testuser@example.com',
+            password: hashedPassword,
+            role: 'admin',
+            status: 'approved'
+          });
+          await user.save();
+        } else {
+          user.password = hashedPassword;
+          user.status = 'approved';
+          user.role = 'admin';
+          await user.save();
+        }
+      }
+      
       const response = await request(app)
         .post('/api/login')
         .send(testUser);
       
+      expect(response.status).toBe(200);
       const decoded = jwt.verify(response.body.token, process.env.JWT_SECRET);
       
       const issuedAt = decoded.iat;

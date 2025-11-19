@@ -86,25 +86,25 @@ export default function Dashboard() {
       </div>
 
       {/* Project Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <p className="text-gray-600 text-sm">Total Projects</p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+          <p className="text-gray-600 text-base md:text-sm">Total Projects</p>
           <p className="text-3xl font-bold text-black">{projects.length}</p>
         </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <p className="text-gray-600 text-sm">Pending</p>
+        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+          <p className="text-gray-600 text-base md:text-sm">Pending</p>
           <p className="text-3xl font-bold text-yellow-600">
             {projects.filter(p => p.status === 'Pending').length}
           </p>
         </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <p className="text-gray-600 text-sm">Scheduled</p>
+        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+          <p className="text-gray-600 text-base md:text-sm">Scheduled</p>
           <p className="text-3xl font-bold text-blue-600">
             {projects.filter(p => p.status === 'Scheduled').length}
           </p>
         </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <p className="text-gray-600 text-sm">Completed</p>
+        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+          <p className="text-gray-600 text-base md:text-sm">Completed</p>
           <p className="text-3xl font-bold text-green-600">
             {projects.filter(p => p.status === 'Completed' || p.status === 'Billed').length}
           </p>
@@ -112,67 +112,122 @@ export default function Dashboard() {
       </div>
 
       {/* Projects List */}
-      <div className="bg-white border border-gray-300 rounded-lg p-6">
-        <h2 className="text-2xl font-semibold mb-4 text-black">All Projects (Oldest to Newest)</h2>
+      <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-6">
+        <h2 className="text-xl md:text-2xl font-semibold mb-4 text-black">All Projects (Oldest to Newest)</h2>
         
         {projects.length === 0 ? (
-          <p className="text-gray-500 text-center py-8">No projects found. Create a customer and add projects to get started.</p>
+          <p className="text-gray-500 text-center py-8 text-base md:text-sm">No projects found. Create a customer and add projects to get started.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left p-3 text-black">Project Name</th>
-                  <th className="text-left p-3 text-black">Customer</th>
-                  <th className="text-left p-3 text-black">Status</th>
-                  <th className="text-left p-3 text-black">Bid Amount</th>
-                  <th className="text-left p-3 text-black">Bill Amount</th>
-                  <th className="text-left p-3 text-black">Schedule Date</th>
-                  <th className="text-left p-3 text-black">Created</th>
-                  <th className="text-left p-3 text-black">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {projects.map((project, index) => (
-                  <tr key={project._id || index} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="p-3 text-black font-medium">{project.name}</td>
-                    <td className="p-3 text-black">{project.customerName}</td>
-                    <td className="p-3">
-                      <span className={`px-2 py-1 rounded text-sm ${
-                        project.status === 'Completed' ? 'bg-green-100 text-green-800' :
-                        project.status === 'Billed' ? 'bg-blue-100 text-blue-800' :
-                        project.status === 'Scheduled' ? 'bg-yellow-100 text-yellow-800' :
-                        project.status === 'Bidded' ? 'bg-purple-100 text-purple-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {project.status || 'Pending'}
-                      </span>
-                    </td>
-                    <td className="p-3 text-black">
-                      {project.bidAmount ? `$${project.bidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}
-                    </td>
-                    <td className="p-3 text-black">
-                      {project.billAmount ? `$${project.billAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}
-                    </td>
-                    <td className="p-3 text-black">
-                      {project.scheduleDate ? format(new Date(project.scheduleDate), 'MMM d, yyyy') : '-'}
-                    </td>
-                    <td className="p-3 text-gray-600 text-sm">
-                      {project.createdAt ? format(new Date(project.createdAt), 'MMM d, yyyy') : 'N/A'}
-                    </td>
-                    <td className="p-3">
-                      <Link 
-                        to={`/projects/${project.customerId}/${project._id}`}
-                        className="text-blue-500 hover:text-blue-700 text-sm"
-                      >
-                        View Details →
-                      </Link>
-                    </td>
+          <>
+            {/* Mobile Card Layout */}
+            <div className="md:hidden space-y-4">
+              {projects.map((project, index) => (
+                <div key={project._id || index} className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <div className="flex justify-between items-start mb-3">
+                    <h3 className="text-lg font-semibold text-black flex-1">{project.name}</h3>
+                    <span className={`px-3 py-1 rounded text-sm ml-2 ${
+                      project.status === 'Completed' ? 'bg-green-100 text-green-800' :
+                      project.status === 'Billed' ? 'bg-blue-100 text-blue-800' :
+                      project.status === 'Scheduled' ? 'bg-yellow-100 text-yellow-800' :
+                      project.status === 'Bidded' ? 'bg-purple-100 text-purple-800' :
+                      'bg-gray-100 text-gray-800'
+                    }`}>
+                      {project.status || 'Pending'}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-2 text-base">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Customer:</span>
+                      <span className="text-black font-medium">{project.customerName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Bid Amount:</span>
+                      <span className="text-black">{project.bidAmount ? `$${project.bidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Bill Amount:</span>
+                      <span className="text-black">{project.billAmount ? `$${project.billAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Schedule Date:</span>
+                      <span className="text-black">{project.scheduleDate ? format(new Date(project.scheduleDate), 'MMM d, yyyy') : '-'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Created:</span>
+                      <span className="text-gray-600">{project.createdAt ? format(new Date(project.createdAt), 'MMM d, yyyy') : 'N/A'}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <Link 
+                      to={`/projects/${project.customerId}/${project._id}`}
+                      className="block w-full bg-blue-500 text-white text-center py-3 rounded hover:bg-blue-600 font-medium"
+                    >
+                      View Details →
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table Layout */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left p-3 text-black text-sm font-semibold">Project Name</th>
+                    <th className="text-left p-3 text-black text-sm font-semibold">Customer</th>
+                    <th className="text-left p-3 text-black text-sm font-semibold">Status</th>
+                    <th className="text-left p-3 text-black text-sm font-semibold">Bid Amount</th>
+                    <th className="text-left p-3 text-black text-sm font-semibold">Bill Amount</th>
+                    <th className="text-left p-3 text-black text-sm font-semibold">Schedule Date</th>
+                    <th className="text-left p-3 text-black text-sm font-semibold">Created</th>
+                    <th className="text-left p-3 text-black text-sm font-semibold">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {projects.map((project, index) => (
+                    <tr key={project._id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="p-3 text-black font-medium text-sm">{project.name}</td>
+                      <td className="p-3 text-black text-sm">{project.customerName}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded text-sm ${
+                          project.status === 'Completed' ? 'bg-green-100 text-green-800' :
+                          project.status === 'Billed' ? 'bg-blue-100 text-blue-800' :
+                          project.status === 'Scheduled' ? 'bg-yellow-100 text-yellow-800' :
+                          project.status === 'Bidded' ? 'bg-purple-100 text-purple-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {project.status || 'Pending'}
+                        </span>
+                      </td>
+                      <td className="p-3 text-black text-sm">
+                        {project.bidAmount ? `$${project.bidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}
+                      </td>
+                      <td className="p-3 text-black text-sm">
+                        {project.billAmount ? `$${project.billAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}
+                      </td>
+                      <td className="p-3 text-black text-sm">
+                        {project.scheduleDate ? format(new Date(project.scheduleDate), 'MMM d, yyyy') : '-'}
+                      </td>
+                      <td className="p-3 text-gray-600 text-sm">
+                        {project.createdAt ? format(new Date(project.createdAt), 'MMM d, yyyy') : 'N/A'}
+                      </td>
+                      <td className="p-3">
+                        <Link 
+                          to={`/projects/${project.customerId}/${project._id}`}
+                          className="text-blue-500 hover:text-blue-700 text-sm font-medium"
+                        >
+                          View Details →
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>

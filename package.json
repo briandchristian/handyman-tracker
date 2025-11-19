@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "start": "node api/index.js",
     "create-admin": "node create-super-admin.js",
+    "reset-admin": "node reset-admin.js",
     "seed-test-data": "node seed-test-data.js",
     "test": "jest",
     "test:watch": "jest --watch",

@@ -203,92 +203,177 @@ export default function Suppliers() {
       {/* Supplier Table */}
       <div className="bg-white border border-gray-300 rounded-lg shadow-sm overflow-hidden">
         {suppliers.length === 0 ? (
-          <div className="p-8 text-center text-gray-600">
+          <div className="p-8 text-center text-gray-600 text-base md:text-sm">
             No suppliers found. {favoritesOnly ? 'Try removing filters.' : 'Add your first supplier to get started!'}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse min-w-[800px]">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left p-4 text-black font-semibold">⭐</th>
-                <th className="text-left p-4 text-black font-semibold">Name</th>
-                <th className="text-left p-4 text-black font-semibold">Contact</th>
-                <th className="text-left p-4 text-black font-semibold">Categories</th>
-                <th className="text-left p-4 text-black font-semibold">Lead Time</th>
-                <th className="text-left p-4 text-black font-semibold">Min Order</th>
-                <th className="text-left p-4 text-black font-semibold">Last Order</th>
-                <th className="text-left p-4 text-black font-semibold">Total Spent</th>
-                <th className="text-left p-4 text-black font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            {/* Mobile Card Layout */}
+            <div className="md:hidden space-y-4 p-4">
               {suppliers.map(supplier => (
-                <tr key={supplier._id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="p-4">
-                    <button
-                      onClick={() => toggleFavorite(supplier._id)}
-                      className="text-2xl hover:scale-110 transition-transform"
-                    >
-                      {supplier.isFavorite ? '⭐' : '☆'}
-                    </button>
-                  </td>
-                  <td className="p-4">
+                <div key={supplier._id} className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <div className="flex justify-between items-start mb-3">
                     <button
                       onClick={() => openSupplierDetail(supplier._id)}
-                      className="text-blue-600 hover:text-blue-800 font-semibold"
+                      className="text-blue-600 hover:text-blue-800 font-semibold text-left text-lg flex-1"
                     >
                       {supplier.name}
                     </button>
-                  </td>
-                  <td className="p-4 text-black text-sm">
-                    <div>{supplier.contactName || '-'}</div>
+                    <button
+                      onClick={() => toggleFavorite(supplier._id)}
+                      className="text-2xl hover:scale-110 transition-transform ml-2"
+                    >
+                      {supplier.isFavorite ? '⭐' : '☆'}
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-2 text-base">
+                    {supplier.contactName && (
+                      <div>
+                        <span className="text-gray-600">Contact: </span>
+                        <span className="text-black">{supplier.contactName}</span>
+                      </div>
+                    )}
                     {supplier.phone && (
-                      <a href={`tel:${supplier.phone}`} className="text-blue-600 hover:underline block">
-                        📞 {supplier.phone}
-                      </a>
+                      <div>
+                        <a href={`tel:${supplier.phone}`} className="text-blue-600 hover:underline">
+                          📞 {supplier.phone}
+                        </a>
+                      </div>
                     )}
                     {supplier.email && (
-                      <a href={`mailto:${supplier.email}`} className="text-blue-600 hover:underline block">
-                        ✉️ {supplier.email}
-                      </a>
+                      <div>
+                        <a href={`mailto:${supplier.email}`} className="text-blue-600 hover:underline">
+                          ✉️ {supplier.email}
+                        </a>
+                      </div>
                     )}
-                  </td>
-                  <td className="p-4">
-                    <div className="flex flex-wrap gap-1">
-                      {supplier.categories?.slice(0, 3).map((cat, idx) => (
-                        <span key={idx} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                          {cat}
-                        </span>
-                      ))}
-                      {supplier.categories?.length > 3 && (
-                        <span className="text-gray-500 text-xs">+{supplier.categories.length - 3}</span>
-                      )}
+                    {supplier.categories && supplier.categories.length > 0 && (
+                      <div>
+                        <span className="text-gray-600">Categories: </span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {supplier.categories.map((cat, idx) => (
+                            <span key={idx} className="bg-blue-100 text-blue-800 text-sm px-2 py-1 rounded">
+                              {cat}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Lead Time:</span>
+                      <span className="text-black">{supplier.leadTimeDays} days</span>
                     </div>
-                  </td>
-                  <td className="p-4 text-black">{supplier.leadTimeDays} days</td>
-                  <td className="p-4 text-black">
-                    {supplier.minimumOrder > 0 ? `$${supplier.minimumOrder}` : '-'}
-                  </td>
-                  <td className="p-4 text-gray-600 text-sm">
-                    {supplier.lastOrderDate ? format(new Date(supplier.lastOrderDate), 'MMM d, yyyy') : 'Never'}
-                  </td>
-                  <td className="p-4 text-black font-semibold">
-                    ${supplier.totalSpent?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}
-                  </td>
-                  <td className="p-4">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Min Order:</span>
+                      <span className="text-black">{supplier.minimumOrder > 0 ? `$${supplier.minimumOrder}` : '-'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Last Order:</span>
+                      <span className="text-gray-600">{supplier.lastOrderDate ? format(new Date(supplier.lastOrderDate), 'MMM d, yyyy') : 'Never'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Total Spent:</span>
+                      <span className="text-black font-semibold">${supplier.totalSpent?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-4 pt-4 border-t border-gray-200">
                     <button
                       onClick={() => openSupplierDetail(supplier._id)}
-                      className="text-blue-600 hover:text-blue-800 text-sm"
+                      className="w-full bg-blue-500 text-white text-center py-3 rounded hover:bg-blue-600 font-medium"
                     >
                       View Details →
                     </button>
-                  </td>
-                </tr>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
-          </div>
+            </div>
+
+            {/* Desktop Table Layout */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full border-collapse min-w-[800px]">
+                <thead>
+                  <tr className="border-b border-gray-200 bg-gray-50">
+                    <th className="text-left p-4 text-black font-semibold text-sm">⭐</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Name</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Contact</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Categories</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Lead Time</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Min Order</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Last Order</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Total Spent</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {suppliers.map(supplier => (
+                    <tr key={supplier._id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="p-4">
+                        <button
+                          onClick={() => toggleFavorite(supplier._id)}
+                          className="text-2xl hover:scale-110 transition-transform"
+                        >
+                          {supplier.isFavorite ? '⭐' : '☆'}
+                        </button>
+                      </td>
+                      <td className="p-4">
+                        <button
+                          onClick={() => openSupplierDetail(supplier._id)}
+                          className="text-blue-600 hover:text-blue-800 font-semibold text-sm"
+                        >
+                          {supplier.name}
+                        </button>
+                      </td>
+                      <td className="p-4 text-black text-sm">
+                        <div>{supplier.contactName || '-'}</div>
+                        {supplier.phone && (
+                          <a href={`tel:${supplier.phone}`} className="text-blue-600 hover:underline block">
+                            📞 {supplier.phone}
+                          </a>
+                        )}
+                        {supplier.email && (
+                          <a href={`mailto:${supplier.email}`} className="text-blue-600 hover:underline block">
+                            ✉️ {supplier.email}
+                          </a>
+                        )}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex flex-wrap gap-1">
+                          {supplier.categories?.slice(0, 3).map((cat, idx) => (
+                            <span key={idx} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                              {cat}
+                            </span>
+                          ))}
+                          {supplier.categories?.length > 3 && (
+                            <span className="text-gray-500 text-xs">+{supplier.categories.length - 3}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-4 text-black text-sm">{supplier.leadTimeDays} days</td>
+                      <td className="p-4 text-black text-sm">
+                        {supplier.minimumOrder > 0 ? `$${supplier.minimumOrder}` : '-'}
+                      </td>
+                      <td className="p-4 text-gray-600 text-sm">
+                        {supplier.lastOrderDate ? format(new Date(supplier.lastOrderDate), 'MMM d, yyyy') : 'Never'}
+                      </td>
+                      <td className="p-4 text-black font-semibold text-sm">
+                        ${supplier.totalSpent?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}
+                      </td>
+                      <td className="p-4">
+                        <button
+                          onClick={() => openSupplierDetail(supplier._id)}
+                          className="text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                          View Details →
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
@@ -410,9 +495,9 @@ function SupplierModal({ supplier, onClose }) {
         <div className="p-6">
           {activeTab === 'details' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="supplier-name" className="block text-sm font-medium text-black mb-1">Supplier Name *</label>
+                  <label htmlFor="supplier-name" className="block text-base md:text-sm font-medium text-black mb-2">Supplier Name *</label>
                   <input
                     id="supplier-name"
                     type="text"
@@ -433,9 +518,9 @@ function SupplierModal({ supplier, onClose }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="supplier-phone" className="block text-sm font-medium text-black mb-1">Phone</label>
+                  <label htmlFor="supplier-phone" className="block text-base md:text-sm font-medium text-black mb-2">Phone</label>
                   <input
                     id="supplier-phone"
                     type="tel"
@@ -468,9 +553,9 @@ function SupplierModal({ supplier, onClose }) {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="lead-time-days" className="block text-sm font-medium text-black mb-1">Lead Time (days)</label>
+                  <label htmlFor="lead-time-days" className="block text-base md:text-sm font-medium text-black mb-2">Lead Time (days)</label>
                   <input
                     id="lead-time-days"
                     type="number"
@@ -758,9 +843,9 @@ function POCreationModal({ poData, suppliers, onClose, onSuccess }) {
           )}
 
           {/* Additional Details */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="po-expected-delivery" className="block text-sm font-medium text-black mb-1">
+              <label htmlFor="po-expected-delivery" className="block text-base md:text-sm font-medium text-black mb-2">
                 Expected Delivery Date (Optional)
               </label>
               <div className="relative">
@@ -1022,9 +1107,9 @@ function CatalogTab({ supplier, onUpdate }) {
       {showAddForm && (
         <div className="bg-white border-2 border-blue-400 rounded-lg p-4 mb-4">
           <h4 className="font-bold text-black mb-3">Add Catalog Item</h4>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             <div>
-              <label htmlFor="cat-sku" className="block text-sm font-medium text-black mb-1">SKU</label>
+              <label htmlFor="cat-sku" className="block text-base md:text-sm font-medium text-black mb-2">SKU</label>
               <input
                 id="cat-sku"
                 name="cat-sku"
@@ -1166,9 +1251,9 @@ function CatalogTab({ supplier, onUpdate }) {
 
       {/* Quick Stats */}
       {catalogItems.length > 0 && (
-        <div className="mt-4 grid grid-cols-3 gap-4">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-gray-50 border border-gray-300 rounded p-3">
-            <p className="text-sm text-gray-600">Total Items</p>
+            <p className="text-base md:text-sm text-gray-600">Total Items</p>
             <p className="text-2xl font-bold text-black">{catalogItems.length}</p>
           </div>
           <div className="bg-gray-50 border border-gray-300 rounded p-3">

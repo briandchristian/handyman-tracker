@@ -157,15 +157,15 @@ export default function Customers() {
   };
 
   return (
-    <div className="p-6 text-black h-screen flex flex-col">
+    <div className="p-4 md:p-6 text-black h-screen flex flex-col">
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl text-black">Customers</h1>
-        <div className="flex gap-2">
-          <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+        <h1 className="text-2xl md:text-2xl text-black">Customers</h1>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Link to="/" className="bg-blue-500 text-white px-4 py-3 md:py-2 rounded hover:bg-blue-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
             Dashboard
           </Link>
-          <button onClick={handleLogout} className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
+          <button onClick={handleLogout} className="bg-red-500 text-white px-4 py-3 md:py-2 rounded hover:bg-red-600 text-base md:text-sm font-medium flex-1 sm:flex-none">
             Logout
           </button>
         </div>
@@ -178,132 +178,228 @@ export default function Customers() {
           
           {/* Add Customer Form */}
           <div className="mb-6 pb-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium mb-3 text-black">Add New Customer</h3>
-            <div className="flex gap-2 flex-wrap">
+            <h3 className="text-lg md:text-lg font-medium mb-3 text-black">Add New Customer</h3>
+            <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
               <input 
                 placeholder="Name" 
                 value={newCustomer.name} 
                 onChange={e => setNewCustomer({ ...newCustomer, name: e.target.value })} 
-                className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[150px]" 
+                className="p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[150px] text-base md:text-sm" 
               />
               <input 
                 placeholder="Email" 
                 value={newCustomer.email} 
                 onChange={e => setNewCustomer({ ...newCustomer, email: e.target.value })} 
-                className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[150px]" 
+                className="p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[150px] text-base md:text-sm" 
               />
               <input 
                 placeholder="Phone (XXX-XXX-XXXX)" 
                 value={newCustomer.phone} 
                 onChange={handlePhoneChange} 
                 maxLength="12" 
-                className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[120px]" 
+                className="p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[120px] text-base md:text-sm" 
               />
               <input 
                 placeholder="Address" 
                 value={newCustomer.address} 
                 onChange={e => setNewCustomer({ ...newCustomer, address: e.target.value })} 
-                className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[150px]" 
+                className="p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[150px] text-base md:text-sm" 
               />
-              <button onClick={addCustomer} className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+              <button onClick={addCustomer} className="bg-green-500 text-white px-4 py-3 md:py-2 rounded hover:bg-green-600 text-base md:text-sm font-medium w-full sm:w-auto">
                 Add Customer
               </button>
             </div>
           </div>
           
           {/* Customers List */}
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse border">
-        <thead>
-          <tr className="text-black bg-gray-50">
-            <th className="text-black text-left p-3 border-b">Name</th>
-            <th className="text-black text-left p-3 border-b">Email</th>
-            <th className="text-black text-left p-3 border-b">Phone</th>
-            <th className="text-black text-left p-3 border-b">Address</th>
-            <th className="text-black text-left p-3 border-b">Projects</th>
-            <th className="text-black text-left p-3 border-b">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {customers.map(cust => (
-            <tr key={cust._id} className="text-black">
-              {editingCustomerId === cust._id ? (
-                <>
-                  <td className="p-2">
-                    <input 
-                      value={editCustomer.name} 
-                      onChange={e => setEditCustomer({ ...editCustomer, name: e.target.value })} 
-                      className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black"
-                    />
-                  </td>
-                  <td className="p-2">
-                    <input 
-                      value={editCustomer.email} 
-                      onChange={e => setEditCustomer({ ...editCustomer, email: e.target.value })} 
-                      className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black"
-                    />
-                  </td>
-                  <td className="p-2">
-                    <input 
-                      value={editCustomer.phone} 
-                      onChange={handleEditPhoneChange} 
-                      maxLength="12"
-                      className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black"
-                    />
-                  </td>
-                  <td className="p-2">
-                    <input 
-                      value={editCustomer.address} 
-                      onChange={e => setEditCustomer({ ...editCustomer, address: e.target.value })} 
-                      className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black"
-                    />
-                  </td>
-                  <td className="p-2 text-gray-500 text-sm">
-                    (Editing...)
-                  </td>
-                  <td className="p-2">
-                    <div className="flex gap-1">
-                      <button onClick={() => saveCustomer(cust._id)} className="bg-green-500 text-white px-2 py-1 rounded text-sm hover:bg-green-600">
+          {/* Mobile Card Layout */}
+          <div className="md:hidden space-y-4">
+            {customers.map(cust => (
+              <div key={cust._id} className="border border-gray-200 rounded-lg p-4 bg-white">
+                {editingCustomerId === cust._id ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                      <input 
+                        value={editCustomer.name} 
+                        onChange={e => setEditCustomer({ ...editCustomer, name: e.target.value })} 
+                        className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                      <input 
+                        value={editCustomer.email} 
+                        onChange={e => setEditCustomer({ ...editCustomer, email: e.target.value })} 
+                        className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                      <input 
+                        value={editCustomer.phone} 
+                        onChange={handleEditPhoneChange} 
+                        maxLength="12"
+                        className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                      <input 
+                        value={editCustomer.address} 
+                        onChange={e => setEditCustomer({ ...editCustomer, address: e.target.value })} 
+                        className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
+                      />
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <button onClick={() => saveCustomer(cust._id)} className="flex-1 bg-green-500 text-white px-4 py-3 rounded text-base hover:bg-green-600 font-medium">
                         Save
                       </button>
-                      <button onClick={cancelEditing} className="bg-gray-500 text-white px-2 py-1 rounded text-sm hover:bg-gray-600">
+                      <button onClick={cancelEditing} className="flex-1 bg-gray-500 text-white px-4 py-3 rounded text-base hover:bg-gray-600 font-medium">
                         Cancel
                       </button>
                     </div>
-                  </td>
-                </>
-              ) : (
-                <>
-                  <td className="text-black p-2">{cust.name}</td>
-                  <td className="text-black p-2">{cust.email}</td>
-                  <td className="text-black p-2">{cust.phone}</td>
-                  <td className="text-black p-2">{cust.address}</td>
-                  <td className="p-2">
-                    {cust.projects && cust.projects.length > 0 ? (
-                      cust.projects.map(proj => (
-                        <div key={proj._id}>
-                          <Link to={`/projects/${cust._id}/${proj._id}`} className="text-blue-500">{proj.name}</Link>
-                        </div>
-                      ))
-                    ) : (
-                      <span className="text-gray-500">No projects</span>
-                    )}
-                  </td>
-                  <td className="p-2">
-                    <div className="flex gap-1">
-                      <button onClick={() => startEditing(cust)} className="bg-blue-500 text-white px-2 py-1 rounded text-sm hover:bg-blue-600">
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-3">
+                      <h3 className="text-lg font-semibold text-black">{cust.name}</h3>
+                    </div>
+                    <div className="space-y-2 text-base">
+                      <div>
+                        <span className="text-gray-600">Email: </span>
+                        <span className="text-black">{cust.email}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Phone: </span>
+                        <span className="text-black">{cust.phone}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Address: </span>
+                        <span className="text-black">{cust.address || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Projects: </span>
+                        {cust.projects && cust.projects.length > 0 ? (
+                          <div className="mt-1 space-y-1">
+                            {cust.projects.map(proj => (
+                              <div key={proj._id}>
+                                <Link to={`/projects/${cust._id}/${proj._id}`} className="text-blue-500 hover:underline">{proj.name}</Link>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-500">No projects</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-4 border-t border-gray-200 flex gap-2">
+                      <button onClick={() => startEditing(cust)} className="flex-1 bg-blue-500 text-white px-4 py-3 rounded text-base hover:bg-blue-600 font-medium">
                         Edit
                       </button>
-                      <button onClick={() => deleteCustomer(cust._id)} className="bg-red-500 text-white px-2 py-1 rounded text-sm hover:bg-red-600">
+                      <button onClick={() => deleteCustomer(cust._id)} className="flex-1 bg-red-500 text-white px-4 py-3 rounded text-base hover:bg-red-600 font-medium">
                         Delete
                       </button>
                     </div>
-                  </td>
-                </>
-              )}
-            </tr>
-          ))}
-        </tbody>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop Table Layout */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full border-collapse border">
+              <thead>
+                <tr className="text-black bg-gray-50">
+                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Name</th>
+                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Email</th>
+                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Phone</th>
+                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Address</th>
+                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Projects</th>
+                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers.map(cust => (
+                  <tr key={cust._id} className="text-black">
+                    {editingCustomerId === cust._id ? (
+                      <>
+                        <td className="p-2">
+                          <input 
+                            value={editCustomer.name} 
+                            onChange={e => setEditCustomer({ ...editCustomer, name: e.target.value })} 
+                            className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input 
+                            value={editCustomer.email} 
+                            onChange={e => setEditCustomer({ ...editCustomer, email: e.target.value })} 
+                            className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input 
+                            value={editCustomer.phone} 
+                            onChange={handleEditPhoneChange} 
+                            maxLength="12"
+                            className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input 
+                            value={editCustomer.address} 
+                            onChange={e => setEditCustomer({ ...editCustomer, address: e.target.value })} 
+                            className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                          />
+                        </td>
+                        <td className="p-2 text-gray-500 text-sm">
+                          (Editing...)
+                        </td>
+                        <td className="p-2">
+                          <div className="flex gap-1">
+                            <button onClick={() => saveCustomer(cust._id)} className="bg-green-500 text-white px-2 py-1 rounded text-sm hover:bg-green-600">
+                              Save
+                            </button>
+                            <button onClick={cancelEditing} className="bg-gray-500 text-white px-2 py-1 rounded text-sm hover:bg-gray-600">
+                              Cancel
+                            </button>
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="text-black p-2 text-sm">{cust.name}</td>
+                        <td className="text-black p-2 text-sm">{cust.email}</td>
+                        <td className="text-black p-2 text-sm">{cust.phone}</td>
+                        <td className="text-black p-2 text-sm">{cust.address}</td>
+                        <td className="p-2">
+                          {cust.projects && cust.projects.length > 0 ? (
+                            cust.projects.map(proj => (
+                              <div key={proj._id} className="mb-1">
+                                <Link to={`/projects/${cust._id}/${proj._id}`} className="text-blue-500 text-sm hover:underline">{proj.name}</Link>
+                              </div>
+                            ))
+                          ) : (
+                            <span className="text-gray-500 text-sm">No projects</span>
+                          )}
+                        </td>
+                        <td className="p-2">
+                          <div className="flex gap-1">
+                            <button onClick={() => startEditing(cust)} className="bg-blue-500 text-white px-2 py-1 rounded text-sm hover:bg-blue-600">
+                              Edit
+                            </button>
+                            <button onClick={() => deleteCustomer(cust._id)} className="bg-red-500 text-white px-2 py-1 rounded text-sm hover:bg-red-600">
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         </div>
@@ -316,13 +412,13 @@ export default function Customers() {
           
           {/* Search Customer */}
           <div className="mb-4">
-            <label className="block text-gray-700 mb-2 font-medium">Search Customer</label>
+            <label className="block text-gray-700 mb-2 font-medium text-base md:text-sm">Search Customer</label>
             <input 
               type="text"
               placeholder="Type customer name to search..." 
               value={searchQuery} 
               onChange={handleSearch}
-              className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black"
+              className="w-full p-4 md:p-3 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
             />
           </div>
           
@@ -371,23 +467,23 @@ export default function Customers() {
               
               {/* Add New Project Form */}
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <h3 className="text-lg font-semibold text-black mb-3">Add New Project</h3>
-                <div className="flex gap-2">
+                <h3 className="text-lg md:text-lg font-semibold text-black mb-3">Add New Project</h3>
+                <div className="flex flex-col sm:flex-row gap-3">
                   <input 
                     placeholder="Project Name" 
                     value={newProject.name} 
                     onChange={e => setNewProject({ ...newProject, name: e.target.value })} 
-                    className="p-2 border border-gray-300 rounded bg-white text-black flex-1" 
+                    className="p-4 md:p-2 border border-gray-300 rounded bg-white text-black flex-1 text-base md:text-sm" 
                   />
                   <input 
                     placeholder="Description" 
                     value={newProject.description} 
                     onChange={e => setNewProject({ ...newProject, description: e.target.value })} 
-                    className="p-2 border border-gray-300 rounded bg-white text-black flex-1" 
+                    className="p-4 md:p-2 border border-gray-300 rounded bg-white text-black flex-1 text-base md:text-sm" 
                   />
                   <button 
                     onClick={addProject} 
-                    className="bg-green-500 text-white px-6 py-2 rounded hover:bg-green-600 font-medium"
+                    className="bg-green-500 text-white px-6 py-4 md:py-2 rounded hover:bg-green-600 font-medium text-base md:text-sm w-full sm:w-auto"
                   >
                     Add Project
                   </button>

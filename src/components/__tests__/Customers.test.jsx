@@ -351,8 +351,9 @@ describe('Customers Component', () => {
         expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
       });
 
-      // Project should be visible directly in the table
-      expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
+      // Project should be visible directly in the table - may appear multiple times
+      const projectLinks = screen.queryAllByText('Kitchen Remodel');
+      expect(projectLinks.length).toBeGreaterThan(0);
     });
   });
 

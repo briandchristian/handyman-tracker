@@ -148,20 +148,20 @@ export default function Inventory() {
   }
 
   return (
-    <div className="p-6 text-black">
+    <div className="p-4 md:p-6 text-black">
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-          <div className="flex gap-2 flex-wrap">
-            <Link to="/" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 text-sm md:text-base">
+          <div className="flex gap-2 flex-wrap w-full sm:w-auto">
+            <Link to="/" className="bg-blue-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-blue-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
               Dashboard
             </Link>
-            <Link to="/suppliers" className="bg-green-500 text-white px-3 py-2 rounded hover:bg-green-600 text-sm md:text-base">
+            <Link to="/suppliers" className="bg-green-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-green-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
               Suppliers
             </Link>
             <button
               onClick={() => setShowScanner(true)}
-              className="bg-purple-500 text-white px-3 py-2 rounded hover:bg-purple-600 text-sm md:text-base"
+              className="bg-purple-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-purple-600 text-base md:text-sm font-medium flex-1 sm:flex-none"
             >
               📱 Scan Barcode
             </button>
@@ -180,39 +180,39 @@ export default function Inventory() {
               });
               setShowModal(true);
             }}
-            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 text-sm md:text-base w-full sm:w-auto"
+            className="bg-blue-500 text-white px-4 py-3 md:py-2 rounded hover:bg-blue-600 text-base md:text-sm font-medium w-full sm:w-auto"
           >
             + Add Item
           </button>
         </div>
         <h1 className="text-2xl md:text-3xl font-bold text-black">Inventory Management</h1>
-        <p className="text-gray-600 mt-2">Track stock levels and manage par levels</p>
+        <p className="text-gray-600 mt-2 text-base md:text-sm">Track stock levels and manage par levels</p>
       </div>
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <p className="text-gray-600 text-sm">Total Items</p>
+        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+          <p className="text-gray-600 text-base md:text-sm">Total Items</p>
           <p className="text-3xl font-bold text-black">{stats.total}</p>
         </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <p className="text-gray-600 text-sm">Good Stock</p>
+        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+          <p className="text-gray-600 text-base md:text-sm">Good Stock</p>
           <p className="text-3xl font-bold text-green-600">{stats.goodStock}</p>
         </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4 cursor-pointer hover:bg-gray-50" onClick={() => setStockFilter('low')}>
-          <p className="text-gray-600 text-sm">Low Stock</p>
+        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4 cursor-pointer hover:bg-gray-50" onClick={() => setStockFilter('low')}>
+          <p className="text-gray-600 text-base md:text-sm">Low Stock</p>
           <p className="text-3xl font-bold text-orange-600">{stats.lowStock}</p>
         </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4 cursor-pointer hover:bg-gray-50" onClick={() => setStockFilter('out')}>
-          <p className="text-gray-600 text-sm">Out of Stock</p>
+        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4 cursor-pointer hover:bg-gray-50" onClick={() => setStockFilter('out')}>
+          <p className="text-gray-600 text-base md:text-sm">Out of Stock</p>
           <p className="text-3xl font-bold text-red-600">{stats.outOfStock}</p>
         </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <p className="text-gray-600 text-sm">Auto-Reorder</p>
+        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+          <p className="text-gray-600 text-base md:text-sm">Auto-Reorder</p>
           <p className="text-3xl font-bold text-purple-600">{stats.autoReorder}</p>
         </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <p className="text-gray-600 text-sm">Est. Value</p>
+        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+          <p className="text-gray-600 text-base md:text-sm">Est. Value</p>
           <p className="text-2xl font-bold text-black">
             ${stats.totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}
           </p>
@@ -220,10 +220,10 @@ export default function Inventory() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
+      <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
-            <label htmlFor="search-inventory" className="block text-sm font-medium text-black mb-1">Search</label>
+            <label htmlFor="search-inventory" className="block text-base md:text-sm font-medium text-black mb-2">Search</label>
             <input
               id="search-inventory"
               name="search-inventory"
@@ -231,17 +231,17 @@ export default function Inventory() {
               placeholder="Search by name or SKU..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
             />
           </div>
           <div>
-            <label htmlFor="category-filter" className="block text-sm font-medium text-black mb-1">Category</label>
+            <label htmlFor="category-filter" className="block text-base md:text-sm font-medium text-black mb-2">Category</label>
             <select
               id="category-filter"
               name="category-filter"
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
             >
               <option value="">All Categories</option>
               {categories.map(cat => (
@@ -250,13 +250,13 @@ export default function Inventory() {
             </select>
           </div>
           <div>
-            <label htmlFor="stock-filter" className="block text-sm font-medium text-black mb-1">Stock Status</label>
+            <label htmlFor="stock-filter" className="block text-base md:text-sm font-medium text-black mb-2">Stock Status</label>
             <select
               id="stock-filter"
               name="stock-filter"
               value={stockFilter}
               onChange={(e) => setStockFilter(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
             >
               <option value="">All Stock Levels</option>
               <option value="low">Low Stock Only</option>
@@ -270,7 +270,7 @@ export default function Inventory() {
                 setCategoryFilter('');
                 setStockFilter('');
               }}
-              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+              className="text-blue-600 hover:text-blue-800 text-base md:text-sm font-medium py-3 md:py-0"
             >
               Clear Filters
             </button>
@@ -282,7 +282,7 @@ export default function Inventory() {
       <div className="bg-white border border-gray-300 rounded-lg shadow-sm overflow-hidden">
         {filteredItems.length === 0 ? (
           <div className="p-8 text-center">
-            <p className="text-gray-600 mb-4">
+            <p className="text-gray-600 mb-4 text-base md:text-sm">
               {items.length === 0 ? 'No inventory items yet.' : 'No items match your filters.'}
             </p>
             {items.length === 0 && (
@@ -300,94 +300,176 @@ export default function Inventory() {
                   });
                   setShowModal(true);
                 }}
-                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                className="bg-blue-500 text-white px-4 py-3 md:py-2 rounded hover:bg-blue-600 text-base md:text-sm font-medium"
               >
                 Add Your First Item
               </button>
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse min-w-[900px]">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left p-4 text-black font-semibold">Item Name</th>
-                <th className="text-left p-4 text-black font-semibold">SKU</th>
-                <th className="text-left p-4 text-black font-semibold">Category</th>
-                <th className="text-left p-4 text-black font-semibold">Stock</th>
-                <th className="text-left p-4 text-black font-semibold">Par Level</th>
-                <th className="text-left p-4 text-black font-semibold">Status</th>
-                <th className="text-left p-4 text-black font-semibold">Supplier</th>
-                <th className="text-left p-4 text-black font-semibold">Auto-Reorder</th>
-                <th className="text-left p-4 text-black font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            {/* Mobile Card Layout */}
+            <div className="md:hidden space-y-4 p-4">
               {filteredItems.map(item => {
                 const stockStatus = getStockStatus(item);
                 return (
-                  <tr key={item._id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="p-4">
+                  <div key={item._id} className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <div className="flex justify-between items-start mb-3">
                       <button
                         onClick={() => openItemDetail(item)}
-                        className="text-blue-600 hover:text-blue-800 font-semibold text-left"
+                        className="text-blue-600 hover:text-blue-800 font-semibold text-left text-lg flex-1"
                       >
                         {item.name}
                       </button>
-                    </td>
-                    <td className="p-4 text-gray-600 text-sm">{item.sku || '-'}</td>
-                    <td className="p-4">
-                      {item.category && (
-                        <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                          {item.category}
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-black font-semibold">{item.currentStock}</span>
-                        <span className="text-gray-600 text-sm">{item.unit}</span>
-                        <button
-                          onClick={() => openStockAdjust(item)}
-                          className="text-blue-600 hover:text-blue-800 text-xs"
-                          title="Adjust stock"
-                        >
-                          ±
-                        </button>
-                      </div>
-                    </td>
-                    <td className="p-4 text-black">{item.parLevel || '-'}</td>
-                    <td className="p-4">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${getStockBadge(stockStatus)}`}>
+                      <span className={`px-3 py-1 rounded text-sm ml-2 ${getStockBadge(stockStatus)}`}>
                         {getStockLabel(stockStatus)}
                       </span>
-                    </td>
-                    <td className="p-4 text-gray-600 text-sm">
-                      {item.preferredSupplier?.name || '-'}
-                    </td>
-                    <td className="p-4 text-center">
-                      {item.autoReorder ? (
-                        <span className="text-green-600 font-bold" title="Auto-reorder enabled">✓</span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
+                    </div>
+                    
+                    <div className="space-y-2 text-base">
+                      {item.sku && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">SKU:</span>
+                          <span className="text-black">{item.sku}</span>
+                        </div>
                       )}
-                    </td>
-                    <td className="p-4">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => openItemDetail(item)}
-                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                        >
-                          Edit
-                        </button>
+                      {item.category && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">Category:</span>
+                          <span className="bg-blue-100 text-blue-800 text-sm px-3 py-1 rounded">
+                            {item.category}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Stock:</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-black font-semibold">{item.currentStock} {item.unit}</span>
+                          <button
+                            onClick={() => openStockAdjust(item)}
+                            className="text-blue-600 hover:text-blue-800 text-base font-bold px-2 py-1 bg-blue-50 rounded"
+                            title="Adjust stock"
+                          >
+                            ±
+                          </button>
+                        </div>
                       </div>
-                    </td>
-                  </tr>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Par Level:</span>
+                        <span className="text-black">{item.parLevel || '-'}</span>
+                      </div>
+                      {item.preferredSupplier?.name && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Supplier:</span>
+                          <span className="text-black">{item.preferredSupplier.name}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Auto-Reorder:</span>
+                        {item.autoReorder ? (
+                          <span className="text-green-600 font-bold text-lg" title="Auto-reorder enabled">✓</span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <button
+                        onClick={() => openItemDetail(item)}
+                        className="w-full bg-blue-500 text-white text-center py-3 rounded hover:bg-blue-600 font-medium"
+                      >
+                        Edit Item
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
-          </div>
+            </div>
+
+            {/* Desktop Table Layout */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full border-collapse min-w-[900px]">
+                <thead>
+                  <tr className="border-b border-gray-200 bg-gray-50">
+                    <th className="text-left p-4 text-black font-semibold text-sm">Item Name</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">SKU</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Category</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Stock</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Par Level</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Status</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Supplier</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Auto-Reorder</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredItems.map(item => {
+                    const stockStatus = getStockStatus(item);
+                    return (
+                      <tr key={item._id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="p-4">
+                          <button
+                            onClick={() => openItemDetail(item)}
+                            className="text-blue-600 hover:text-blue-800 font-semibold text-left text-sm"
+                          >
+                            {item.name}
+                          </button>
+                        </td>
+                        <td className="p-4 text-gray-600 text-sm">{item.sku || '-'}</td>
+                        <td className="p-4">
+                          {item.category && (
+                            <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                              {item.category}
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-black font-semibold text-sm">{item.currentStock}</span>
+                            <span className="text-gray-600 text-sm">{item.unit}</span>
+                            <button
+                              onClick={() => openStockAdjust(item)}
+                              className="text-blue-600 hover:text-blue-800 text-xs font-bold px-2 py-1"
+                              title="Adjust stock"
+                            >
+                              ±
+                            </button>
+                          </div>
+                        </td>
+                        <td className="p-4 text-black text-sm">{item.parLevel || '-'}</td>
+                        <td className="p-4">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${getStockBadge(stockStatus)}`}>
+                            {getStockLabel(stockStatus)}
+                          </span>
+                        </td>
+                        <td className="p-4 text-gray-600 text-sm">
+                          {item.preferredSupplier?.name || '-'}
+                        </td>
+                        <td className="p-4 text-center">
+                          {item.autoReorder ? (
+                            <span className="text-green-600 font-bold" title="Auto-reorder enabled">✓</span>
+                          ) : (
+                            <span className="text-gray-300">-</span>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => openItemDetail(item)}
+                              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
@@ -483,68 +565,69 @@ function ItemModal({ item, suppliers, onClose, onSave }) {
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         {/* Modal Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-300 p-6 flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-black">
+        <div className="sticky top-0 bg-white border-b border-gray-300 p-4 md:p-6 flex justify-between items-center">
+          <h2 className="text-xl md:text-2xl font-bold text-black">
             {item.isNew ? 'Add Inventory Item' : 'Edit Inventory Item'}
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-600 hover:text-gray-900 text-2xl font-bold"
+            className="text-gray-600 hover:text-gray-900 text-3xl md:text-2xl font-bold w-11 h-11 md:w-8 md:h-8 flex items-center justify-center min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
+            aria-label="Close"
           >
             ×
           </button>
         </div>
 
         {/* Modal Content */}
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+        <div className="p-4 md:p-6 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="item-name" className="block text-sm font-medium text-black mb-1">Item Name *</label>
+              <label htmlFor="item-name" className="block text-base md:text-sm font-medium text-black mb-2">Item Name *</label>
               <input
                 id="item-name"
                 name="item-name"
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
                 placeholder="e.g., 2x4 Lumber (8ft)"
               />
             </div>
             <div>
-              <label htmlFor="item-sku" className="block text-sm font-medium text-black mb-1">SKU</label>
+              <label htmlFor="item-sku" className="block text-base md:text-sm font-medium text-black mb-2">SKU</label>
               <input
                 id="item-sku"
                 name="item-sku"
                 type="text"
                 value={formData.sku}
                 onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
                 placeholder="e.g., LUM-2X4-8"
               />
             </div>
           </div>
 
           <div>
-            <label htmlFor="item-description" className="block text-sm font-medium text-black mb-1">Description</label>
+            <label htmlFor="item-description" className="block text-base md:text-sm font-medium text-black mb-2">Description</label>
             <textarea
               id="item-description"
               name="item-description"
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full p-2 border border-gray-300 rounded text-black bg-white h-20 resize-none"
+              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white h-24 md:h-20 resize-none text-base md:text-sm"
               placeholder="Additional details about this item..."
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="item-category" className="block text-sm font-medium text-black mb-1">Category</label>
+              <label htmlFor="item-category" className="block text-base md:text-sm font-medium text-black mb-2">Category</label>
               <select
                 id="item-category"
                 name="item-category"
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
               >
                 <option value="">Select Category</option>
                 {categories.map(cat => (
@@ -553,13 +636,13 @@ function ItemModal({ item, suppliers, onClose, onSave }) {
               </select>
             </div>
             <div>
-              <label htmlFor="item-unit" className="block text-sm font-medium text-black mb-1">Unit</label>
+              <label htmlFor="item-unit" className="block text-base md:text-sm font-medium text-black mb-2">Unit</label>
               <select
                 id="item-unit"
                 name="item-unit"
                 value={formData.unit}
                 onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
               >
                 {units.map(unit => (
                   <option key={unit} value={unit}>{unit}</option>
@@ -568,23 +651,23 @@ function ItemModal({ item, suppliers, onClose, onSave }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="current-stock" className="block text-sm font-medium text-black mb-1">Current Stock</label>
+              <label htmlFor="current-stock" className="block text-base md:text-sm font-medium text-black mb-2">Current Stock</label>
               <input
                 id="current-stock"
                 name="current-stock"
                 type="number"
                 value={formData.currentStock}
                 onChange={(e) => setFormData({ ...formData, currentStock: parseInt(e.target.value) || 0 })}
-                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
                 min="0"
               />
             </div>
             <div>
-              <label htmlFor="par-level" className="block text-sm font-medium text-black mb-1">
+              <label htmlFor="par-level" className="block text-base md:text-sm font-medium text-black mb-2">
                 Par Level
-                <span className="text-gray-500 text-xs ml-1">(Minimum stock)</span>
+                <span className="text-gray-500 text-sm md:text-xs ml-1">(Minimum stock)</span>
               </label>
               <input
                 id="par-level"
@@ -592,20 +675,20 @@ function ItemModal({ item, suppliers, onClose, onSave }) {
                 type="number"
                 value={formData.parLevel}
                 onChange={(e) => setFormData({ ...formData, parLevel: parseInt(e.target.value) || 0 })}
-                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
                 min="0"
               />
             </div>
           </div>
 
           <div>
-            <label htmlFor="preferred-supplier" className="block text-sm font-medium text-black mb-1">Preferred Supplier</label>
+            <label htmlFor="preferred-supplier" className="block text-base md:text-sm font-medium text-black mb-2">Preferred Supplier</label>
             <select
               id="preferred-supplier"
               name="preferred-supplier"
               value={formData.preferredSupplier}
               onChange={(e) => setFormData({ ...formData, preferredSupplier: e.target.value })}
-              className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
             >
               <option value="">No Supplier</option>
               {suppliers.map(supplier => (
@@ -633,16 +716,16 @@ function ItemModal({ item, suppliers, onClose, onSave }) {
         </div>
 
         {/* Modal Footer */}
-        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-300 p-6 flex justify-end gap-3">
+        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-300 p-4 md:p-6 flex flex-col sm:flex-row justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded text-black bg-white hover:bg-gray-100 font-medium"
+            className="px-6 py-3 md:px-4 md:py-2 border border-gray-300 rounded text-black bg-white hover:bg-gray-100 font-medium text-base md:text-sm w-full sm:w-auto"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 font-medium"
+            className="px-6 py-3 md:px-4 md:py-2 bg-blue-500 text-white rounded hover:bg-blue-600 font-medium text-base md:text-sm w-full sm:w-auto"
           >
             {item.isNew ? 'Create Item' : 'Save Changes'}
           </button>
@@ -689,35 +772,36 @@ function StockAdjustModal({ item, onClose, onSave }) {
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
         {/* Modal Header */}
-        <div className="bg-white border-b border-gray-300 p-6 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-black">Adjust Stock</h2>
+        <div className="bg-white border-b border-gray-300 p-4 md:p-6 flex justify-between items-center">
+          <h2 className="text-xl md:text-xl font-bold text-black">Adjust Stock</h2>
           <button
             onClick={onClose}
-            className="text-gray-600 hover:text-gray-900 text-2xl font-bold"
+            className="text-gray-600 hover:text-gray-900 text-3xl md:text-2xl font-bold w-11 h-11 md:w-8 md:h-8 flex items-center justify-center min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
+            aria-label="Close"
           >
             ×
           </button>
         </div>
 
         {/* Modal Content */}
-        <div className="p-6 space-y-4">
+        <div className="p-4 md:p-6 space-y-4">
           <div>
-            <p className="font-semibold text-black text-lg">{item.name}</p>
-            <p className="text-sm text-gray-600">Current Stock: {item.currentStock} {item.unit}</p>
+            <p className="font-semibold text-black text-lg md:text-lg">{item.name}</p>
+            <p className="text-base md:text-sm text-gray-600 mt-1">Current Stock: {item.currentStock} {item.unit}</p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-black mb-2">Adjustment Type</label>
-            <div className="flex gap-4">
+            <label className="block text-base md:text-sm font-medium text-black mb-3">Adjustment Type</label>
+            <div className="flex flex-col sm:flex-row gap-4">
               <label className="flex items-center cursor-pointer">
                 <input
                   type="radio"
                   name="adjustment-type"
                   checked={adjustmentType === 'add'}
                   onChange={() => setAdjustmentType('add')}
-                  className="mr-2"
+                  className="mr-3 w-5 h-5 md:w-4 md:h-4"
                 />
-                <span className="text-black">➕ Add Stock (Restock)</span>
+                <span className="text-black text-base md:text-sm">➕ Add Stock (Restock)</span>
               </label>
               <label className="flex items-center cursor-pointer">
                 <input
@@ -725,15 +809,15 @@ function StockAdjustModal({ item, onClose, onSave }) {
                   name="adjustment-type"
                   checked={adjustmentType === 'remove'}
                   onChange={() => setAdjustmentType('remove')}
-                  className="mr-2"
+                  className="mr-3 w-5 h-5 md:w-4 md:h-4"
                 />
-                <span className="text-black">➖ Remove Stock (Used)</span>
+                <span className="text-black text-base md:text-sm">➖ Remove Stock (Used)</span>
               </label>
             </div>
           </div>
 
           <div>
-            <label htmlFor="adjustment-amount" className="block text-sm font-medium text-black mb-1">
+            <label htmlFor="adjustment-amount" className="block text-base md:text-sm font-medium text-black mb-2">
               Amount to {adjustmentType === 'add' ? 'Add' : 'Remove'}
             </label>
             <input
@@ -742,14 +826,14 @@ function StockAdjustModal({ item, onClose, onSave }) {
               type="number"
               value={adjustment}
               onChange={(e) => setAdjustment(parseInt(e.target.value) || 0)}
-              className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
               min="0"
               placeholder="Enter quantity"
             />
           </div>
 
           <div>
-            <label htmlFor="adjustment-reason" className="block text-sm font-medium text-black mb-1">
+            <label htmlFor="adjustment-reason" className="block text-base md:text-sm font-medium text-black mb-2">
               Reason (Optional)
             </label>
             <input
@@ -758,7 +842,7 @@ function StockAdjustModal({ item, onClose, onSave }) {
               type="text"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
               placeholder="e.g., Restock from supplier, Used on job"
             />
           </div>
@@ -786,16 +870,16 @@ function StockAdjustModal({ item, onClose, onSave }) {
         </div>
 
         {/* Modal Footer */}
-        <div className="bg-gray-50 border-t border-gray-300 p-6 flex justify-end gap-3">
+        <div className="bg-gray-50 border-t border-gray-300 p-4 md:p-6 flex flex-col sm:flex-row justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded text-black bg-white hover:bg-gray-100 font-medium"
+            className="px-6 py-3 md:px-4 md:py-2 border border-gray-300 rounded text-black bg-white hover:bg-gray-100 font-medium text-base md:text-sm w-full sm:w-auto"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className={`px-4 py-2 text-white rounded font-medium ${
+            className={`px-6 py-3 md:px-4 md:py-2 text-white rounded font-medium text-base md:text-sm w-full sm:w-auto ${
               adjustmentType === 'add' 
                 ? 'bg-green-500 hover:bg-green-600' 
                 : 'bg-orange-500 hover:bg-orange-600'
