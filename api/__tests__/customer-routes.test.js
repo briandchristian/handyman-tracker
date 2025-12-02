@@ -12,12 +12,26 @@ import jwt from 'jsonwebtoken';
 process.env.JWT_SECRET = 'test-secret-key';
 process.env.VERCEL = '1';
 
+// SAFETY CHECK: Store original MONGO_URI to detect if we accidentally use production
+const originalMongoUri = process.env.MONGO_URI;
+
 let mongoServer;
 let app;
 let authToken;
 let testUserId;
 
 beforeAll(async () => {
+  // SAFETY CHECK: Warn if we detect a production database URI before tests
+  if (originalMongoUri && (
+    originalMongoUri.includes('mongodb.net') || // MongoDB Atlas
+    originalMongoUri.includes('mongodb+srv://') || // MongoDB Atlas connection string
+    originalMongoUri.includes('production') || // Contains "production"
+    (!originalMongoUri.includes('localhost') && !originalMongoUri.includes('127.0.0.1'))
+  )) {
+    console.warn('⚠️  WARNING: Original MONGO_URI detected (may be production):', 
+      originalMongoUri.replace(/\/\/[^:]+:[^@]+@/, '//***:***@')); // Hide credentials
+  }
+  
   // Create in-memory MongoDB
   mongoServer = await MongoMemoryServer.create();
   const mongoUri = mongoServer.getUri();
@@ -27,6 +41,12 @@ beforeAll(async () => {
   
   await mongoose.disconnect();
   await mongoose.connect(mongoUri);
+  
+  // Verify we're connected to the in-memory database
+  const connectedUri = mongoose.connection.client?.s?.url || '';
+  if (!connectedUri.includes('127.0.0.1') && !connectedUri.includes('localhost')) {
+    throw new Error(`CRITICAL: Connected to unexpected database: ${connectedUri}. Tests aborted to protect production data!`);
+  }
   
   // Import app (this registers the models)
   const appModule = await import('../server.js');
@@ -53,16 +73,49 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await mongoose.disconnect();
-  await mongoServer.stop();
+  if (mongoServer) {
+    await mongoServer.stop();
+  }
+  // Restore original MONGO_URI if it existed
+  if (originalMongoUri) {
+    process.env.MONGO_URI = originalMongoUri;
+  } else {
+    delete process.env.MONGO_URI;
+  }
 });
 
 afterEach(async () => {
-  // Clear all collections except users (we need the test user to persist)
-  const collections = mongoose.connection.collections;
-  for (const key in collections) {
-    if (key !== 'users') {
-      await collections[key].deleteMany({});
+  // SAFETY CHECK: Only clear collections if connected to in-memory database
+  // Verify we're connected to the in-memory test database, not production
+  const inMemoryUri = mongoServer?.getUri() || '';
+  const currentUri = mongoose.connection.client?.s?.url || mongoose.connection.host || '';
+  
+  // Check if current connection matches the in-memory server URI
+  // or contains localhost/127.0.0.1 (typical for in-memory servers)
+  const isInMemoryDB = inMemoryUri && (
+    currentUri.includes('127.0.0.1') || 
+    currentUri.includes('localhost') ||
+    inMemoryUri === currentUri ||
+    currentUri.startsWith('mongodb://127.0.0.1') ||
+    currentUri.startsWith('mongodb://localhost')
+  );
+  
+  // Double-check: Only proceed if we're definitely using in-memory database
+  if (isInMemoryDB && mongoose.connection.readyState === 1 && mongoServer) {
+    // Clear all collections except users (we need the test user to persist)
+    const collections = mongoose.connection.collections;
+    for (const key in collections) {
+      if (key !== 'users') {
+        await collections[key].deleteMany({});
+      }
     }
+  } else {
+    // Log warning if we detect we might be connected to production
+    console.error('❌ CRITICAL: Skipping collection cleanup - may be connected to production database!');
+    console.error(`   Expected in-memory URI: ${inMemoryUri}`);
+    console.error(`   Current connection URI: ${currentUri}`);
+    console.error(`   Connection state: ${mongoose.connection.readyState}`);
+    throw new Error('Test safety check failed: Possible production database connection detected!');
   }
 });
 
