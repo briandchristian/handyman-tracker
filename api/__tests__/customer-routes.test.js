@@ -894,3 +894,78 @@ describe('DELETE /api/customers/:customerId/projects/:projectId/materials/:mater
   });
 });
 
+describe('POST /api/customers/:customerId/projects/:projectId/notes', () => {
+  let customerId;
+  let projectId;
+
+  beforeEach(async () => {
+    const Customer = mongoose.model('Customer');
+    const customer = await Customer.create({
+      name: 'Test Customer',
+      email: 'notes@test.com',
+      phone: '555',
+      projects: [{ name: 'Test Project', description: 'Desc' }]
+    });
+    customerId = customer._id.toString();
+    projectId = customer.projects[0]._id.toString();
+  });
+
+  test('should require authentication', async () => {
+    const response = await request(app)
+      .post(`/api/customers/${customerId}/projects/${projectId}/notes`)
+      .send({ text: 'A note' });
+    expect(response.status).toBe(401);
+  });
+
+  test('should add note to project and return notes array', async () => {
+    await ensureTestUser();
+    const response = await request(app)
+      .post(`/api/customers/${customerId}/projects/${projectId}/notes`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ text: ' First note ' });
+    expect(response.status).toBe(201);
+    expect(Array.isArray(response.body)).toBe(true);
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0].text).toBe('First note');
+    expect(response.body[0]).toHaveProperty('addedAt');
+  });
+
+  test('should reject empty or missing text', async () => {
+    await ensureTestUser();
+    const resEmpty = await request(app)
+      .post(`/api/customers/${customerId}/projects/${projectId}/notes`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ text: '   ' });
+    expect(resEmpty.status).toBe(400);
+    expect(resEmpty.body.msg).toMatch(/required/i);
+
+    const resMissing = await request(app)
+      .post(`/api/customers/${customerId}/projects/${projectId}/notes`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+    expect(resMissing.status).toBe(400);
+  });
+
+  test('should return 404 for non-existent customer', async () => {
+    await ensureTestUser();
+    const fakeId = new mongoose.Types.ObjectId().toString();
+    const response = await request(app)
+      .post(`/api/customers/${fakeId}/projects/${projectId}/notes`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ text: 'Note' });
+    expect(response.status).toBe(404);
+    expect(response.body.msg).toBe('Customer not found');
+  });
+
+  test('should return 404 for non-existent project', async () => {
+    await ensureTestUser();
+    const fakeProjectId = new mongoose.Types.ObjectId().toString();
+    const response = await request(app)
+      .post(`/api/customers/${customerId}/projects/${fakeProjectId}/notes`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ text: 'Note' });
+    expect(response.status).toBe(404);
+    expect(response.body.msg).toBe('Project not found');
+  });
+});
+

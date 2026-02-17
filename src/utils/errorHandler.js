@@ -14,7 +14,7 @@ export const handleApiError = (err, _context = 'request') => {
                  `• Wrong server address\n` +
                  `• Network connectivity problem\n` +
                  `• Firewall blocking connection\n\n` +
-                 `Please make sure you're accessing from: http://192.168.50.87:5173`,
+                 `Use http://localhost:5173 when backend runs on this machine.`,
         details: err.message
       };
     } else if (err.code === 'ECONNREFUSED') {

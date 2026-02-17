@@ -8,12 +8,14 @@ export default function ProjectDetails() {
   const { customerId, projectId } = useParams();
   const navigate = useNavigate();
   const [project, setProject] = useState(null);
+  const [customer, setCustomer] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [bidAmount, setBidAmount] = useState('');
   const [billAmount, setBillAmount] = useState('');
   const [scheduleDate, setScheduleDate] = useState('');
   const [newMaterial, setNewMaterial] = useState({ item: '', quantity: 0, cost: 0 });
+  const [newNote, setNewNote] = useState('');
 
   const fetchProject = useCallback(async () => {
     try {
@@ -38,6 +40,7 @@ export default function ProjectDetails() {
       // Ensure projects array exists
       if (!cust.projects || !Array.isArray(cust.projects)) {
         setError('Customer has no projects');
+        setCustomer(null);
         return;
       }
       
@@ -53,8 +56,10 @@ export default function ProjectDetails() {
       if (!proj) {
         const projectNames = cust.projects.map(p => `${p.name} (${p._id})`).join(', ');
         setError(`Project not found. Looking for: ${projectId}. Available projects: ${projectNames}`);
+        setCustomer(null);
       } else {
         setProject(proj);
+        setCustomer({ name: cust.name, phone: cust.phone || '', address: cust.address || '' });
       }
     } catch (err) {
       console.error('Error fetching project:', err);
@@ -189,6 +194,30 @@ export default function ProjectDetails() {
     }
   };
 
+  const addNote = async () => {
+    const text = (newNote || '').trim();
+    if (!text) {
+      alert('Please enter a note');
+      return;
+    }
+    try {
+      await axios.post(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/notes`,
+        { text },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      setNewNote('');
+      fetchProject();
+    } catch (err) {
+      console.error('Error adding note:', err);
+      const msg = err.response?.data?.msg || err.response?.data?.error;
+      const hint = err.response?.status === 404 && !msg
+        ? ' If using a deployed API, redeploy so the notes route is live. If local, restart the backend (npm start).'
+        : '';
+      alert('Failed to add note: ' + (msg || err.message) + hint);
+    }
+  };
+
   const deleteProject = async () => {
     if (window.confirm('Are you sure you want to delete this project?')) {
       try {
@@ -260,6 +289,22 @@ export default function ProjectDetails() {
       <div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
         <h2 className="text-xl font-semibold mb-4">Project Information</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {customer && (
+            <>
+              <div>
+                <p className="text-gray-600 mb-1">Customer Name:</p>
+                <p className="text-black font-medium">{customer.name || '—'}</p>
+              </div>
+              <div>
+                <p className="text-gray-600 mb-1">Customer Phone:</p>
+                <p className="text-black font-medium">{customer.phone || '—'}</p>
+              </div>
+              <div className="md:col-span-2">
+                <p className="text-gray-600 mb-1">Customer Address:</p>
+                <p className="text-black font-medium">{customer.address || '—'}</p>
+              </div>
+            </>
+          )}
           <div>
             <p className="text-gray-600 mb-1">Description:</p>
             <p className="text-black font-medium">{project.description || 'No description'}</p>
@@ -430,6 +475,40 @@ export default function ProjectDetails() {
             className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 font-medium"
           >
             Add Material
+          </button>
+        </div>
+      </div>
+
+      {/* Notes */}
+      <div className="mt-6 bg-white border border-gray-300 rounded-lg p-4">
+        <h2 className="text-xl font-semibold mb-4 text-black">Notes</h2>
+        {project.notes && project.notes.length > 0 ? (
+          <ul className="space-y-2 mb-4">
+            {project.notes.map((note, i) => (
+              <li key={note._id ? String(note._id) : `note-${i}`} className="text-black border-l-4 border-blue-400 pl-3 py-1">
+                <p className="whitespace-pre-wrap">{note.text}</p>
+                {note.addedAt && (
+                  <p className="text-sm text-gray-500 mt-1">{format(new Date(note.addedAt), 'PPp')}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-gray-600 mb-4">No notes yet.</p>
+        )}
+        <div className="flex gap-2 flex-wrap">
+          <textarea
+            placeholder="Add a note..."
+            value={newNote}
+            onChange={e => setNewNote(e.target.value)}
+            rows={2}
+            className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[200px]"
+          />
+          <button
+            onClick={addNote}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 font-medium self-end"
+          >
+            Add Note
           </button>
         </div>
       </div>

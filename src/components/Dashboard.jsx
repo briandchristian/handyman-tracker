@@ -77,6 +77,9 @@ export default function Dashboard() {
           <Link to="/customers" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
             Customers
           </Link>
+          <Link to="/installation-history" className="bg-slate-600 text-white px-4 py-2 rounded hover:bg-slate-700">
+            📜 History
+          </Link>
         </div>
       </div>
       

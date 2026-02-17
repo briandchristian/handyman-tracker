@@ -9,7 +9,7 @@ if (typeof global.TextEncoder === 'undefined') {
 
 // Mock the API config globally
 jest.mock('./src/config/api.js', () => ({
-  default: 'http://192.168.50.87:5000'
+  default: 'http://localhost:5000'
 }), { virtual: true });
 
 // Mock window.matchMedia

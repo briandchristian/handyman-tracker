@@ -28,8 +28,8 @@ describe('Login Component', () => {
       render(<Login setToken={mockSetToken} />);
       
       expect(screen.getByText('Admin Login')).toBeInTheDocument();
-      expect(screen.getByPlaceholderText('Username')).toBeInTheDocument();
-      expect(screen.getByPlaceholderText('Password')).toBeInTheDocument();
+      expect(screen.getByTestId('admin-login-username')).toBeInTheDocument();
+      expect(screen.getByTestId('admin-login-password')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /login/i })).toBeInTheDocument();
     });
 
@@ -69,14 +69,14 @@ describe('Login Component', () => {
     test('should handle successful login', async () => {
       const mockToken = 'fake-jwt-token';
       axios.post.mockResolvedValue({
-        data: { token: mockToken }
+        data: { token: mockToken, user: { role: 'admin' } }
       });
 
       render(<Login setToken={mockSetToken} />);
       
-      const usernameInput = screen.getByPlaceholderText('Username');
-      const passwordInput = screen.getByPlaceholderText('Password');
-      const loginButton = screen.getByRole('button', { name: /login/i });
+      const usernameInput = screen.getByTestId('admin-login-username');
+      const passwordInput = screen.getByTestId('admin-login-password');
+      const loginButton = screen.getByRole('button', { name: /^login$/i });
 
       await userEvent.type(usernameInput, 'testuser');
       await userEvent.type(passwordInput, 'password123');
@@ -91,8 +91,37 @@ describe('Login Component', () => {
 
       expect(localStorage.getItem('token')).toBe(mockToken);
       expect(mockSetToken).toHaveBeenCalledWith(mockToken);
-      // window.location.href will be the full URL in jsdom
       expect(window.location.href).toMatch(/\/$/);
+    });
+
+    test('should set userRole and redirect to /customer when user role is customer', async () => {
+      axios.post.mockResolvedValue({
+        data: { token: 'cust-token', user: { role: 'customer' } }
+      });
+      render(<Login setToken={mockSetToken} />);
+      await userEvent.type(screen.getByTestId('admin-login-username'), 'customer@example.com');
+      await userEvent.type(screen.getByTestId('admin-login-password'), 'pass123');
+      await userEvent.click(screen.getByRole('button', { name: /^login$/i }));
+      await waitFor(() => {
+        expect(localStorage.getItem('userRole')).toBe('customer');
+        expect(localStorage.getItem('token')).toBe('cust-token');
+        expect(mockSetToken).toHaveBeenCalledWith('cust-token');
+      });
+    });
+
+    test('should set userRole when customer signs in via Customer section', async () => {
+      axios.post.mockResolvedValue({
+        data: { token: 'cust-token', user: { role: 'customer' } }
+      });
+      render(<Login setToken={mockSetToken} />);
+      await userEvent.type(screen.getByTestId('customer-login-email'), 'c@example.com');
+      await userEvent.type(screen.getByTestId('customer-login-password'), 'pass123');
+      await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenCalledWith(expect.stringContaining('/api/login'), { username: 'c@example.com', password: 'pass123' });
+        expect(localStorage.getItem('userRole')).toBe('customer');
+        expect(localStorage.getItem('token')).toBe('cust-token');
+      });
     });
 
     test('should handle 400 error (invalid credentials)', async () => {
@@ -102,9 +131,9 @@ describe('Login Component', () => {
 
       render(<Login setToken={mockSetToken} />);
       
-      await userEvent.type(screen.getByPlaceholderText('Username'), 'wronguser');
-      await userEvent.type(screen.getByPlaceholderText('Password'), 'wrongpass');
-      await userEvent.click(screen.getByRole('button', { name: /login/i }));
+      await userEvent.type(screen.getByTestId('admin-login-username'), 'wronguser');
+      await userEvent.type(screen.getByTestId('admin-login-password'), 'wrongpass');
+      await userEvent.click(screen.getByRole('button', { name: /^login$/i }));
 
       await waitFor(() => {
         expect(global.alert).toHaveBeenCalledWith(
@@ -123,9 +152,9 @@ describe('Login Component', () => {
 
       render(<Login setToken={mockSetToken} />);
       
-      await userEvent.type(screen.getByPlaceholderText('Username'), 'pendinguser');
-      await userEvent.type(screen.getByPlaceholderText('Password'), 'password');
-      await userEvent.click(screen.getByRole('button', { name: /login/i }));
+      await userEvent.type(screen.getByTestId('admin-login-username'), 'pendinguser');
+      await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
+      await userEvent.click(screen.getByRole('button', { name: /^login$/i }));
 
       await waitFor(() => {
         expect(global.alert).toHaveBeenCalledWith(
@@ -141,9 +170,9 @@ describe('Login Component', () => {
 
       render(<Login setToken={mockSetToken} />);
       
-      await userEvent.type(screen.getByPlaceholderText('Username'), 'testuser');
-      await userEvent.type(screen.getByPlaceholderText('Password'), 'password');
-      await userEvent.click(screen.getByRole('button', { name: /login/i }));
+      await userEvent.type(screen.getByTestId('admin-login-username'), 'testuser');
+      await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
+      await userEvent.click(screen.getByRole('button', { name: /^login$/i }));
 
       await waitFor(() => {
         expect(global.alert).toHaveBeenCalledWith(
@@ -160,9 +189,9 @@ describe('Login Component', () => {
 
       render(<Login setToken={mockSetToken} />);
       
-      await userEvent.type(screen.getByPlaceholderText('Username'), 'testuser');
-      await userEvent.type(screen.getByPlaceholderText('Password'), 'password');
-      await userEvent.click(screen.getByRole('button', { name: /login/i }));
+      await userEvent.type(screen.getByTestId('admin-login-username'), 'testuser');
+      await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
+      await userEvent.click(screen.getByRole('button', { name: /^login$/i }));
 
       await waitFor(() => {
         expect(global.alert).toHaveBeenCalledWith(
@@ -179,9 +208,9 @@ describe('Login Component', () => {
 
       render(<Login setToken={mockSetToken} />);
       
-      await userEvent.type(screen.getByPlaceholderText('Username'), 'testuser');
-      await userEvent.type(screen.getByPlaceholderText('Password'), 'password');
-      await userEvent.click(screen.getByRole('button', { name: /login/i }));
+      await userEvent.type(screen.getByTestId('admin-login-username'), 'testuser');
+      await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
+      await userEvent.click(screen.getByRole('button', { name: /^login$/i }));
 
       await waitFor(() => {
         expect(global.alert).toHaveBeenCalledWith(
@@ -197,9 +226,9 @@ describe('Login Component', () => {
 
       render(<Login setToken={mockSetToken} />);
       
-      await userEvent.type(screen.getByPlaceholderText('Username'), 'testuser');
-      await userEvent.type(screen.getByPlaceholderText('Password'), 'password');
-      await userEvent.click(screen.getByRole('button', { name: /login/i }));
+      await userEvent.type(screen.getByTestId('admin-login-username'), 'testuser');
+      await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
+      await userEvent.click(screen.getByRole('button', { name: /^login$/i }));
 
       await waitFor(() => {
         expect(global.alert).toHaveBeenCalledWith(
@@ -570,8 +599,8 @@ describe('Login Component', () => {
 
       render(<Login setToken={mockSetToken} />);
       
-      const passwordInput = screen.getByPlaceholderText('Password');
-      await userEvent.type(screen.getByPlaceholderText('Username'), 'test');
+      const passwordInput = screen.getByTestId('admin-login-password');
+      await userEvent.type(screen.getByTestId('admin-login-username'), 'test');
       await userEvent.type(passwordInput, 'password{Enter}');
 
       // The Enter key should work if form submission is triggered
@@ -581,7 +610,7 @@ describe('Login Component', () => {
     test('should handle empty state changes', async () => {
       render(<Login setToken={mockSetToken} />);
       
-      const usernameInput = screen.getByPlaceholderText('Username');
+      const usernameInput = screen.getByTestId('admin-login-username');
       await userEvent.type(usernameInput, 'test');
       await userEvent.clear(usernameInput);
       
@@ -591,14 +620,52 @@ describe('Login Component', () => {
     test('should maintain form state when toggling registration', async () => {
       render(<Login setToken={mockSetToken} />);
       
-      await userEvent.type(screen.getByPlaceholderText('Username'), 'testuser');
-      await userEvent.type(screen.getByPlaceholderText('Password'), 'password');
+      await userEvent.type(screen.getByTestId('admin-login-username'), 'testuser');
+      await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
       
       await userEvent.click(screen.getByText('New Admin? Request Access'));
       await userEvent.click(screen.getByText('Cancel Registration'));
       
-      expect(screen.getByPlaceholderText('Username').value).toBe('testuser');
-      expect(screen.getByPlaceholderText('Password').value).toBe('password');
+      expect(screen.getByTestId('admin-login-username').value).toBe('testuser');
+      expect(screen.getByTestId('admin-login-password').value).toBe('password');
+    });
+  });
+
+  describe('Customer section (Phase 1)', () => {
+    test('should render Customer section with Sign in and Create account', () => {
+      render(<Login setToken={mockSetToken} />);
+      expect(screen.getByText('Customer')).toBeInTheDocument();
+      expect(screen.getByTestId('customer-login-email')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+      expect(screen.getByText('New Customer? Create account')).toBeInTheDocument();
+    });
+
+    test('should call /api/customer/register and redirect to /customer on success', async () => {
+      axios.post.mockResolvedValue({
+        data: { token: 't', user: { role: 'customer' }, msg: 'Account created.' }
+      });
+      render(<Login setToken={mockSetToken} />);
+      await userEvent.click(screen.getByText('New Customer? Create account'));
+      const nameInputs = screen.getAllByPlaceholderText('Your Name *');
+      const emailInputs = screen.getAllByPlaceholderText('Email *');
+      await userEvent.type(nameInputs[1], 'Jane');
+      await userEvent.type(emailInputs[1], 'jane@example.com');
+      await userEvent.type(screen.getByPlaceholderText('Phone *'), '5551234567');
+      await userEvent.type(screen.getByPlaceholderText('Password (min 6) *'), 'secret12');
+      await userEvent.click(screen.getByRole('button', { name: /create account/i }));
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenCalledWith(
+          expect.stringContaining('/api/customer/register'),
+          expect.objectContaining({
+            name: 'Jane',
+            email: 'jane@example.com',
+            phone: '555-123-4567',
+            password: 'secret12'
+          })
+        );
+      });
+      expect(localStorage.getItem('userRole')).toBe('customer');
+      expect(localStorage.getItem('token')).toBe('t');
     });
   });
 });

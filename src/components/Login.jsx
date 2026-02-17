@@ -21,12 +21,25 @@ export default function Login({ setToken }) {
   const [projectName, setProjectName] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
 
+  // Customer Login / Register (Phase 1)
+  const [showCustomerRegister, setShowCustomerRegister] = useState(false);
+  const [customerLoginEmail, setCustomerLoginEmail] = useState('');
+  const [customerLoginPassword, setCustomerLoginPassword] = useState('');
+  const [custRegName, setCustRegName] = useState('');
+  const [custRegEmail, setCustRegEmail] = useState('');
+  const [custRegPhone, setCustRegPhone] = useState('');
+  const [custRegAddress, setCustRegAddress] = useState('');
+  const [custRegProjectName, setCustRegProjectName] = useState('');
+  const [custRegProjectDesc, setCustRegProjectDesc] = useState('');
+  const [custRegPassword, setCustRegPassword] = useState('');
+
   const handleLogin = async () => {
     try {
       const res = await axios.post(`${API_BASE_URL}/api/login`, { username, password });
       localStorage.setItem('token', res.data.token);
+      if (res.data.user?.role) localStorage.setItem('userRole', res.data.user.role);
       setToken(res.data.token);
-      window.location.href = '/';
+      window.location.href = res.data.user?.role === 'customer' ? '/customer' : '/';
     } catch (err) {
       // Detect different types of errors
       if (!err.response) {
@@ -38,7 +51,7 @@ export default function Login({ setToken }) {
                 `• Wrong IP address (check if you're using ${API_BASE_URL})\n` +
                 `• Network connectivity problem\n` +
                 `• Firewall blocking connection\n\n` +
-                `Make sure you're accessing from: http://192.168.50.87:5173`);
+                `Use http://localhost:5173 when backend runs on this machine, or set VITE_API_URL for LAN.`);
         } else if (err.code === 'ECONNREFUSED') {
           alert(`❌ Connection Refused!\n\n` +
                 `The server at ${API_BASE_URL} refused the connection.\n\n` +
@@ -140,6 +153,56 @@ export default function Login({ setToken }) {
   const handlePhoneChange = (e) => {
     const formatted = formatPhoneNumber(e.target.value);
     setCustomerPhone(formatted);
+  };
+
+  const handleCustomerLogin = async () => {
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/login`, {
+        username: customerLoginEmail,
+        password: customerLoginPassword
+      });
+      localStorage.setItem('token', res.data.token);
+      if (res.data.user?.role) localStorage.setItem('userRole', res.data.user.role);
+      setToken(res.data.token);
+      window.location.href = '/customer';
+    } catch (err) {
+      if (!err.response) {
+        alert(`❌ Cannot connect to server. Check ${API_BASE_URL} or use http://localhost:5173.`);
+        return;
+      }
+      if (err.response.status === 400) alert('❌ Invalid email or password.');
+      else if (err.response.status === 403) alert(`❌ ${err.response?.data?.msg || 'Access denied.'}`);
+      else alert(`❌ ${err.response?.data?.msg || 'Login failed.'}`);
+    }
+  };
+
+  const handleCustomerRegister = async () => {
+    if (!custRegName || !custRegEmail || !custRegPhone || !custRegPassword) {
+      alert('❌ Name, email, phone, and password are required');
+      return;
+    }
+    if (custRegPassword.length < 6) {
+      alert('❌ Password must be at least 6 characters');
+      return;
+    }
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/customer/register`, {
+        name: custRegName,
+        email: custRegEmail,
+        phone: custRegPhone,
+        address: custRegAddress,
+        projectName: custRegProjectName || undefined,
+        projectDescription: custRegProjectDesc || undefined,
+        password: custRegPassword
+      });
+      localStorage.setItem('token', res.data.token);
+      localStorage.setItem('userRole', 'customer');
+      setToken(res.data.token);
+      alert(res.data.msg || 'Account created. You are now logged in.');
+      window.location.href = '/customer';
+    } catch (err) {
+      alert(err.response?.data?.msg || '❌ Registration failed.');
+    }
   };
 
   const handleCustomerBid = async () => {
@@ -246,6 +309,63 @@ export default function Login({ setToken }) {
         </div>
       </div>
 
+      {/* Customer: Sign in or Register (Phase 1) */}
+      <div className="flex justify-center md:justify-start mb-6">
+        <div className="p-4 md:p-6 bg-white rounded shadow text-black w-full max-w-[500px]">
+          <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-800">Customer</h2>
+          <p className="text-gray-600 mb-4 text-base md:text-sm">Have an account? Sign in. New? Create an account (same info as Request a Bid plus password).</p>
+          {!showCustomerRegister ? (
+            <>
+              <input
+                type="email"
+                placeholder="Your email"
+                value={customerLoginEmail}
+                onChange={e => setCustomerLoginEmail(e.target.value)}
+                className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
+                data-testid="customer-login-email"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={customerLoginPassword}
+                onChange={e => setCustomerLoginPassword(e.target.value)}
+                className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
+                data-testid="customer-login-password"
+              />
+              <button
+                onClick={handleCustomerLogin}
+                className="bg-teal-500 text-white p-4 md:p-2 rounded w-full hover:bg-teal-600 font-medium text-base md:text-sm"
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCustomerRegister(true)}
+                className="text-teal-600 hover:text-teal-800 mt-2 text-base md:text-sm underline py-2"
+              >
+                New Customer? Create account
+              </button>
+            </>
+          ) : (
+            <>
+              <input placeholder="Your Name *" value={custRegName} onChange={e => setCustRegName(e.target.value)} className="block mb-2 p-2 border bg-white text-black w-full rounded text-sm" />
+              <input type="email" placeholder="Email *" value={custRegEmail} onChange={e => setCustRegEmail(e.target.value)} className="block mb-2 p-2 border bg-white text-black w-full rounded text-sm" />
+              <input type="tel" placeholder="Phone *" value={custRegPhone} onChange={e => setCustRegPhone(formatPhoneNumber(e.target.value))} maxLength={12} className="block mb-2 p-2 border bg-white text-black w-full rounded text-sm" />
+              <input placeholder="Address (optional)" value={custRegAddress} onChange={e => setCustRegAddress(e.target.value)} className="block mb-2 p-2 border bg-white text-black w-full rounded text-sm" />
+              <input placeholder="Project Name (optional)" value={custRegProjectName} onChange={e => setCustRegProjectName(e.target.value)} className="block mb-2 p-2 border bg-white text-black w-full rounded text-sm" />
+              <textarea placeholder="Project Description (optional)" value={custRegProjectDesc} onChange={e => setCustRegProjectDesc(e.target.value)} className="block mb-2 p-2 border bg-white text-black w-full rounded h-20 resize-none text-sm" />
+              <input type="password" placeholder="Password (min 6) *" value={custRegPassword} onChange={e => setCustRegPassword(e.target.value)} className="block mb-2 p-2 border bg-white text-black w-full rounded text-sm" />
+              <button onClick={handleCustomerRegister} className="bg-teal-500 text-white p-2 rounded w-full hover:bg-teal-600 font-medium text-sm">
+                Create account
+              </button>
+              <button type="button" onClick={() => setShowCustomerRegister(false)} className="text-teal-600 hover:text-teal-800 mt-2 text-sm underline py-2">
+                Back to Sign in
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Bottom Row: Admin Login (left, below Request a Bid) */}
       <div className="flex justify-center md:justify-start">
         <div className="p-4 md:p-6 bg-white rounded shadow text-black w-full max-w-[500px]">
@@ -255,14 +375,16 @@ export default function Login({ setToken }) {
             placeholder="Username" 
             value={username} 
             onChange={e => setUsername(e.target.value)} 
-            className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
+            className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
+            data-testid="admin-login-username"
           />
           <input 
             type="password" 
             placeholder="Password" 
             value={password} 
             onChange={e => setPassword(e.target.value)} 
-            className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm" 
+            className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
+            data-testid="admin-login-password"
           />
           <button 
             onClick={handleLogin} 

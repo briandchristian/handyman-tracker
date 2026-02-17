@@ -8,6 +8,7 @@ export default function MobileNav() {
   const navigation = [
     { name: 'Dashboard', path: '/', icon: '🏠' },
     { name: 'Customers', path: '/customers', icon: '👥' },
+    { name: 'Installation History', path: '/installation-history', icon: '📜' },
     { name: 'Inventory', path: '/inventory', icon: '📦' },
     { name: 'Suppliers', path: '/suppliers', icon: '🏪' },
     { name: 'Purchase Orders', path: '/purchase-orders', icon: '📋' },
@@ -75,6 +76,7 @@ export default function MobileNav() {
                 <button
                   onClick={() => {
                     localStorage.removeItem('token');
+                    localStorage.removeItem('userRole');
                     window.location.href = '/login';
                   }}
                   className="flex items-center gap-3 p-4 md:p-3 rounded mt-4 w-full text-left text-red-600 hover:bg-red-50 min-h-[44px] text-base md:text-sm font-medium"

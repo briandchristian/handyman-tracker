@@ -286,7 +286,7 @@ export default function UserManagement() {
                     </td>
                     <td className="p-4">
                       <div className="flex gap-2">
-                        {user.role !== 'super-admin' && user.status === 'approved' && (
+                        {user.role !== 'super-admin' && user.role !== 'customer' && user.status === 'approved' && (
                           <button
                             onClick={() => handlePromote(user._id, user.username)}
                             className="text-purple-600 hover:text-purple-800 text-sm font-medium"
