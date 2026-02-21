@@ -113,11 +113,19 @@ app.use(express.json());
 
 // On Vercel, rewrite sends /api/:path* to /api/index/:path*; normalize so routes see /api/:path*
 app.use((req, res, next) => {
+  const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
   if (req.path.startsWith('/api/index/')) {
     const rest = req.path.slice('/api/index/'.length);
-    const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
     req.url = '/api/' + rest + q;
     req.originalUrl = '/api/' + rest + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+  } else if (req.path.startsWith('/index/')) {
+    // Some Vercel runtimes pass path without /api prefix
+    const rest = req.path.slice('/index/'.length);
+    req.url = '/api/' + rest + q;
+    req.originalUrl = '/api/' + rest + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+  } else if (req.path === '/api/index' || req.path === '/index') {
+    req.url = '/api' + q;
+    req.originalUrl = '/api' + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
   }
   next();
 });
