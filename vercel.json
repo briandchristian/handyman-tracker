@@ -8,6 +8,7 @@
   ],
   "functions": {
     "api/index.js": { "memory": 1024 },
-    "api/[...path].js": { "memory": 1024 }
+    "api/[...path].js": { "memory": 1024 },
+    "api/index/index.js": { "memory": 1024 }
   }
 }
