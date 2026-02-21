@@ -10,6 +10,27 @@ const app = express();
 // Trust proxy to get real client IPs (important for LAN connections)
 app.set('trust proxy', true);
 
+// On Vercel, same-origin POST can have empty req.body; read raw stream first for JSON
+if (process.env.VERCEL === '1') {
+  app.use((req, res, next) => {
+    if (!/^(POST|PUT|PATCH)$/i.test(req.method)) return next();
+    const ct = req.headers['content-type'] || '';
+    if (!ct.includes('application/json')) return next();
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        req.body = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        req.body = {};
+      }
+      next();
+    });
+    req.on('error', next);
+  });
+}
+
 // Helper function to get client IP address (defined early for use in middleware)
 const getClientIp = (req) => {
   // Try multiple methods to get the real client IP
@@ -110,7 +131,11 @@ if (process.env.VERCEL !== '1') {
 }
 
 app.use(cors());
-app.use(express.json());
+const jsonParser = express.json();
+app.use((req, res, next) => {
+  if (req.body !== undefined) return next();
+  jsonParser(req, res, next);
+});
 
 // On Vercel, normalize path so Express routes see /api/:path (not /api/catchall or /api/index/...)
 app.use((req, res, next) => {
