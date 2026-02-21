@@ -38,6 +38,7 @@ const getClientIp = (req) => {
 let cachedDb = null;
 let isConnecting = false;
 
+// Single MongoDB connection: same MONGO_URI everywhere (from .env locally, from Vercel env in production). No loopback vs cloud branching.
 const connectDB = async () => {
   if (!process.env.MONGO_URI) {
     throw new Error('MONGO_URI is not defined in environment variables.');
@@ -394,6 +395,11 @@ const customerMiddleware = (req, res, next) => {
 };
 
 // Routes
+
+// Health check (no auth) - use GET /api/health to confirm the API is reachable on Vercel
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ ok: true, message: 'API is reachable' });
+});
 
 // Auth Routes
 app.post('/api/register', async (req, res) => {

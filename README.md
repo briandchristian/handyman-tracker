@@ -88,8 +88,16 @@ This project is configured for deployment on Vercel:
    - `JWT_SECRET`
 4. Deploy!
 
+**Local vs Vercel: one connection string (no loopback vs cloud logic)**  
+The app uses a **single** MongoDB connection everywhere: it reads `process.env.MONGO_URI` and does **not** switch between "local" and "Vercel" databases.
+
+- **Locally:** `MONGO_URI` comes from your **`.env`** file (loaded when you run `npm start` or the API).
+- **On Vercel:** `MONGO_URI` comes from **Vercel → Settings → Environment Variables**. There is no `.env` on Vercel; you must set it in the dashboard.
+
+If your local `.env` uses **loopback** (e.g. `mongodb://localhost:27017/...` or `mongodb://127.0.0.1/...`), only your machine can reach that. Vercel runs in the cloud and **cannot** connect to your laptop, so production would need a **remote** URI (e.g. MongoDB Atlas). To have the same data locally and in production, use the **same remote URI** in both places: put your Atlas (or other cloud) connection string in local `.env` and in Vercel’s `MONGO_URI`. Then both environments talk to the same database.
+
 **Why does production show no data?**  
-Production and development use different *environments*. If `MONGO_URI` on Vercel points to a different MongoDB (e.g. a new Atlas cluster, a different database name, or is missing), the production app will read/write that other database—which is empty. Your local data is still in the DB your `.env` uses. To keep one source of truth, set Vercel’s `MONGO_URI` to the **exact same** connection string as in your local `.env` (same Atlas cluster and database name). Then production and local will share the same data.
+Production and development use different *environments*. If `MONGO_URI` on Vercel is missing, wrong, or points to a different MongoDB (e.g. a new Atlas cluster, a different database name), the production app will fail to connect or read/write that other database—which may be empty. Your local data is in the DB your `.env` uses. To keep one source of truth, set Vercel’s `MONGO_URI` to the **exact same** connection string as in your local `.env` (same Atlas cluster and, if you use one, same database name in the path). Then production and local will share the same data.
 
 **MONGO_URI is the same but production still has no data?** Check:
 
@@ -147,6 +155,7 @@ If the backend used to work in production and now doesn’t, or you see “Datab
 
 5. **Connection string format**  
    - `MONGO_URI` should look like: `mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<dbname>?retryWrites=true&w=majority`.  
+   - **Include the database name** in the path (e.g. `...mongodb.net/handyman?...`) so local and Vercel both use the same DB. If you omit it, the driver uses the default (`test`), which is easy to get out of sync.  
    - Special characters in the password must be [percent-encoded](https://www.w3schools.com/tags/ref_urlencode.asp) (e.g. `@` → `%40`).  
    - In Vercel, the value is often pasted; check for line breaks or truncation.
 
