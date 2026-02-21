@@ -1,11 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
 
 export default function Login({ setToken }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [showSessionExpired, setShowSessionExpired] = useState(false);
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showRegister, setShowRegister] = useState(false);
+
+  // Show "session expired" when redirected after 401; clear param from URL so refresh doesn't re-show
+  useEffect(() => {
+    if (searchParams.get('session_expired') === '1') {
+      setShowSessionExpired(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   
   // Admin registration form state
   const [regUsername, setRegUsername] = useState('');
@@ -370,6 +382,11 @@ export default function Login({ setToken }) {
       <div className="flex justify-center md:justify-start">
         <div className="p-4 md:p-6 bg-white rounded shadow text-black w-full max-w-[500px]">
           <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-800">Admin Login</h2>
+          {showSessionExpired && (
+            <div className="mb-4 p-3 bg-amber-100 border border-amber-400 text-amber-800 rounded text-sm" role="alert">
+              Your session expired or you were signed out. Please log in again.
+            </div>
+          )}
           <input 
             type="text" 
             placeholder="Username" 

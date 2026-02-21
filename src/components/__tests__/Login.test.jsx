@@ -5,11 +5,21 @@
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import axios from 'axios';
 import Login from '../Login';
 
 // Mock axios
 jest.mock('axios');
+
+function renderLogin(ui, options = {}) {
+  return render(
+    <MemoryRouter initialEntries={[options.initialEntry || '/login']}>
+      {ui}
+    </MemoryRouter>,
+    options
+  );
+}
 
 describe('Login Component', () => {
   let mockSetToken;
@@ -25,7 +35,7 @@ describe('Login Component', () => {
 
   describe('Rendering', () => {
     test('should render login form', () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       expect(screen.getByText('Admin Login')).toBeInTheDocument();
       expect(screen.getByTestId('admin-login-username')).toBeInTheDocument();
@@ -34,7 +44,7 @@ describe('Login Component', () => {
     });
 
     test('should render customer bid form', () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       expect(screen.getByText('Request a Bid')).toBeInTheDocument();
       expect(screen.getByPlaceholderText('Your Name *')).toBeInTheDocument();
@@ -45,7 +55,7 @@ describe('Login Component', () => {
     });
 
     test('should render logo', () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       const logo = screen.getByAltText('Handyman Tracker Logo');
       expect(logo).toBeInTheDocument();
@@ -53,13 +63,13 @@ describe('Login Component', () => {
     });
 
     test('should show registration toggle button', () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       expect(screen.getByText('New Admin? Request Access')).toBeInTheDocument();
     });
 
     test('should not show registration form initially', () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       expect(screen.queryByText('Request Admin Access')).not.toBeInTheDocument();
     });
@@ -72,7 +82,7 @@ describe('Login Component', () => {
         data: { token: mockToken, user: { role: 'admin' } }
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       const usernameInput = screen.getByTestId('admin-login-username');
       const passwordInput = screen.getByTestId('admin-login-password');
@@ -98,7 +108,7 @@ describe('Login Component', () => {
       axios.post.mockResolvedValue({
         data: { token: 'cust-token', user: { role: 'customer' } }
       });
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       await userEvent.type(screen.getByTestId('admin-login-username'), 'customer@example.com');
       await userEvent.type(screen.getByTestId('admin-login-password'), 'pass123');
       await userEvent.click(screen.getByRole('button', { name: /^login$/i }));
@@ -113,7 +123,7 @@ describe('Login Component', () => {
       axios.post.mockResolvedValue({
         data: { token: 'cust-token', user: { role: 'customer' } }
       });
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       await userEvent.type(screen.getByTestId('customer-login-email'), 'c@example.com');
       await userEvent.type(screen.getByTestId('customer-login-password'), 'pass123');
       await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
@@ -129,7 +139,7 @@ describe('Login Component', () => {
         response: { status: 400, data: { msg: 'Invalid credentials' } }
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.type(screen.getByTestId('admin-login-username'), 'wronguser');
       await userEvent.type(screen.getByTestId('admin-login-password'), 'wrongpass');
@@ -150,7 +160,7 @@ describe('Login Component', () => {
         }
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.type(screen.getByTestId('admin-login-username'), 'pendinguser');
       await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
@@ -168,7 +178,7 @@ describe('Login Component', () => {
         response: { status: 500 }
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.type(screen.getByTestId('admin-login-username'), 'testuser');
       await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
@@ -187,7 +197,7 @@ describe('Login Component', () => {
         message: 'Network Error'
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.type(screen.getByTestId('admin-login-username'), 'testuser');
       await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
@@ -206,7 +216,7 @@ describe('Login Component', () => {
         message: 'Connection refused'
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.type(screen.getByTestId('admin-login-username'), 'testuser');
       await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
@@ -224,7 +234,7 @@ describe('Login Component', () => {
         message: 'Something went wrong'
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.type(screen.getByTestId('admin-login-username'), 'testuser');
       await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
@@ -240,7 +250,7 @@ describe('Login Component', () => {
 
   describe('Registration Functionality', () => {
     test('should toggle registration form', async () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       const toggleButton = screen.getByText('New Admin? Request Access');
       await userEvent.click(toggleButton);
@@ -256,7 +266,7 @@ describe('Login Component', () => {
     });
 
     test('should validate required fields', async () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.click(screen.getByText('New Admin? Request Access'));
       await userEvent.click(screen.getByRole('button', { name: /request access/i }));
@@ -266,7 +276,7 @@ describe('Login Component', () => {
     });
 
     test('should validate username length', async () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.click(screen.getByText('New Admin? Request Access'));
       
@@ -283,7 +293,7 @@ describe('Login Component', () => {
     });
 
     test('should validate password length', async () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.click(screen.getByText('New Admin? Request Access'));
       
@@ -299,7 +309,7 @@ describe('Login Component', () => {
     });
 
     test('should validate password confirmation', async () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.click(screen.getByText('New Admin? Request Access'));
       
@@ -319,7 +329,7 @@ describe('Login Component', () => {
         data: { msg: 'User registered successfully' }
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.click(screen.getByText('New Admin? Request Access'));
       
@@ -363,7 +373,7 @@ describe('Login Component', () => {
         }
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.click(screen.getByText('New Admin? Request Access'));
       
@@ -386,7 +396,7 @@ describe('Login Component', () => {
         message: 'Network Error'
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.click(screen.getByText('New Admin? Request Access'));
       
@@ -412,7 +422,7 @@ describe('Login Component', () => {
         }
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.click(screen.getByText('New Admin? Request Access'));
       
@@ -436,7 +446,7 @@ describe('Login Component', () => {
         data: { msg: 'Bid request submitted successfully!' }
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.type(screen.getByPlaceholderText('Your Name *'), 'John Doe');
       await userEvent.type(screen.getByPlaceholderText('Email *'), 'john@example.com');
@@ -465,7 +475,7 @@ describe('Login Component', () => {
     });
 
     test('should format phone number as user types', async () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       const phoneInput = screen.getByPlaceholderText(/Phone/);
       
@@ -475,7 +485,7 @@ describe('Login Component', () => {
     });
 
     test('should format partial phone numbers correctly', async () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       const phoneInput = screen.getByPlaceholderText(/Phone/);
       
@@ -496,7 +506,7 @@ describe('Login Component', () => {
     });
 
     test('should remove non-digit characters from phone', async () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       const phoneInput = screen.getByPlaceholderText(/Phone/);
       
@@ -506,7 +516,7 @@ describe('Login Component', () => {
     });
 
     test('should limit phone to 12 characters', async () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       const phoneInput = screen.getByPlaceholderText(/Phone/);
       
@@ -518,7 +528,7 @@ describe('Login Component', () => {
         data: { msg: 'Success' }
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       const nameInput = screen.getByPlaceholderText('Your Name *');
       const emailInput = screen.getByPlaceholderText('Email *');
@@ -551,7 +561,7 @@ describe('Login Component', () => {
         message: 'Network Error'
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.type(screen.getByPlaceholderText('Your Name *'), 'Test');
       await userEvent.type(screen.getByPlaceholderText('Email *'), 'test@test.com');
@@ -575,7 +585,7 @@ describe('Login Component', () => {
         }
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.type(screen.getByPlaceholderText('Your Name *'), 'Test');
       await userEvent.type(screen.getByPlaceholderText('Email *'), 'invalid-email');
@@ -597,7 +607,7 @@ describe('Login Component', () => {
         data: { token: 'test-token' }
       });
 
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       const passwordInput = screen.getByTestId('admin-login-password');
       await userEvent.type(screen.getByTestId('admin-login-username'), 'test');
@@ -608,7 +618,7 @@ describe('Login Component', () => {
     });
 
     test('should handle empty state changes', async () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       const usernameInput = screen.getByTestId('admin-login-username');
       await userEvent.type(usernameInput, 'test');
@@ -618,7 +628,7 @@ describe('Login Component', () => {
     });
 
     test('should maintain form state when toggling registration', async () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       
       await userEvent.type(screen.getByTestId('admin-login-username'), 'testuser');
       await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
@@ -633,7 +643,7 @@ describe('Login Component', () => {
 
   describe('Customer section (Phase 1)', () => {
     test('should render Customer section with Sign in and Create account', () => {
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       expect(screen.getByText('Customer')).toBeInTheDocument();
       expect(screen.getByTestId('customer-login-email')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
@@ -644,7 +654,7 @@ describe('Login Component', () => {
       axios.post.mockResolvedValue({
         data: { token: 't', user: { role: 'customer' }, msg: 'Account created.' }
       });
-      render(<Login setToken={mockSetToken} />);
+      renderLogin(<Login setToken={mockSetToken} />);
       await userEvent.click(screen.getByText('New Customer? Create account'));
       const nameInputs = screen.getAllByPlaceholderText('Your Name *');
       const emailInputs = screen.getAllByPlaceholderText('Email *');
