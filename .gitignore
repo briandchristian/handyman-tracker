@@ -5,10 +5,14 @@ package-lock.json
 # Build output
 dist/
 
-# Environment variables
+# Environment variables (NEVER commit — contains secrets: MONGO_URI, JWT_SECRET, etc.)
 .env
+.env.*
+!.env.example
 .env.local
 .env.production
+.env.development
+.env.test
 
 # Logs
 logs

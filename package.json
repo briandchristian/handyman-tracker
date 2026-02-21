@@ -14,7 +14,8 @@
     "seed-test-data": "node seed-test-data.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "check-secrets": "node scripts/check-no-env-committed.js"
   },
   "dependencies": {
     "axios": "^1.13.2",

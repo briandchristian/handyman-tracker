@@ -47,12 +47,13 @@ handyman-tracker/
    npm install
    ```
 
-3. Create a `.env` file in the root directory:
+3. Create a `.env` file in the root directory (never commit this file — it contains secrets):
    ```env
    MONGO_URI=your_mongodb_connection_string
    JWT_SECRET=your_jwt_secret_key
    PORT=5000
    ```
+   See [SECURITY.md](SECURITY.md) for handling secrets and what to do if they are ever exposed.
 
 ### Development
 
