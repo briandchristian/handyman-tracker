@@ -159,6 +159,13 @@ app.use((req, res, next) => {
   } else if (req.path === '/api/index' || req.path === '/index') {
     req.url = '/api' + q;
     req.originalUrl = '/api' + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+  } else if (process.env.VERCEL === '1') {
+    const pathname = req.url.includes('?') ? req.url.slice(0, req.url.indexOf('?')) : req.url;
+    if (pathname && !pathname.startsWith('/api')) {
+      // Vercel catch-all api/[...path].js can receive path without /api prefix; ensure routes match
+      req.url = '/api' + (pathname.startsWith('/') ? pathname : '/' + pathname) + q;
+      req.originalUrl = '/api' + (pathname.startsWith('/') ? pathname : '/' + pathname) + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+    }
   }
   next();
 });
