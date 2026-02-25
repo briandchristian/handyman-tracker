@@ -3,14 +3,12 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
   ],
   "functions": {
-    "api/[...path].js": { "memory": 1024 },
-    "api/index.js": { "memory": 1024 },
-    "api/catchall.js": { "memory": 1024 },
-    "api/index/index.js": { "memory": 1024 },
-    "api/index/[...path].js": { "memory": 1024 }
+    "api/[...path].js": { "memory": 1024 }
   }
 }
