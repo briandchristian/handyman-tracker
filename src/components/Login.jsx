@@ -251,18 +251,25 @@ export default function Login({ setToken }) {
 
   return (
     <div className="min-h-screen p-4 md:p-8">
-      {/* Top Row: Logo - Upper Left */}
-      <div className="flex justify-center md:justify-start items-start mb-6 md:mb-8">
+      {/* Top Row: Logo + company name and IDs, just above Request a Bid */}
+      <div className="flex flex-col sm:flex-row justify-center md:justify-start items-center md:items-start gap-4 mb-6 md:mb-8">
         <div className="flex-shrink-0">
           <img 
             src="/logo.png" 
-            alt="Handyman Tracker Logo" 
+            alt="Christian Security Services Logo" 
             className="w-48 h-48 md:w-80 md:h-80 object-contain"
           />
         </div>
+        <div className="flex flex-col justify-center md:justify-start text-center md:text-left">
+          <div className="text-xl md:text-2xl font-bold text-gray-900 tracking-tight uppercase">
+            Christian Security Services
+          </div>
+          <div className="text-sm md:text-base text-gray-700 mt-1">ID Number: 2622 Alarm Contracting Company</div>
+          <div className="text-sm md:text-base text-gray-700">ID Number: 2593 Qualifying Agent</div>
+        </div>
       </div>
 
-      {/* Middle Row: Request a Bid (left, under logo) */}
+      {/* Request a Bid (just below logo + company block) */}
       <div className="flex justify-center md:justify-start mb-6">
         <div className="p-4 md:p-6 bg-white rounded shadow text-black w-full max-w-[500px]">
           <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-800">Request a Bid</h2>
@@ -325,7 +332,7 @@ export default function Login({ setToken }) {
       <div className="flex justify-center md:justify-start mb-6">
         <div className="p-4 md:p-6 bg-white rounded shadow text-black w-full max-w-[500px]">
           <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-800">Customer</h2>
-          <p className="text-gray-600 mb-4 text-base md:text-sm">Have an account? Sign in. New? Create an account (same info as Request a Bid plus password).</p>
+          <p className="text-gray-600 mb-4 text-base md:text-sm">Have an account? Sign in. New? Create an account.</p>
           {!showCustomerRegister ? (
             <>
               <input
