@@ -102,3 +102,46 @@ No code or config changes from the test agent; it only runs the script and optio
 - `api/index.js` — Express app, Vercel body parser, routes (e.g. `/api/health`, `/api/login`).
 - `api/[...path].js` (or configured API handler) — must export the handler from `api/index.js`.
 - `scripts/test-vercel-deployment.js` — script used by `npm run test:deployment`.
+
+---
+
+## 6. Toggleable API debug logging
+
+When routing or path issues are hard to reproduce, you can turn on **API debug logging** so each request and response is logged with path and status. This helps see exactly what path Express receives on Vercel and whether it was normalized.
+
+### Enabling
+
+Set the environment variable **`DEBUG_API`** to a truthy value:
+
+- **Vercel:** Project → **Settings** → **Environment Variables** → Add:
+  - **Name:** `DEBUG_API`
+  - **Value:** `1`
+  - **Environment:** Preview and/or Production (use Preview first when troubleshooting).
+- **Local:** In `.env` add `DEBUG_API=1`, or run: `DEBUG_API=1 npm start`.
+
+Redeploy (or restart locally) after changing the variable.
+
+### What gets logged
+
+For every request when `DEBUG_API=1`:
+
+1. **Request line** (after path normalization):  
+   `[DEBUG_API] <timestamp> <method> url=<url> path=<path> query.path=<value> VERCEL=1|0 [ (normalized from <raw>) ]`
+   - Use this to see whether the path was rewritten (e.g. from `/admin/users` to `/api/admin/users`) and what `query.path` Vercel sent.
+
+2. **Response line** (when the response finishes):  
+   `[DEBUG_API] <timestamp> <method> <url> -> <statusCode> [info|warn|error]`
+   - Use this to see which requests return 404, 405, 500, etc.
+
+### Where to see logs
+
+- **Vercel:** **Project** → **Logs** (or **Deployments** → select a deployment → **Functions** / **Runtime Logs**). Filter by your function or search for `[DEBUG_API]`.
+- **Vercel Toolbar:** If you use the Vercel toolbar on the site, you can open the deployment and check **Logs** from there; the same `[DEBUG_API]` lines will appear when the API runs.
+- **Local:** In the terminal where `npm start` is running.
+
+### Turning it off
+
+- **Vercel:** Remove `DEBUG_API` or set it to `0` in Environment Variables, then redeploy.
+- **Local:** Remove `DEBUG_API` from `.env` or stop passing it when starting the server.
+
+Leave debug off in production when you are not troubleshooting to avoid extra log volume and to reduce the risk of logging sensitive paths.

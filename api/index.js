@@ -7,6 +7,9 @@ import bcrypt from 'bcryptjs';
 
 const app = express();
 
+// Toggleable API debug logging (set DEBUG_API=1 in env to enable; see docs/VERCEL_DEBUG_AND_TESTING.md)
+const DEBUG_API = /^(1|true|yes)$/i.test(process.env.DEBUG_API || '');
+
 // Trust proxy to get real client IPs (important for LAN connections)
 app.set('trust proxy', true);
 
@@ -139,7 +142,15 @@ app.use((req, res, next) => {
 
 // On Vercel, normalize path so Express routes see /api/:path (not /api/catchall or /api/index/...)
 app.use((req, res, next) => {
+  if (DEBUG_API) req._debugRawUrl = req.url;
   const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  // Vercel api/[...path].js: path segments can be in req.query.path; rebuild /api/... so routes match
+  if (process.env.VERCEL === '1' && req.query && req.query.path != null) {
+    const pathSeg = Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path);
+    req.url = '/api/' + pathSeg + q;
+    req.originalUrl = '/api/' + pathSeg + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+    return next();
+  }
   // Rewrite /api/:path* → /api/catchall: Vercel passes :path* as query param "path"
   if (req.path === '/api/catchall' || req.path === '/catchall') {
     const pathSeg = (req.query.path != null)
@@ -167,6 +178,21 @@ app.use((req, res, next) => {
       req.originalUrl = '/api' + (pathname.startsWith('/') ? pathname : '/' + pathname) + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
     }
   }
+  next();
+});
+
+// Optional debug logging: request path + response status (enable with DEBUG_API=1)
+app.use((req, res, next) => {
+  if (!DEBUG_API) return next();
+  const ts = new Date().toISOString();
+  const pathInfo = req._debugRawUrl !== undefined && req._debugRawUrl !== req.url
+    ? ` (normalized from ${req._debugRawUrl})`
+    : '';
+  console.log(`[DEBUG_API] ${ts} ${req.method} url=${req.url} path=${req.path} query.path=${JSON.stringify(req.query?.path)} VERCEL=${process.env.VERCEL || '0'}${pathInfo}`);
+  res.on('finish', () => {
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+    console.log(`[DEBUG_API] ${ts} ${req.method} ${req.url} -> ${res.statusCode} [${level}]`);
+  });
   next();
 });
 
