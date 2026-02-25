@@ -7,8 +7,32 @@ import bcrypt from 'bcryptjs';
 
 const app = express();
 
+// Toggleable API debug logging (set DEBUG_API=1 in env to enable; see docs/VERCEL_DEBUG_AND_TESTING.md)
+const DEBUG_API = /^(1|true|yes)$/i.test(process.env.DEBUG_API || '');
+
 // Trust proxy to get real client IPs (important for LAN connections)
 app.set('trust proxy', true);
+
+// On Vercel, same-origin POST can have empty req.body; read raw stream first for JSON
+if (process.env.VERCEL === '1') {
+  app.use((req, res, next) => {
+    if (!/^(POST|PUT|PATCH)$/i.test(req.method)) return next();
+    const ct = req.headers['content-type'] || '';
+    if (!ct.includes('application/json')) return next();
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        req.body = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        req.body = {};
+      }
+      next();
+    });
+    req.on('error', next);
+  });
+}
 
 // Helper function to get client IP address (defined early for use in middleware)
 const getClientIp = (req) => {
@@ -38,6 +62,7 @@ const getClientIp = (req) => {
 let cachedDb = null;
 let isConnecting = false;
 
+// Single MongoDB connection: same MONGO_URI everywhere (from .env locally, from Vercel env in production). No loopback vs cloud branching.
 const connectDB = async () => {
   if (!process.env.MONGO_URI) {
     throw new Error('MONGO_URI is not defined in environment variables.');
@@ -109,7 +134,67 @@ if (process.env.VERCEL !== '1') {
 }
 
 app.use(cors());
-app.use(express.json());
+const jsonParser = express.json();
+app.use((req, res, next) => {
+  if (req.body !== undefined) return next();
+  jsonParser(req, res, next);
+});
+
+// On Vercel, normalize path so Express routes see /api/:path (not /api/catchall or /api/index/...)
+app.use((req, res, next) => {
+  if (DEBUG_API) req._debugRawUrl = req.url;
+  const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  // Vercel api/[...path].js: path segments can be in req.query.path; rebuild /api/... so routes match
+  if (process.env.VERCEL === '1' && req.query && req.query.path != null) {
+    const pathSeg = Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path);
+    req.url = '/api/' + pathSeg + q;
+    req.originalUrl = '/api/' + pathSeg + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+    return next();
+  }
+  // Rewrite /api/:path* → /api/catchall: Vercel passes :path* as query param "path"
+  if (req.path === '/api/catchall' || req.path === '/catchall') {
+    const pathSeg = (req.query.path != null)
+      ? (Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path))
+      : '';
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    req.url = '/api/' + pathSeg + qs;
+    req.originalUrl = '/api/' + pathSeg + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+  } else if (req.path.startsWith('/api/index/')) {
+    const rest = req.path.slice('/api/index/'.length);
+    req.url = '/api/' + rest + q;
+    req.originalUrl = '/api/' + rest + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+  } else if (req.path.startsWith('/index/')) {
+    const rest = req.path.slice('/index/'.length);
+    req.url = '/api/' + rest + q;
+    req.originalUrl = '/api/' + rest + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+  } else if (req.path === '/api/index' || req.path === '/index') {
+    req.url = '/api' + q;
+    req.originalUrl = '/api' + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+  } else if (process.env.VERCEL === '1') {
+    const pathname = req.url.includes('?') ? req.url.slice(0, req.url.indexOf('?')) : req.url;
+    if (pathname && !pathname.startsWith('/api')) {
+      // Vercel catch-all api/[...path].js can receive path without /api prefix; ensure routes match
+      req.url = '/api' + (pathname.startsWith('/') ? pathname : '/' + pathname) + q;
+      req.originalUrl = '/api' + (pathname.startsWith('/') ? pathname : '/' + pathname) + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+    }
+  }
+  next();
+});
+
+// Optional debug logging: request path + response status (enable with DEBUG_API=1)
+app.use((req, res, next) => {
+  if (!DEBUG_API) return next();
+  const ts = new Date().toISOString();
+  const pathInfo = req._debugRawUrl !== undefined && req._debugRawUrl !== req.url
+    ? ` (normalized from ${req._debugRawUrl})`
+    : '';
+  console.log(`[DEBUG_API] ${ts} ${req.method} url=${req.url} path=${req.path} query.path=${JSON.stringify(req.query?.path)} VERCEL=${process.env.VERCEL || '0'}${pathInfo}`);
+  res.on('finish', () => {
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+    console.log(`[DEBUG_API] ${ts} ${req.method} ${req.url} -> ${res.statusCode} [${level}]`);
+  });
+  next();
+});
 
 // Ensure DB connection before handling requests (for serverless)
 app.use(async (req, res, next) => {
@@ -160,7 +245,9 @@ const customerSchema = new mongoose.Schema({
     billAmount: Number,
     status: { type: String, enum: ['Pending', 'Bidded', 'Scheduled', 'Completed', 'Billed'] },
     scheduleDate: Date,
+    completedAt: Date,
     materials: [{ item: String, quantity: Number, cost: Number }],
+    notes: [{ text: String, addedAt: { type: Date, default: Date.now } }],
     createdAt: { type: Date, default: Date.now }
   }]
 });
@@ -170,18 +257,20 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  role: { 
-    type: String, 
-    enum: ['pending', 'admin', 'super-admin'], 
-    default: 'pending' 
+  role: {
+    type: String,
+    enum: ['pending', 'admin', 'super-admin', 'customer'],
+    default: 'pending'
   },
-  status: { 
-    type: String, 
-    enum: ['pending', 'approved', 'rejected'], 
-    default: 'pending' 
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
   },
   approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   approvedAt: { type: Date },
+  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
+  customerProfile: { phone: String, address: String },
   createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
@@ -282,6 +371,28 @@ const inventoryItemSchema = new mongoose.Schema({
 });
 const InventoryItem = mongoose.model('InventoryItem', inventoryItemSchema);
 
+// Installation and Service History (Phase 1): log when projects are completed; editable with audit trail
+const serviceHistorySchema = new mongoose.Schema({
+  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
+  projectId: { type: mongoose.Schema.Types.ObjectId },
+  customerName: String,
+  customerPhone: String,
+  customerAddress: String,
+  projectName: String,
+  summary: String,
+  details: String,
+  type: { type: String, enum: ['installation', 'service'], default: 'installation' },
+  completedAt: { type: Date, default: Date.now },
+  editHistory: [{
+    editedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    editedByUsername: String,
+    editedAt: { type: Date, default: Date.now },
+    changes: String
+  }],
+  createdAt: { type: Date, default: Date.now }
+});
+const ServiceHistory = mongoose.model('ServiceHistory', serviceHistorySchema);
+
 // Middleware for auth
 const authMiddleware = async (req, res, next) => {
   const token = req.header('Authorization')?.replace('Bearer ', '');
@@ -309,7 +420,13 @@ const authMiddleware = async (req, res, next) => {
       return res.status(403).json({ msg: 'Your account is pending admin approval', status: user.status });
     }
     
-    req.user = { id: decoded.id, role: user.role, username: user.username };
+    req.user = {
+      id: decoded.id,
+      role: user.role,
+      username: user.username,
+      customerId: user.customerId,
+      customerProfile: user.customerProfile || {}
+    };
     console.log(`[${timestamp}] ✅ AUTH SUCCESS - User: ${user.username} (${user.role}) - IP: ${clientIp} - Endpoint: ${endpoint}`);
     next();
   } catch (err) {
@@ -334,7 +451,20 @@ const superAdminMiddleware = (req, res, next) => {
   next();
 };
 
+// Middleware for customer-only routes (Phase 1 & 2)
+const customerMiddleware = (req, res, next) => {
+  if (req.user.role !== 'customer') {
+    return res.status(403).json({ msg: 'Access denied. Customer account required.' });
+  }
+  next();
+};
+
 // Routes
+
+// Health check (no auth) - use GET /api/health to confirm the API is reachable on Vercel
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ ok: true, message: 'API is reachable' });
+});
 
 // Auth Routes
 app.post('/api/register', async (req, res) => {
@@ -446,9 +576,10 @@ app.post('/api/login', async (req, res) => {
       console.log(`[${timestamp}] ❌ LOGIN FAILED - Missing credentials - IP: ${clientIp}`);
       return res.status(400).json({ msg: 'Username and password are required' });
     }
-    
-    const user = await User.findOne({ username });
-    
+
+    // Allow login by username or email (admin often types email in username field)
+    const user = await User.findOne({ $or: [{ username }, { email: username }] });
+
     if (!user) {
       console.log(`[${timestamp}] ❌ LOGIN FAILED - User not found: "${username}" - IP: ${clientIp}`);
       return res.status(400).json({ msg: 'Invalid credentials' });
@@ -478,8 +609,8 @@ app.post('/api/login', async (req, res) => {
     }
     
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    console.log(`[${timestamp}] ✅ LOGIN SUCCESS - User: "${username}" (${user.role}) - IP: ${clientIp}`);
-    res.json({ 
+    console.log(`[${timestamp}] ✅ LOGIN SUCCESS - User: "${user.username}" (${user.role}) - IP: ${clientIp}`);
+    const payload = {
       token,
       user: {
         id: user._id,
@@ -487,7 +618,11 @@ app.post('/api/login', async (req, res) => {
         email: user.email,
         role: user.role
       }
-    });
+    };
+    if (user.role === 'customer' && user.customerId) {
+      payload.user.customerId = user.customerId;
+    }
+    res.json(payload);
   } catch (err) {
     const timestamp = new Date().toISOString();
     const clientIp = getClientIp(req);
@@ -561,6 +696,144 @@ app.post('/api/customer-bid', async (req, res) => {
   } catch (err) {
     console.error('Error submitting customer bid:', err);
     res.status(500).json({ msg: 'Server error during bid submission', error: err.message });
+  }
+});
+
+// Customer Register (Phase 1): same data as request a bid + password; creates Customer + User (role customer)
+app.post('/api/customer/register', async (req, res) => {
+  try {
+    const { name, email, phone, address, projectName, projectDescription, password } = req.body;
+
+    if (!name || !email || !phone || !password) {
+      return res.status(400).json({ msg: 'Name, email, phone, and password are required' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ msg: 'Password must be at least 6 characters' });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ msg: 'Invalid email format' });
+    }
+
+    const existingUser = await User.findOne({ $or: [{ username: email }, { email }] });
+    if (existingUser) {
+      return res.status(400).json({ msg: 'An account with this email already exists. Please login instead.' });
+    }
+
+    let customer = await Customer.findOne({ email });
+    if (customer) {
+      // Update existing customer with registration data so record stays consistent
+      customer.name = name.trim();
+      customer.phone = phone;
+      customer.address = address !== undefined ? (address || '') : customer.address;
+      if (projectName && projectDescription) {
+        customer.projects.push({
+          name: projectName,
+          description: projectDescription,
+          status: 'Pending',
+          createdAt: new Date()
+        });
+      }
+      await customer.save();
+    } else {
+      customer = new Customer({
+        name,
+        email,
+        phone,
+        address: address || '',
+        projects: projectName && projectDescription
+          ? [{ name: projectName, description: projectDescription, status: 'Pending', createdAt: new Date() }]
+          : []
+      });
+      await customer.save();
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+    const user = new User({
+      username: email,
+      email,
+      password: hashed,
+      role: 'customer',
+      status: 'approved',
+      customerId: customer._id
+    });
+    await user.save();
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    res.status(201).json({
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: 'customer',
+        customerId: customer._id
+      },
+      msg: 'Account created. You are now logged in.'
+    });
+  } catch (err) {
+    console.error('Error in customer register:', err);
+    res.status(500).json({ msg: 'Server error during registration', error: err.message });
+  }
+});
+
+// Customer My Info (Phase 2): view/edit profile only; does not change Customer Management
+app.get('/api/customer/me', authMiddleware, customerMiddleware, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.user.customerId);
+    if (!customer) {
+      return res.status(404).json({ msg: 'Customer record not found' });
+    }
+    const user = await User.findById(req.user.id).select('customerProfile');
+    const profile = user?.customerProfile || {};
+    res.json({ customer, profile: { phone: profile.phone || '', address: profile.address || '' } });
+  } catch (err) {
+    console.error('Error fetching customer me:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.put('/api/customer/me', authMiddleware, customerMiddleware, async (req, res) => {
+  try {
+    const { phone, address } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(401).json({ msg: 'User not found' });
+    if (!user.customerProfile) user.customerProfile = {};
+    if (phone !== undefined) user.customerProfile.phone = phone;
+    if (address !== undefined) user.customerProfile.address = address;
+    await user.save();
+    const profile = user.customerProfile || {};
+    res.json({ profile: { phone: profile.phone || '', address: profile.address || '' } });
+  } catch (err) {
+    console.error('Error updating customer profile:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Request for Service / New Bid (logged-in customer; name/email from account)
+app.post('/api/customer/me/bid', authMiddleware, customerMiddleware, async (req, res) => {
+  try {
+    const { projectName, projectDescription, phone, address } = req.body;
+    if (!projectName || !projectDescription) {
+      return res.status(400).json({ msg: 'Project name and description are required' });
+    }
+    const customer = await Customer.findById(req.user.customerId);
+    if (!customer) return res.status(404).json({ msg: 'Customer record not found' });
+    if (!customer.projects) customer.projects = [];
+    customer.projects.push({
+      name: projectName.trim(),
+      description: projectDescription.trim(),
+      status: 'Pending',
+      createdAt: new Date()
+    });
+    await customer.save();
+    res.status(201).json({
+      msg: 'Request for service submitted. We will contact you soon.',
+      customer: { name: customer.name, email: customer.email }
+    });
+  } catch (err) {
+    console.error('Error submitting customer new bid:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });
 
@@ -702,6 +975,9 @@ app.put('/api/admin/users/:id/promote', authMiddleware, superAdminMiddleware, as
     if (user.role === 'super-admin') {
       return res.status(400).json({ msg: 'User is already a super-admin' });
     }
+    if (user.role === 'customer') {
+      return res.status(400).json({ msg: 'Customers cannot be promoted.' });
+    }
 
     user.role = 'super-admin';
     user.status = 'approved';
@@ -723,8 +999,8 @@ app.put('/api/admin/users/:id/promote', authMiddleware, superAdminMiddleware, as
   }
 });
 
-// Customer Routes (protected)
-app.get('/api/customers', authMiddleware, async (req, res) => {
+// Customer Routes (admin only; customers use GET/PUT /api/customer/me)
+app.get('/api/customers', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customers = await Customer.find();
     res.json(customers);
@@ -734,7 +1010,7 @@ app.get('/api/customers', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/customers/:id', authMiddleware, async (req, res) => {
+app.get('/api/customers/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customerId = req.params.id.trim();
     
@@ -793,7 +1069,7 @@ app.get('/api/customers/:id', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/customers', authMiddleware, async (req, res) => {
+app.post('/api/customers', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customerData = { ...req.body };
     // Ensure projects array is initialized
@@ -809,7 +1085,7 @@ app.post('/api/customers', authMiddleware, async (req, res) => {
   }
 });
 
-app.put('/api/customers/:id', authMiddleware, async (req, res) => {
+app.put('/api/customers/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.id);
     if (!customer) {
@@ -831,13 +1107,13 @@ app.put('/api/customers/:id', authMiddleware, async (req, res) => {
   }
 });
 
-app.delete('/api/customers/:id', authMiddleware, async (req, res) => {
+app.delete('/api/customers/:id', authMiddleware, adminMiddleware, async (req, res) => {
   await Customer.findByIdAndDelete(req.params.id);
   res.json({ msg: 'Customer deleted' });
 });
 
-// Project Routes (nested under customer)
-app.post('/api/customers/:customerId/projects', authMiddleware, async (req, res) => {
+// Project Routes (nested under customer, admin only)
+app.post('/api/customers/:customerId/projects', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerId);
     if (!customer) {
@@ -854,7 +1130,7 @@ app.post('/api/customers/:customerId/projects', authMiddleware, async (req, res)
   }
 });
 
-app.delete('/api/customers/:customerId/projects/:projectId', authMiddleware, async (req, res) => {
+app.delete('/api/customers/:customerId/projects/:projectId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerId);
     if (!customer) {
@@ -873,7 +1149,7 @@ app.delete('/api/customers/:customerId/projects/:projectId', authMiddleware, asy
   }
 });
 
-app.put('/api/customers/:customerId/projects/:projectId/bid', authMiddleware, async (req, res) => {
+app.put('/api/customers/:customerId/projects/:projectId/bid', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerId);
     if (!customer) {
@@ -893,7 +1169,7 @@ app.put('/api/customers/:customerId/projects/:projectId/bid', authMiddleware, as
   }
 });
 
-app.put('/api/customers/:customerId/projects/:projectId/bill', authMiddleware, async (req, res) => {
+app.put('/api/customers/:customerId/projects/:projectId/bill', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerId);
     if (!customer) {
@@ -913,7 +1189,7 @@ app.put('/api/customers/:customerId/projects/:projectId/bill', authMiddleware, a
   }
 });
 
-app.put('/api/customers/:customerId/projects/:projectId/schedule', authMiddleware, async (req, res) => {
+app.put('/api/customers/:customerId/projects/:projectId/schedule', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerId);
     if (!customer) {
@@ -933,7 +1209,7 @@ app.put('/api/customers/:customerId/projects/:projectId/schedule', authMiddlewar
   }
 });
 
-app.put('/api/customers/:customerId/projects/:projectId/complete', authMiddleware, async (req, res) => {
+app.put('/api/customers/:customerId/projects/:projectId/complete', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     console.log('Marking project as complete - Customer ID:', req.params.customerId, 'Project ID:', req.params.projectId);
     
@@ -955,8 +1231,26 @@ app.put('/api/customers/:customerId/projects/:projectId/complete', authMiddlewar
       });
     }
     
+    const completedAt = new Date();
     project.status = 'Completed';
+    project.completedAt = completedAt;
     await customer.save();
+
+    const historyEntry = new ServiceHistory({
+      customerId: customer._id,
+      projectId: project._id,
+      customerName: customer.name,
+      customerPhone: customer.phone || '',
+      customerAddress: customer.address || '',
+      projectName: project.name,
+      summary: project.description || project.name,
+      details: '',
+      type: 'installation',
+      completedAt,
+      editHistory: []
+    });
+    await historyEntry.save();
+
     console.log('Project marked as completed:', project.name);
     res.json(project);
   } catch (err) {
@@ -965,7 +1259,115 @@ app.put('/api/customers/:customerId/projects/:projectId/complete', authMiddlewar
   }
 });
 
-app.post('/api/customers/:customerId/projects/:projectId/materials', authMiddleware, async (req, res) => {
+// Installation and Service History (Phase 1 & 2)
+app.get('/api/customers/:customerId/history', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const list = await ServiceHistory.find({ customerId: req.params.customerId })
+      .sort({ completedAt: -1 })
+      .lean();
+    res.json(list);
+  } catch (err) {
+    console.error('Error fetching customer history:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Export route must be defined before the general list route so /export is matched first
+app.get('/api/installation-history/export', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const idStrs = req.query.ids ? req.query.ids.split(',').map(id => id.trim()).filter(Boolean) : null;
+    const objectIds = idStrs && idStrs.length > 0
+      ? idStrs.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id))
+      : [];
+    const query = objectIds.length > 0 ? { _id: { $in: objectIds } } : {};
+    const list = await ServiceHistory.find(query).sort({ completedAt: -1 }).lean();
+
+    const headers = ['Customer Name', 'Phone', 'Address', 'Project Name', 'Summary', 'Type', 'Completed At', 'Details', 'Edit Count'];
+    const escape = (v) => {
+      const s = String(v == null ? '' : v);
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const rows = list.map(e => [
+      escape(e.customerName),
+      escape(e.customerPhone || ''),
+      escape(e.customerAddress || ''),
+      escape(e.projectName),
+      escape(e.summary),
+      escape(e.type),
+      escape(e.completedAt ? new Date(e.completedAt).toISOString() : ''),
+      escape(e.details),
+      escape((e.editHistory && e.editHistory.length) || 0)
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="installation-service-history.csv"');
+    res.send(csv);
+  } catch (err) {
+    console.error('Error exporting history:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.get('/api/installation-history', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    let query = {};
+    if (req.query.customerId) {
+      const customerIdStr = req.query.customerId.trim();
+      if (!mongoose.Types.ObjectId.isValid(customerIdStr)) {
+        return res.status(400).json({ msg: 'Invalid customer ID format' });
+      }
+      query.customerId = new mongoose.Types.ObjectId(customerIdStr);
+    }
+    const list = await ServiceHistory.find(query).sort({ completedAt: -1 }).lean();
+    res.json(list);
+  } catch (err) {
+    console.error('Error fetching installation history:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.put('/api/installation-history/:id', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const entry = await ServiceHistory.findById(req.params.id);
+    if (!entry) return res.status(404).json({ msg: 'History entry not found' });
+
+    const changes = [];
+    if (req.body.summary !== undefined && req.body.summary !== entry.summary) {
+      changes.push(`summary: "${entry.summary}" → "${req.body.summary}"`);
+      entry.summary = req.body.summary;
+    }
+    if (req.body.details !== undefined && req.body.details !== entry.details) {
+      changes.push(`details: "${entry.details || ''}" → "${req.body.details}"`);
+      entry.details = req.body.details;
+    }
+    if (req.body.completedAt !== undefined) {
+      const oldVal = entry.completedAt ? entry.completedAt.toISOString() : '';
+      const newVal = new Date(req.body.completedAt).toISOString();
+      if (oldVal !== newVal) {
+        changes.push(`completedAt: ${oldVal} → ${newVal}`);
+        entry.completedAt = new Date(req.body.completedAt);
+      }
+    }
+
+    if (changes.length > 0) {
+      const user = await User.findById(req.user.id);
+      entry.editHistory.push({
+        editedBy: req.user.id,
+        editedByUsername: user ? user.username : 'unknown',
+        editedAt: new Date(),
+        changes: changes.join('; ')
+      });
+    }
+    await entry.save();
+    res.json(entry);
+  } catch (err) {
+    console.error('Error updating history entry:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.post('/api/customers/:customerId/projects/:projectId/materials', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerId);
     if (!customer) {
@@ -988,7 +1390,7 @@ app.post('/api/customers/:customerId/projects/:projectId/materials', authMiddlew
   }
 });
 
-app.delete('/api/customers/:customerId/projects/:projectId/materials/:materialId', authMiddleware, async (req, res) => {
+app.delete('/api/customers/:customerId/projects/:projectId/materials/:materialId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerId);
     if (!customer) {
@@ -1008,6 +1410,33 @@ app.delete('/api/customers/:customerId/projects/:projectId/materials/:materialId
     res.json({ msg: 'Material deleted', materials: project.materials });
   } catch (err) {
     console.error('Error deleting material:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.post('/api/customers/:customerId/projects/:projectId/notes', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { customerId, projectId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(customerId)) {
+      return res.status(400).json({ msg: 'Invalid customer ID format' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      return res.status(400).json({ msg: 'Invalid project ID format' });
+    }
+    const customer = await Customer.findById(customerId);
+    if (!customer) return res.status(404).json({ msg: 'Customer not found' });
+    const project = customer.projects.id(projectId);
+    if (!project) return res.status(404).json({ msg: 'Project not found' });
+    const { text } = req.body;
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return res.status(400).json({ msg: 'Note text is required' });
+    }
+    if (!project.notes) project.notes = [];
+    project.notes.push({ text: text.trim(), addedAt: new Date() });
+    await customer.save();
+    res.status(201).json(project.notes);
+  } catch (err) {
+    console.error('Error adding note:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });
