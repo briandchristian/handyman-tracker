@@ -123,6 +123,8 @@ Redeploy (or restart locally) after changing the variable.
 
 ### What gets logged
 
+**These logs are server-side only** — they appear in **Vercel Logs** (or your terminal when running locally), **not** in the browser F12 console.
+
 For every request when `DEBUG_API=1`:
 
 1. **Request line** (after path normalization):  
@@ -132,6 +134,8 @@ For every request when `DEBUG_API=1`:
 2. **Response line** (when the response finishes):  
    `[DEBUG_API] <timestamp> <method> <url> -> <statusCode> [info|warn|error]`
    - Use this to see which requests return 404, 405, 500, etc.
+
+3. **404 response body (visible in F12):** When no route matches, the API returns 404 with a JSON body. If `DEBUG_API=1` is set, that body includes a `debug` object with `path`, `url`, `originalUrl`, `queryPath`, and `method`. Open F12 → **Network** → click the failed request (e.g. `admin/users`) → **Response** tab to see exactly what path the server received. No need to open Vercel Logs for this.
 
 ### Where to see logs
 
