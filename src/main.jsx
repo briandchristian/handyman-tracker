@@ -17,6 +17,8 @@ axios.interceptors.response.use(
         ? loginPath
         : `${loginPath}?session_expired=1`;
       window.location.href = url;
+      // Don't reject: page is navigating away; avoid catch blocks running and causing race conditions or duplicate error UI
+      return new Promise(() => {});
     }
     return Promise.reject(error);
   }

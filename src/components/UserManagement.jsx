@@ -38,7 +38,7 @@ export default function UserManagement() {
       const res = await axios.get(`${API_BASE_URL}/api/admin/users`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setUsers(res.data);
+      setUsers(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error('Error fetching users:', err);
       if (err.response?.status === 403) {
@@ -56,7 +56,7 @@ export default function UserManagement() {
       const res = await axios.get(`${API_BASE_URL}/api/admin/users/pending`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setPendingUsers(res.data);
+      setPendingUsers(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error('Error fetching pending users:', err);
       if (err.response?.status === 403) {
