@@ -85,8 +85,8 @@ No code or config changes from the test agent; it only runs the script and optio
 
 ## 4. Common fixes (for main agent)
 
-- **405 on POST /api/login**  
-  Rewrites or function config: `/api/*` must be handled by a serverless function, not the SPA. In `vercel.json`, the rewrite for `/api/:path*` should come **before** the catch-all to `index.html`. Ensure the function that handles `/api` is the one that exports the Express app (e.g. `api/[...path].js` or the configured entry).
+- **405 on POST /api/login (response is HTML / index.html)**  
+  The request is hitting the SPA instead of the serverless API. Use a single SPA fallback rewrite that **excludes** `/api/` so `/api/*` is never rewritten to `index.html`. In `vercel.json`, use e.g. `"source": "/((?!api/).*)"` and `"destination": "/index.html"` — then only non-API paths get the SPA; `/api/*` is handled by `api/[...path].js`.
 
 - **400 with valid JSON body**  
   On Vercel, `req.body` can be empty for same-origin POSTs. The app already has a Vercel-specific body parser in `api/index.js` that reads the raw stream when `VERCEL === '1'`. If 400 persists, confirm the request is `Content-Type: application/json` and that the body is sent (e.g. with the deployment script).
