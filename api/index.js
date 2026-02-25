@@ -1712,6 +1712,24 @@ app.put('/api/inventory/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// Catch-all: no route matched. When DEBUG_API is on, return path info in response so you can see it in F12 → Network.
+app.use((req, res) => {
+  if (DEBUG_API) {
+    return res.status(404).json({
+      msg: 'Not found',
+      debug: {
+        path: req.path,
+        url: req.url,
+        originalUrl: req.originalUrl,
+        queryPath: req.query?.path,
+        method: req.method,
+        hint: 'Enable DEBUG_API on server to see this. Check Vercel Logs for [DEBUG_API] request/response lines.',
+      },
+    });
+  }
+  res.status(404).json({ msg: 'Not found' });
+});
+
 const PORT = process.env.PORT || 5000;
 
 // Only start the server if not in Vercel (serverless) environment
