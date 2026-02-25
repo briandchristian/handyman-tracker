@@ -543,9 +543,10 @@ app.post('/api/login', async (req, res) => {
       console.log(`[${timestamp}] ❌ LOGIN FAILED - Missing credentials - IP: ${clientIp}`);
       return res.status(400).json({ msg: 'Username and password are required' });
     }
-    
-    const user = await User.findOne({ username });
-    
+
+    // Allow login by username or email (admin often types email in username field)
+    const user = await User.findOne({ $or: [{ username }, { email: username }] });
+
     if (!user) {
       console.log(`[${timestamp}] ❌ LOGIN FAILED - User not found: "${username}" - IP: ${clientIp}`);
       return res.status(400).json({ msg: 'Invalid credentials' });
@@ -575,7 +576,7 @@ app.post('/api/login', async (req, res) => {
     }
     
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    console.log(`[${timestamp}] ✅ LOGIN SUCCESS - User: "${username}" (${user.role}) - IP: ${clientIp}`);
+    console.log(`[${timestamp}] ✅ LOGIN SUCCESS - User: "${user.username}" (${user.role}) - IP: ${clientIp}`);
     const payload = {
       token,
       user: {
