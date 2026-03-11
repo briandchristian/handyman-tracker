@@ -89,6 +89,13 @@ export default function ProjectDetails() {
     fetchProject();
   }, [fetchProject]);
 
+  // Facebook Pixel: fire ViewContent when project details are displayed (content/details page)
+  useEffect(() => {
+    if (project && typeof window.fbq === 'function') {
+      window.fbq('track', 'ViewContent', { value: 1 });
+    }
+  }, [project]);
+
   const submitBid = async () => {
     if (!bidAmount || bidAmount <= 0) {
       alert('Please enter a valid bid amount');

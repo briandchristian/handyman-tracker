@@ -154,6 +154,36 @@ describe('ProjectDetails Component', () => {
     });
   });
 
+  describe('Facebook Pixel ViewContent', () => {
+    test('should fire fbq ViewContent when project details are displayed', async () => {
+      const fbq = jest.fn();
+      window.fbq = fbq;
+
+      axios.get.mockResolvedValue({ data: mockCustomer });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
+      });
+
+      expect(fbq).toHaveBeenCalledWith('track', 'ViewContent', { value: 1 });
+
+      delete window.fbq;
+    });
+
+    test('should not throw when fbq is undefined', async () => {
+      delete window.fbq;
+      axios.get.mockResolvedValue({ data: mockCustomer });
+
+      expect(() => renderWithRouter()).not.toThrow();
+
+      await waitFor(() => {
+        expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
+      });
+    });
+  });
+
   describe('Navigation', () => {
     test('should have back to customers link', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });

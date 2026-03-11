@@ -57,7 +57,7 @@ describe('Login Component', () => {
     test('should render logo', () => {
       renderLogin(<Login setToken={mockSetToken} />);
       
-      const logo = screen.getByAltText('Handyman Tracker Logo');
+      const logo = screen.getByAltText('Christian Security Services Logo');
       expect(logo).toBeInTheDocument();
       expect(logo).toHaveAttribute('src', '/logo.png');
     });
