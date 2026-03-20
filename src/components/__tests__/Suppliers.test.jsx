@@ -2,7 +2,7 @@
  * Comprehensive Tests for Suppliers Component - Phase 1 & 2D
  */
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import Suppliers from '../Suppliers';
 import axios from 'axios';
@@ -843,5 +843,37 @@ describe('Suppliers Component - Phase 1 & Catalog Management (Phase 2D)', () => 
         expect(bodyText).toMatch(/Net 30|payment terms/i);
       }
     }, { timeout: 3000 });
+  });
+
+  test('should show logout button in bottom footer', async () => {
+    render(<BrowserRouter><Suppliers /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Logout')).toBeInTheDocument();
+    });
+
+    const footer = screen.getByTestId('page-footer');
+    expect(within(footer).getByText('Logout')).toBeInTheDocument();
+    expect(within(footer).getByText('Dashboard')).toBeInTheDocument();
+  });
+
+  test('should only render one dashboard button', async () => {
+    render(<BrowserRouter><Suppliers /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('link', { name: 'Dashboard' })).toHaveLength(1);
+    });
+  });
+
+  test('should use compact centered page layout', async () => {
+    const { container } = render(<BrowserRouter><Suppliers /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Suppliers & Materials')).toBeInTheDocument();
+    });
+
+    const root = container.firstChild;
+    expect(root.className).toContain('max-w-6xl');
+    expect(root.className).toContain('mx-auto');
   });
 });

@@ -2,7 +2,7 @@
  * Comprehensive Tests for Inventory Component - Phase 2C
  */
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import Inventory from '../Inventory';
 import axios from 'axios';
@@ -483,5 +483,37 @@ describe('Inventory Component - Phase 2C', () => {
       const lowesElements = screen.queryAllByText(/Lowe's/i);
       expect(lowesElements.length).toBeGreaterThan(0);
     });
+  });
+
+  test('should show logout button in bottom footer', async () => {
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Logout')).toBeInTheDocument();
+    });
+
+    const footer = screen.getByTestId('page-footer');
+    expect(within(footer).getByText('Logout')).toBeInTheDocument();
+    expect(within(footer).getByText('Dashboard')).toBeInTheDocument();
+  });
+
+  test('should only render one dashboard button', async () => {
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('link', { name: 'Dashboard' })).toHaveLength(1);
+    });
+  });
+
+  test('should use compact centered page layout', async () => {
+    const { container } = render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Inventory Management')).toBeInTheDocument();
+    });
+
+    const root = container.firstChild;
+    expect(root.className).toContain('max-w-6xl');
+    expect(root.className).toContain('mx-auto');
   });
 });

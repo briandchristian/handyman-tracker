@@ -632,6 +632,102 @@ describe('POST /api/customers/:customerId/projects', () => {
     expect(customer).not.toBeNull();
     expect(customer.projects).toHaveLength(2);
   });
+
+  test('should persist equipmentCategories on new project', async () => {
+    await ensureTestUser();
+
+    const projectData = {
+      name: 'Alarm Job',
+      description: 'Install',
+      status: 'Pending',
+      equipmentCategories: {
+        burglarAlarm: true,
+        fireAlarm: false,
+        accessControl: true,
+        cctv: true,
+        monitoring: true
+      }
+    };
+
+    const response = await request(app)
+      .post(`/api/customers/${customerId}/projects`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(projectData);
+
+    expect(response.status).toBe(200);
+    expect(response.body.equipmentCategories).toMatchObject({
+      burglarAlarm: true,
+      fireAlarm: false,
+      accessControl: true,
+      cctv: true,
+      monitoring: true
+    });
+  });
+});
+
+describe('PUT /api/customers/:customerId/projects/:projectId', () => {
+  let customerId;
+  let projectId;
+
+  beforeEach(async () => {
+    const Customer = mongoose.model('Customer');
+    const customer = await Customer.create({
+      name: 'Test Customer',
+      email: 'test@test.com',
+      phone: '555',
+      projects: [{
+        name: 'Original',
+        description: 'Old desc',
+        status: 'Pending',
+        equipmentCategories: {
+          burglarAlarm: true,
+          fireAlarm: false,
+          accessControl: false,
+          cctv: false,
+          monitoring: false
+        }
+      }]
+    });
+    customerId = customer._id.toString();
+    projectId = customer.projects[0]._id.toString();
+  });
+
+  test('should require authentication', async () => {
+    const response = await request(app)
+      .put(`/api/customers/${customerId}/projects/${projectId}`)
+      .send({ name: 'X' });
+    expect(response.status).toBe(401);
+  });
+
+  test('should update project name, description, and equipmentCategories', async () => {
+    await ensureTestUser();
+
+    const response = await request(app)
+      .put(`/api/customers/${customerId}/projects/${projectId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        name: 'Updated Name',
+        description: 'New description',
+        equipmentCategories: {
+          burglarAlarm: false,
+          fireAlarm: true,
+          accessControl: true,
+          cctv: true,
+          monitoring: false
+        }
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.project.name).toBe('Updated Name');
+    expect(response.body.project.description).toBe('New description');
+    expect(response.body.project.equipmentCategories).toMatchObject({
+      burglarAlarm: false,
+      fireAlarm: true,
+      accessControl: true,
+      cctv: true,
+      monitoring: false
+    });
+  });
 });
 
 describe('DELETE /api/customers/:customerId/projects/:projectId', () => {
@@ -842,7 +938,8 @@ describe('POST /api/customers/:customerId/projects/:projectId/materials', () => 
     const material = {
       item: 'Lumber',
       quantity: 100,
-      cost: 500
+      cost: 500,
+      markup: 10
     };
 
     const response = await request(app)
@@ -872,7 +969,8 @@ describe('DELETE /api/customers/:customerId/projects/:projectId/materials/:mater
         materials: [{
           item: 'Lumber',
           quantity: 100,
-          cost: 500
+          cost: 500,
+          markup: 0
         }]
       }]
     });
@@ -891,6 +989,75 @@ describe('DELETE /api/customers/:customerId/projects/:projectId/materials/:mater
     expect(response.status).toBe(200);
     expect(response.body.msg).toBe('Material deleted');
     expect(response.body.materials).toHaveLength(0);
+  });
+});
+
+describe('PUT /api/customers/:customerId/projects/:projectId/materials/:materialId', () => {
+  let customerId;
+  let projectId;
+  let materialId;
+
+  beforeEach(async () => {
+    const Customer = mongoose.model('Customer');
+    const customer = await Customer.create({
+      name: 'Test Customer',
+      email: 'test@test.com',
+      phone: '555',
+      projects: [{
+        name: 'Test Project',
+        materials: [{
+          item: 'Lumber',
+          quantity: 4,
+          cost: 10,
+          markup: 0
+        }]
+      }]
+    });
+
+    customerId = customer._id.toString();
+    projectId = customer.projects[0]._id.toString();
+    materialId = customer.projects[0].materials[0]._id.toString();
+  });
+
+  test('should require authentication', async () => {
+    const response = await request(app)
+      .put(`/api/customers/${customerId}/projects/${projectId}/materials/${materialId}`)
+      .send({ item: 'Plywood', quantity: 50, cost: 200 });
+
+    expect(response.status).toBe(401);
+    expect(response.body.msg).toBe('No token');
+  });
+
+  test('should update material in project', async () => {
+    await ensureTestUser();
+
+    const updated = { item: 'Plywood', quantity: 8, cost: 12, markup: 15 };
+
+    const response = await request(app)
+      .put(`/api/customers/${customerId}/projects/${projectId}/materials/${materialId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(updated);
+
+    expect(response.status).toBe(200);
+    expect(response.body.msg).toBe('Material updated');
+    expect(response.body.materials).toHaveLength(1);
+    expect(response.body.materials[0]).toMatchObject(updated);
+  });
+
+  test('should return 404 for non-existent material', async () => {
+    await ensureTestUser();
+
+    const fakeMaterialId = new mongoose.Types.ObjectId().toString();
+
+    const updated = { item: 'Plywood', quantity: 8, cost: 12, markup: 15 };
+
+    const response = await request(app)
+      .put(`/api/customers/${customerId}/projects/${projectId}/materials/${fakeMaterialId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(updated);
+
+    expect(response.status).toBe(404);
+    expect(response.body.msg).toBe('Material not found');
   });
 });
 

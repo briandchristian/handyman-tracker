@@ -24,6 +24,12 @@ export default function Inventory() {
     fetchSuppliers();
   }, []);
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
+    window.location.href = '/login';
+  };
+
   const fetchSuppliers = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -140,7 +146,7 @@ export default function Inventory() {
 
   if (loading) {
     return (
-      <div className="p-8 text-black">
+      <div className="p-8 text-black max-w-6xl mx-auto">
         <h1 className="text-2xl mb-4 text-black">Inventory Management</h1>
         <p className="text-black">Loading inventory...</p>
       </div>
@@ -148,14 +154,11 @@ export default function Inventory() {
   }
 
   return (
-    <div className="p-4 md:p-6 text-black">
+    <div className="p-4 md:p-6 text-black max-w-6xl mx-auto">
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
           <div className="flex gap-2 flex-wrap w-full sm:w-auto">
-            <Link to="/" className="bg-blue-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-blue-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
-              Dashboard
-            </Link>
             <Link to="/suppliers" className="bg-green-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-green-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
               Suppliers
             </Link>
@@ -514,6 +517,25 @@ export default function Inventory() {
           onClose={() => setShowScanner(false)}
         />
       )}
+
+      {/* Bottom-right page footer actions */}
+      <div
+        data-testid="page-footer"
+        className="mt-8 flex justify-end items-center gap-3"
+      >
+        <Link
+          to="/"
+          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+        >
+          Dashboard
+        </Link>
+        <button
+          onClick={handleLogout}
+          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+        >
+          Logout
+        </button>
+      </div>
     </div>
   );
 }

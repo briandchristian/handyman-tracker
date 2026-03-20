@@ -28,6 +28,12 @@ export default function Suppliers() {
     return () => clearTimeout(timer); // Cancel previous timer
   }, [searchTerm, categoryFilter, favoritesOnly]);
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
+    window.location.href = '/login';
+  };
+
   const fetchSuppliers = async () => {
     try {
       setLoading(true);
@@ -89,7 +95,7 @@ export default function Suppliers() {
 
   if (loading) {
     return (
-      <div className="p-8 text-black">
+      <div className="p-8 text-black max-w-6xl mx-auto">
         <h1 className="text-2xl mb-4 text-black">Suppliers & Materials</h1>
         <p className="text-black">Loading suppliers...</p>
       </div>
@@ -97,14 +103,11 @@ export default function Suppliers() {
   }
 
   return (
-    <div className="p-4 md:p-6 text-black lg:pr-[400px]">
+    <div className="p-4 md:p-6 text-black lg:pr-[400px] max-w-6xl mx-auto">
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
           <div className="flex gap-2 flex-wrap">
-            <Link to="/" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 text-sm md:text-base">
-              Dashboard
-            </Link>
             <Link to="/purchase-orders" className="bg-orange-500 text-white px-3 py-2 rounded hover:bg-orange-600 text-sm md:text-base">
               📋 POs ({stats.openPOs || 0})
             </Link>
@@ -408,6 +411,25 @@ export default function Suppliers() {
 
       {/* Quick Reorder Panel */}
       <QuickReorder onCreatePO={handleCreatePO} />
+
+      {/* Bottom-right page footer actions */}
+      <div
+        data-testid="page-footer"
+        className="mt-8 flex justify-end items-center gap-3"
+      >
+        <Link
+          to="/"
+          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+        >
+          Dashboard
+        </Link>
+        <button
+          onClick={handleLogout}
+          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+        >
+          Logout
+        </button>
+      </div>
     </div>
   );
 }

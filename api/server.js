@@ -156,12 +156,19 @@ const customerSchema = new mongoose.Schema({
   projects: [{
     name: String,
     description: String,
+    equipmentCategories: {
+      burglarAlarm: { type: Boolean, default: false },
+      fireAlarm: { type: Boolean, default: false },
+      accessControl: { type: Boolean, default: false },
+      cctv: { type: Boolean, default: false },
+      monitoring: { type: Boolean, default: false }
+    },
     bidAmount: Number,
     billAmount: Number,
     status: { type: String, enum: ['Pending', 'Bidded', 'Scheduled', 'Completed', 'Billed'] },
     scheduleDate: Date,
     completedAt: Date,
-    materials: [{ item: String, quantity: Number, cost: Number }],
+    materials: [{ item: String, quantity: Number, cost: Number, markup: Number }],
     notes: [{ text: String, addedAt: { type: Date, default: Date.now } }],
     createdAt: { type: Date, default: Date.now }
   }]
@@ -978,6 +985,38 @@ app.delete('/api/customers/:customerId/projects/:projectId', authMiddleware, adm
   }
 });
 
+app.put('/api/customers/:customerId/projects/:projectId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.customerId);
+    if (!customer) {
+      return res.status(404).json({ msg: 'Customer not found' });
+    }
+    const project = customer.projects.id(req.params.projectId);
+    if (!project) {
+      return res.status(404).json({ msg: 'Project not found' });
+    }
+    const { name, description, equipmentCategories } = req.body || {};
+    if (name !== undefined) project.name = String(name).trim();
+    if (description !== undefined) project.description = String(description).trim();
+    if (equipmentCategories && typeof equipmentCategories === 'object') {
+      const ec = equipmentCategories;
+      if (!project.equipmentCategories) {
+        project.equipmentCategories = {};
+      }
+      if (ec.burglarAlarm !== undefined) project.equipmentCategories.burglarAlarm = Boolean(ec.burglarAlarm);
+      if (ec.fireAlarm !== undefined) project.equipmentCategories.fireAlarm = Boolean(ec.fireAlarm);
+      if (ec.accessControl !== undefined) project.equipmentCategories.accessControl = Boolean(ec.accessControl);
+      if (ec.cctv !== undefined) project.equipmentCategories.cctv = Boolean(ec.cctv);
+      if (ec.monitoring !== undefined) project.equipmentCategories.monitoring = Boolean(ec.monitoring);
+    }
+    await customer.save();
+    res.json({ msg: 'Project updated', project });
+  } catch (err) {
+    console.error('Error updating project:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
 app.put('/api/customers/:customerId/projects/:projectId/bid', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerId);
@@ -1199,13 +1238,52 @@ app.post('/api/customers/:customerId/projects/:projectId/materials', authMiddlew
       return res.status(404).json({ msg: 'Project not found' });
     }
     
-    project.materials.push(req.body);
+    const { item, quantity, cost, markup } = req.body || {};
+    project.materials.push({
+      item,
+      quantity: Number(quantity),
+      cost: Number(cost),
+      markup: Number(markup || 0)
+    });
     await customer.save();
     
     console.log('Material added to project:', project.name);
     res.json(project.materials);
   } catch (err) {
     console.error('Error adding material:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.put('/api/customers/:customerId/projects/:projectId/materials/:materialId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.customerId);
+    if (!customer) {
+      return res.status(404).json({ msg: 'Customer not found' });
+    }
+    
+    const project = customer.projects.id(req.params.projectId);
+    if (!project) {
+      return res.status(404).json({ msg: 'Project not found' });
+    }
+
+    // Material is an embedded subdocument within the project.
+    const material = project.materials.id(req.params.materialId);
+    if (!material) {
+      return res.status(404).json({ msg: 'Material not found' });
+    }
+
+    const { item, quantity, cost, markup } = req.body;
+
+    if (item !== undefined) material.item = String(item).trim();
+    if (quantity !== undefined) material.quantity = Number(quantity);
+    if (cost !== undefined) material.cost = Number(cost);
+    if (markup !== undefined) material.markup = Number(markup);
+
+    await customer.save();
+    res.json({ msg: 'Material updated', materials: project.materials });
+  } catch (err) {
+    console.error('Error updating material:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });

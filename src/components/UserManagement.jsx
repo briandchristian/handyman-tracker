@@ -159,9 +159,15 @@ export default function UserManagement() {
     return badges[status] || 'bg-gray-400 text-white';
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
+    window.location.href = '/login';
+  };
+
   if (loading) {
     return (
-      <div className="p-8 text-black">
+      <div className="p-8 text-black max-w-6xl mx-auto">
         <h1 className="text-2xl mb-4 text-black">User Management</h1>
         <p className="text-black">Loading users...</p>
       </div>
@@ -170,7 +176,7 @@ export default function UserManagement() {
 
   if (error) {
     return (
-      <div className="p-8 text-black">
+      <div className="p-8 text-black max-w-6xl mx-auto">
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
           {error}
         </div>
@@ -182,11 +188,8 @@ export default function UserManagement() {
   }
 
   return (
-    <div className="p-4 md:p-8 text-black">
+    <div className="p-4 md:p-8 text-black max-w-6xl mx-auto">
       <div className="mb-6">
-        <Link to="/" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 inline-block mb-4 text-sm md:text-base">
-          Dashboard
-        </Link>
         <h1 className="text-2xl md:text-3xl font-bold text-black mt-4">User Management</h1>
         <p className="text-gray-600 mt-2 text-sm md:text-base">Manage admin users and approve pending requests</p>
       </div>
@@ -314,6 +317,25 @@ export default function UserManagement() {
           </div>
         </div>
       )}
+
+      {/* Bottom-right page footer actions */}
+      <div
+        data-testid="page-footer"
+        className="mt-8 flex justify-end items-center gap-3"
+      >
+        <Link
+          to="/"
+          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+        >
+          Dashboard
+        </Link>
+        <button
+          onClick={handleLogout}
+          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+        >
+          Logout
+        </button>
+      </div>
     </div>
   );
 }

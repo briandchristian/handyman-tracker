@@ -2,11 +2,21 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import API_BASE_URL from '../config/api';
+import {
+  EQUIPMENT_CATEGORY_OPTIONS,
+  emptyEquipmentCategories
+} from '../constants/equipmentCategories';
+import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '', address: '' });
-  const [newProject, setNewProject] = useState({ customerId: '', name: '', description: '' });
+  const [newProject, setNewProject] = useState({
+    customerId: '',
+    name: '',
+    description: '',
+    equipmentCategories: emptyEquipmentCategories()
+  });
   const [editingCustomerId, setEditingCustomerId] = useState(null);
   const [editCustomer, setEditCustomer] = useState({ name: '', email: '', phone: '', address: '' });
   const [searchQuery, setSearchQuery] = useState('');
@@ -49,12 +59,28 @@ export default function Customers() {
       }
       
       await axios.post(`${API_BASE_URL}/api/customers/${newProject.customerId}/projects`, 
-        { name: newProject.name, description: newProject.description, status: 'Pending' }, 
+        {
+          name: newProject.name,
+          description: newProject.description,
+          status: 'Pending',
+          equipmentCategories: {
+            burglarAlarm: !!newProject.equipmentCategories.burglarAlarm,
+            fireAlarm: !!newProject.equipmentCategories.fireAlarm,
+            accessControl: !!newProject.equipmentCategories.accessControl,
+            cctv: !!newProject.equipmentCategories.cctv,
+            monitoring: !!newProject.equipmentCategories.monitoring
+          }
+        },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
       
       // Clear the form fields after successful addition
-      setNewProject({ customerId: '', name: '', description: '' });
+      setNewProject({
+        customerId: '',
+        name: '',
+        description: '',
+        equipmentCategories: emptyEquipmentCategories()
+      });
       
       // Refresh customers and update the selected customer
       await fetchCustomers();
@@ -67,7 +93,13 @@ export default function Customers() {
         const updatedCustomer = res.data.find(c => c._id === selectedCustomer._id);
         if (updatedCustomer) {
           setSelectedCustomer(updatedCustomer);
-          setNewProject({ ...newProject, customerId: updatedCustomer._id, name: '', description: '' });
+          setNewProject({
+            ...newProject,
+            customerId: updatedCustomer._id,
+            name: '',
+            description: '',
+            equipmentCategories: emptyEquipmentCategories()
+          });
         }
       }
     } catch (err) {
@@ -150,22 +182,32 @@ export default function Customers() {
     
     if (found) {
       setSelectedCustomer(found);
-      setNewProject({ ...newProject, customerId: found._id });
+      setNewProject({
+        ...newProject,
+        customerId: found._id,
+        equipmentCategories: newProject.customerId === found._id ? newProject.equipmentCategories : emptyEquipmentCategories()
+      });
     } else {
       setSelectedCustomer(null);
     }
   };
 
   return (
-    <div className="p-4 md:p-6 text-black h-screen flex flex-col">
+    <div className="p-4 md:p-6 text-black h-screen flex flex-col max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
         <h1 className="text-2xl md:text-2xl text-black">Customers</h1>
         <div className="flex gap-2 w-full sm:w-auto">
-          <Link to="/" className="bg-blue-500 text-white px-4 py-3 md:py-2 rounded hover:bg-blue-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
+          <Link
+            to="/"
+            className="bg-blue-500 text-white px-4 py-3 md:py-2 rounded hover:bg-blue-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center"
+          >
             Dashboard
           </Link>
-          <button onClick={handleLogout} className="bg-red-500 text-white px-4 py-3 md:py-2 rounded hover:bg-red-600 text-base md:text-sm font-medium flex-1 sm:flex-none">
+          <button
+            onClick={handleLogout}
+            className="bg-red-500 text-white px-4 py-3 md:py-2 rounded hover:bg-red-600 text-base md:text-sm font-medium flex-1 sm:flex-none"
+          >
             Logout
           </button>
         </div>
@@ -179,36 +221,50 @@ export default function Customers() {
           {/* Add Customer Form */}
           <div className="mb-6 pb-4 border-b border-gray-200">
             <h3 className="text-lg md:text-lg font-medium mb-3 text-black">Add New Customer</h3>
-            <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
-              <input 
-                placeholder="Name" 
-                value={newCustomer.name} 
-                onChange={e => setNewCustomer({ ...newCustomer, name: e.target.value })} 
-                className="p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[150px] text-base md:text-sm" 
-              />
-              <input 
-                placeholder="Email" 
-                value={newCustomer.email} 
-                onChange={e => setNewCustomer({ ...newCustomer, email: e.target.value })} 
-                className="p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[150px] text-base md:text-sm" 
-              />
-              <input 
-                placeholder="Phone (XXX-XXX-XXXX)" 
-                value={newCustomer.phone} 
-                onChange={handlePhoneChange} 
-                maxLength="12" 
-                className="p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[120px] text-base md:text-sm" 
-              />
-              <input 
-                placeholder="Address" 
-                value={newCustomer.address} 
-                onChange={e => setNewCustomer({ ...newCustomer, address: e.target.value })} 
-                className="p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[150px] text-base md:text-sm" 
-              />
-              <button onClick={addCustomer} className="bg-green-500 text-white px-4 py-3 md:py-2 rounded hover:bg-green-600 text-base md:text-sm font-medium w-full sm:w-auto">
-                Add Customer
-              </button>
-            </div>
+            <AlignedFormGrid testId="add-customer-grid">
+              <AlignedFormField label="Name" htmlFor="new-customer-name" className="col-span-12 md:col-span-3">
+                <input
+                  id="new-customer-name"
+                  placeholder="Name"
+                  value={newCustomer.name}
+                  onChange={e => setNewCustomer({ ...newCustomer, name: e.target.value })}
+                  className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
+                />
+              </AlignedFormField>
+              <AlignedFormField label="Email" htmlFor="new-customer-email" className="col-span-12 md:col-span-3">
+                <input
+                  id="new-customer-email"
+                  placeholder="Email"
+                  value={newCustomer.email}
+                  onChange={e => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                  className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
+                />
+              </AlignedFormField>
+              <AlignedFormField label="Phone" htmlFor="new-customer-phone" className="col-span-12 sm:col-span-6 md:col-span-2">
+                <input
+                  id="new-customer-phone"
+                  placeholder="Phone (XXX-XXX-XXXX)"
+                  value={newCustomer.phone}
+                  onChange={handlePhoneChange}
+                  maxLength="12"
+                  className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
+                />
+              </AlignedFormField>
+              <AlignedFormField label="Address" htmlFor="new-customer-address" className="col-span-12 sm:col-span-6 md:col-span-2">
+                <input
+                  id="new-customer-address"
+                  placeholder="Address"
+                  value={newCustomer.address}
+                  onChange={e => setNewCustomer({ ...newCustomer, address: e.target.value })}
+                  className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
+                />
+              </AlignedFormField>
+              <div className="col-span-12 md:col-span-2">
+                <button onClick={addCustomer} className="w-full bg-green-500 text-white px-4 py-3 md:py-2 rounded hover:bg-green-600 text-base md:text-sm font-medium">
+                  Add Customer
+                </button>
+              </div>
+            </AlignedFormGrid>
           </div>
           
           {/* Customers List */}
@@ -309,7 +365,7 @@ export default function Customers() {
 
           {/* Desktop Table Layout */}
           <div className="hidden md:block overflow-x-auto">
-            <table className="w-full border-collapse border">
+            <table className="w-full border-collapse border min-w-[900px]">
               <thead>
                 <tr className="text-black bg-gray-50">
                   <th className="text-black text-left p-3 border-b text-sm font-semibold">Name</th>
@@ -468,26 +524,63 @@ export default function Customers() {
               {/* Add New Project Form */}
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                 <h3 className="text-lg md:text-lg font-semibold text-black mb-3">Add New Project</h3>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <input 
-                    placeholder="Project Name" 
-                    value={newProject.name} 
-                    onChange={e => setNewProject({ ...newProject, name: e.target.value })} 
-                    className="p-4 md:p-2 border border-gray-300 rounded bg-white text-black flex-1 text-base md:text-sm" 
-                  />
-                  <input 
-                    placeholder="Description" 
-                    value={newProject.description} 
-                    onChange={e => setNewProject({ ...newProject, description: e.target.value })} 
-                    className="p-4 md:p-2 border border-gray-300 rounded bg-white text-black flex-1 text-base md:text-sm" 
-                  />
-                  <button 
-                    onClick={addProject} 
-                    className="bg-green-500 text-white px-6 py-4 md:py-2 rounded hover:bg-green-600 font-medium text-base md:text-sm w-full sm:w-auto"
-                  >
-                    Add Project
-                  </button>
-                </div>
+                <AlignedFormGrid testId="add-project-grid">
+                  <AlignedFormField label="Project Name" htmlFor="new-project-name" className="col-span-12 md:col-span-4">
+                    <input
+                      id="new-project-name"
+                      placeholder="Project Name"
+                      value={newProject.name}
+                      onChange={e => setNewProject({ ...newProject, name: e.target.value })}
+                      className="w-full p-4 md:p-2 border border-gray-300 rounded bg-white text-black text-base md:text-sm"
+                    />
+                  </AlignedFormField>
+                  <AlignedFormField label="Description" htmlFor="new-project-description" className="col-span-12 md:col-span-6">
+                    <input
+                      id="new-project-description"
+                      placeholder="Description"
+                      value={newProject.description}
+                      onChange={e => setNewProject({ ...newProject, description: e.target.value })}
+                      className="w-full p-4 md:p-2 border border-gray-300 rounded bg-white text-black text-base md:text-sm"
+                    />
+                  </AlignedFormField>
+                  <div className="col-span-12">
+                    <p className="block text-sm font-medium text-gray-700 mb-2">Equipment categories</p>
+                    <div className="flex flex-wrap gap-4" data-testid="new-project-equipment-categories">
+                      {EQUIPMENT_CATEGORY_OPTIONS.map(({ key, label }) => (
+                        <label
+                          key={key}
+                          htmlFor={`new-project-equip-${key}`}
+                          className="flex items-center gap-2 cursor-pointer text-black text-sm"
+                        >
+                          <input
+                            id={`new-project-equip-${key}`}
+                            type="checkbox"
+                            checked={!!newProject.equipmentCategories[key]}
+                            onChange={(e) =>
+                              setNewProject({
+                                ...newProject,
+                                equipmentCategories: {
+                                  ...newProject.equipmentCategories,
+                                  [key]: e.target.checked
+                                }
+                              })
+                            }
+                            className="rounded border-gray-300"
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="col-span-12 md:col-span-2">
+                    <button
+                      onClick={addProject}
+                      className="w-full bg-green-500 text-white px-6 py-4 md:py-2 rounded hover:bg-green-600 font-medium text-base md:text-sm"
+                    >
+                      Add Project
+                    </button>
+                  </div>
+                </AlignedFormGrid>
               </div>
             </div>
           ) : (
@@ -499,6 +592,7 @@ export default function Customers() {
           )}
         </div>
       </div>
+
     </div>
   );
 }

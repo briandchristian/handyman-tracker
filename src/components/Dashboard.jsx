@@ -12,6 +12,12 @@ export default function Dashboard() {
     fetchAllProjects();
   }, []);
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
+    window.location.href = '/login';
+  };
+
   const fetchAllProjects = async () => {
     try {
       const res = await axios.get(`${API_BASE_URL}/api/customers`, { 
@@ -49,7 +55,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="p-6 text-black">
+      <div className="p-6 text-black max-w-6xl mx-auto">
         <h1 className="text-2xl mb-4 text-black">Handyman Tracker Dashboard</h1>
         <p>Loading projects...</p>
       </div>
@@ -57,7 +63,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-4 md:p-6 text-black">
+    <div className="p-4 md:p-6 text-black max-w-6xl mx-auto">
       {/* Desktop buttons - hidden on mobile (mobile nav handles this) */}
       <div className="hidden lg:flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-black">Dashboard</h1>
@@ -176,7 +182,7 @@ export default function Dashboard() {
 
             {/* Desktop Table Layout */}
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse min-w-[900px]">
                 <thead>
                   <tr className="border-b border-gray-200">
                     <th className="text-left p-3 text-black text-sm font-semibold">Project Name</th>
@@ -232,6 +238,19 @@ export default function Dashboard() {
             </div>
           </>
         )}
+      </div>
+
+      {/* Bottom-right page footer actions */}
+      <div
+        data-testid="page-footer"
+        className="mt-8 flex justify-end items-center"
+      >
+        <button
+          onClick={handleLogout}
+          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+        >
+          Logout
+        </button>
       </div>
     </div>
   );

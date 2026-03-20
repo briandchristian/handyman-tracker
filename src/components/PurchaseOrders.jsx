@@ -43,6 +43,12 @@ export default function PurchaseOrders() {
     fetchPOs();
   }, [statusFilter]);
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
+    window.location.href = '/login';
+  };
+
   const fetchPOs = async () => {
     try {
       setLoading(true);
@@ -82,7 +88,7 @@ export default function PurchaseOrders() {
 
   if (loading) {
     return (
-      <div className="p-8 text-black">
+      <div className="p-8 text-black max-w-6xl mx-auto">
         <h1 className="text-2xl mb-4 text-black">Purchase Orders</h1>
         <p className="text-black">Loading purchase orders...</p>
       </div>
@@ -90,15 +96,12 @@ export default function PurchaseOrders() {
   }
 
   return (
-    <div className="p-4 md:p-6 text-black">
+    <div className="p-4 md:p-6 text-black max-w-6xl mx-auto">
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
           <Link to="/suppliers" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 text-sm md:text-base">
             Back to Suppliers
-          </Link>
-          <Link to="/" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 text-sm md:text-base">
-            Dashboard
           </Link>
         </div>
         <h1 className="text-2xl md:text-3xl font-bold text-black">Purchase Orders</h1>
@@ -295,6 +298,22 @@ export default function PurchaseOrders() {
           }}
         />
       )}
+
+      {/* Bottom-right page footer actions */}
+      <div data-testid="page-footer" className="mt-8 flex justify-end items-center gap-3">
+        <Link
+          to="/"
+          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+        >
+          Dashboard
+        </Link>
+        <button
+          onClick={handleLogout}
+          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+        >
+          Logout
+        </button>
+      </div>
     </div>
   );
 }

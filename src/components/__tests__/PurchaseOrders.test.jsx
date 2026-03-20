@@ -2,7 +2,7 @@
  * Comprehensive Tests for Purchase Orders Component - Phase 2B
  */
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import PurchaseOrders from '../PurchaseOrders';
 import axios from 'axios';
@@ -531,5 +531,37 @@ describe('PurchaseOrders Component - Phase 2B', () => {
       // Next should be PO-2024-004
       expect(axios.post).not.toHaveBeenCalled();
     });
+  });
+
+  test('should show logout button in bottom footer', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Logout')).toBeInTheDocument();
+    });
+
+    const footer = screen.getByTestId('page-footer');
+    expect(within(footer).getByText('Logout')).toBeInTheDocument();
+    expect(within(footer).getByText('Dashboard')).toBeInTheDocument();
+  });
+
+  test('should only render one dashboard button', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('link', { name: 'Dashboard' })).toHaveLength(1);
+    });
+  });
+
+  test('should use compact centered page layout', async () => {
+    const { container } = render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Purchase Orders')).toBeInTheDocument();
+    });
+
+    const root = container.firstChild;
+    expect(root.className).toContain('max-w-6xl');
+    expect(root.className).toContain('mx-auto');
   });
 });

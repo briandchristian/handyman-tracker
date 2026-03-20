@@ -84,9 +84,48 @@ describe('Customers Component', () => {
       expect(screen.getByText('Dashboard')).toBeInTheDocument();
       expect(screen.getByText('Customers')).toBeInTheDocument();
     });
+
+    test('should place dashboard next to logout in header', async () => {
+      axios.get.mockResolvedValue({ data: [] });
+
+      renderWithRouter(<Customers />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Logout' })).toBeInTheDocument();
+        expect(screen.queryByTestId('page-footer')).not.toBeInTheDocument();
+      });
+    });
+
+    test('should use compact centered page layout', async () => {
+      axios.get.mockResolvedValue({ data: [] });
+      const { container } = renderWithRouter(<Customers />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Customers')).toBeInTheDocument();
+      });
+
+      const root = container.firstChild;
+      expect(root.className).toContain('max-w-6xl');
+      expect(root.className).toContain('mx-auto');
+    });
   });
 
   describe('Adding Customers', () => {
+    test('should show labeled add-customer fields for aligned form layout', async () => {
+      axios.get.mockResolvedValue({ data: [] });
+      renderWithRouter(<Customers />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Add New Customer')).toBeInTheDocument();
+      });
+
+      expect(screen.getByLabelText('Name')).toBeInTheDocument();
+      expect(screen.getByLabelText('Email')).toBeInTheDocument();
+      expect(screen.getByLabelText('Phone')).toBeInTheDocument();
+      expect(screen.getByLabelText('Address')).toBeInTheDocument();
+    });
+
     test('should add new customer', async () => {
       axios.get.mockResolvedValue({ data: [] });
       axios.post.mockResolvedValue({ data: { _id: '3', name: 'New Customer' } });
@@ -182,6 +221,73 @@ describe('Customers Component', () => {
   });
 
   describe('Adding Projects', () => {
+    test('should show labeled add-project fields for aligned form layout', async () => {
+      axios.get.mockResolvedValue({ data: mockCustomers });
+      renderWithRouter(<Customers />);
+
+      await waitFor(() => {
+        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
+      });
+
+      const searchInput = screen.getByPlaceholderText(/Type customer name to search/i);
+      await userEvent.type(searchInput, 'John');
+
+      await waitFor(() => {
+        expect(screen.getByText('Add New Project')).toBeInTheDocument();
+      });
+
+      expect(screen.getByLabelText('Project Name')).toBeInTheDocument();
+      expect(screen.getByLabelText('Description')).toBeInTheDocument();
+      expect(screen.getByTestId('new-project-equipment-categories')).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: /Burglar Alarm/i })).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: /Fire Alarm/i })).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: /Access Control/i })).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: /CCTV/i })).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: /Monitoring/i })).toBeInTheDocument();
+    });
+
+    test('should POST equipmentCategories when adding project', async () => {
+      axios.get.mockResolvedValue({ data: mockCustomers });
+      axios.post.mockResolvedValue({ data: { _id: 'p2', name: 'Scope Project' } });
+
+      renderWithRouter(<Customers />);
+
+      await waitFor(() => {
+        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
+      });
+
+      const searchInput = screen.getByPlaceholderText(/Type customer name to search/i);
+      await userEvent.type(searchInput, 'John');
+
+      await waitFor(() => {
+        expect(screen.getByText('Add New Project')).toBeInTheDocument();
+      });
+
+      await userEvent.type(screen.getByLabelText('Project Name'), 'Alarm install');
+      await userEvent.click(screen.getByRole('checkbox', { name: /Fire Alarm/i }));
+      await userEvent.click(screen.getByRole('checkbox', { name: /CCTV/i }));
+
+      axios.get.mockResolvedValue({ data: mockCustomers });
+      await userEvent.click(screen.getByRole('button', { name: 'Add Project' }));
+
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenCalledWith(
+          expect.stringContaining('/api/customers/1/projects'),
+          expect.objectContaining({
+            name: 'Alarm install',
+            equipmentCategories: {
+              burglarAlarm: false,
+              fireAlarm: true,
+              accessControl: false,
+              cctv: true,
+              monitoring: false
+            }
+          }),
+          expect.any(Object)
+        );
+      });
+    });
+
     test('should add project to customer', async () => {
       axios.get.mockResolvedValue({ data: mockCustomers });
       axios.post.mockResolvedValue({ data: { _id: 'p2', name: 'New Project' } });

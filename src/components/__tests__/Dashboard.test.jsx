@@ -2,7 +2,7 @@
  * Tests for Dashboard Component
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import axios from 'axios';
 import Dashboard from '../Dashboard';
@@ -82,6 +82,32 @@ describe('Dashboard Component', () => {
     await waitFor(() => {
       expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
     });
+  });
+
+  test('should show logout button in bottom footer', async () => {
+    axios.get.mockResolvedValue({ data: mockCustomers });
+
+    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Logout')).toBeInTheDocument();
+    });
+
+    const footer = screen.getByTestId('page-footer');
+    expect(within(footer).getByText('Logout')).toBeInTheDocument();
+  });
+
+  test('should use compact centered page layout', async () => {
+    axios.get.mockResolvedValue({ data: mockCustomers });
+    const { container } = render(<BrowserRouter><Dashboard /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Dashboard').length).toBeGreaterThan(0);
+    });
+
+    const root = container.firstChild;
+    expect(root.className).toContain('max-w-6xl');
+    expect(root.className).toContain('mx-auto');
   });
 });
 

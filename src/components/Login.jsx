@@ -264,8 +264,12 @@ export default function Login({ setToken }) {
           <div className="text-xl md:text-2xl font-bold text-gray-900 tracking-tight uppercase">
             Christian Security Services
           </div>
-          <div className="text-sm md:text-base text-gray-700 mt-1">ID Number: 2622 Alarm Contracting Company</div>
-          <div className="text-sm md:text-base text-gray-700">ID Number: 2593 Qualifying Agent</div>
+          <div className="text-sm md:text-base text-gray-700 mt-1">Phone Number: 801-851-0909</div>
+          <div className="text-sm md:text-base text-gray-700">ID Number: 2622 Alarm Contracting Company</div>
+          <div className="text-sm md:text-base text-gray-700">Residential and Commercial</div>
+          <div className="text-sm md:text-base text-gray-700">Burglar Alarms</div>
+          <div className="text-sm md:text-base text-gray-700">Fire Alarms</div>
+          <div className="text-sm md:text-base text-gray-700">CCTV</div>
         </div>
       </div>
 
