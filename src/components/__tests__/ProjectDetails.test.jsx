@@ -607,6 +607,65 @@ describe('ProjectDetails Component', () => {
       });
     });
 
+    test('should use mobile-safe wrapping layout for key project controls', async () => {
+      const customerWithMaterials = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            materials: [{ _id: 'm1', item: 'Panel', quantity: 1, cost: 100, markup: 0 }]
+          }
+        ]
+      };
+      axios.get.mockResolvedValue({ data: customerWithMaterials });
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('project-top-actions')).toBeInTheDocument();
+      });
+
+      expect(screen.getByTestId('project-top-actions').className).toContain('flex-col');
+      expect(screen.getByTestId('bid-form-row').className).toContain('flex-col');
+      expect(screen.getByTestId('bill-form-row').className).toContain('flex-col');
+      expect(screen.getByTestId('schedule-form-row').className).toContain('flex-col');
+      expect(screen.getByTestId('materials-total-controls').className).toContain('flex-wrap');
+    });
+
+    test('should render mobile material cards and keep desktop table responsive', async () => {
+      const customerWithMaterials = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            materials: [{ _id: 'm1', item: 'Panel', quantity: 2, cost: 150, markup: 10 }]
+          }
+        ]
+      };
+      const originalMatchMedia = window.matchMedia;
+      window.matchMedia = jest.fn().mockImplementation(() => ({
+        matches: true,
+        media: '(max-width: 639px)',
+        onchange: null,
+        addListener: jest.fn(),
+        removeListener: jest.fn(),
+        addEventListener: jest.fn(),
+        removeEventListener: jest.fn(),
+        dispatchEvent: jest.fn()
+      }));
+      axios.get.mockResolvedValue({ data: customerWithMaterials });
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('materials-mobile-list')).toBeInTheDocument();
+      });
+
+      expect(screen.getByTestId('materials-mobile-list').className).toContain('sm:hidden');
+      expect(screen.queryByTestId('materials-table-wrapper')).not.toBeInTheDocument();
+      expect(screen.getByText('Panel')).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: /edit/i }).length).toBeGreaterThan(0);
+      window.matchMedia = originalMatchMedia;
+    });
+
     test('should generate and open bid pdf from project information', async () => {
       const customerWithMaterials = {
         ...mockCustomer,

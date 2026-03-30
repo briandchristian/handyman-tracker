@@ -25,8 +25,10 @@ export default function MobileNav() {
     <>
       {/* Mobile Nav Bar - Fixed Top */}
       <div className="lg:hidden fixed top-0 left-0 right-0 bg-white border-b border-gray-300 shadow-md z-50">
-        <div className="flex items-center justify-between p-4">
-          <h1 className="text-xl md:text-xl font-bold text-black">CHRISTIAN SECURITY SERVICES</h1>
+        <div className="flex items-center justify-between p-4 gap-2">
+          <h1 className="text-sm sm:text-base font-bold text-black pr-2 max-w-[calc(100%-56px)] whitespace-nowrap overflow-hidden text-ellipsis">
+            CHRISTIAN SECURITY SERVICES
+          </h1>
           <button
             onClick={() => setIsOpen(!isOpen)}
             className="p-3 md:p-2 text-black hover:bg-gray-100 rounded min-w-[44px] min-h-[44px] flex items-center justify-center"

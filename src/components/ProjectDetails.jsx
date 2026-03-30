@@ -129,6 +129,10 @@ export default function ProjectDetails() {
   const [expandedMaterialIds, setExpandedMaterialIds] = useState(new Set());
   const [newNote, setNewNote] = useState('');
   const [includeMonitoringAgreement, setIncludeMonitoringAgreement] = useState(false);
+  const [isMobileView, setIsMobileView] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia('(max-width: 639px)').matches;
+  });
   const [editingProjectInfo, setEditingProjectInfo] = useState(false);
   const [editProjectInfo, setEditProjectInfo] = useState({
     name: '',
@@ -214,6 +218,19 @@ export default function ProjectDetails() {
       window.fbq('track', 'ViewContent', { value: 1 });
     }
   }, [project]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const media = window.matchMedia('(max-width: 639px)');
+    const onChange = (event) => setIsMobileView(event.matches);
+    setIsMobileView(media.matches);
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', onChange);
+      return () => media.removeEventListener('change', onChange);
+    }
+    media.addListener(onChange);
+    return () => media.removeListener(onChange);
+  }, []);
 
   const submitBid = async () => {
     if (!bidAmount || bidAmount <= 0) {
@@ -881,21 +898,21 @@ export default function ProjectDetails() {
   const proposedSystemStatement = buildProposedSystemStatement(project.equipmentCategories);
 
   return (
-    <div className="p-6 text-black max-w-6xl mx-auto">
-      <div className="flex justify-between items-center mb-4">
-        <Link to="/customers" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Back to Customers</Link>
-        <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+    <div className="p-4 sm:p-6 text-black max-w-6xl mx-auto">
+      <div data-testid="project-top-actions" className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 mb-4">
+        <Link to="/customers" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 text-center">Back to Customers</Link>
+        <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 text-center">
           Dashboard
         </Link>
       </div>
-      <h1 className="text-3xl font-bold mb-6 text-black">
+      <h1 className="text-2xl sm:text-3xl leading-tight break-words font-bold mb-6 text-black">
         {editingProjectInfo ? (editProjectInfo.name.trim() || project.name) : project.name}
       </h1>
       
       {/* Project Information */}
       <div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
         <div className="flex flex-wrap justify-between items-start gap-2 mb-4">
-          <h2 className="text-xl font-semibold">Project Information</h2>
+          <h2 className="text-lg sm:text-xl font-semibold">Project Information</h2>
           {!editingProjectInfo ? (
             <button
               type="button"
@@ -1041,12 +1058,12 @@ export default function ProjectDetails() {
       
       {/* Actions Section */}
       <div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
-        <h2 className="text-xl font-semibold mb-4">Update Project</h2>
+        <h2 className="text-lg sm:text-xl font-semibold mb-4">Update Project</h2>
         
         {/* Bid Form */}
         <div className="mb-4">
           <label className="block text-gray-700 mb-2">Bid Amount ($)</label>
-          <div className="flex gap-2">
+          <div data-testid="bid-form-row" className="flex flex-col sm:flex-row gap-2">
             <input 
               type="number" 
               step="0.01"
@@ -1055,14 +1072,14 @@ export default function ProjectDetails() {
               onChange={e => setBidAmount(e.target.value)} 
               className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1" 
             />
-            <button onClick={submitBid} className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Submit Bid</button>
+            <button onClick={submitBid} className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600 w-full sm:w-auto">Submit Bid</button>
           </div>
         </div>
         
         {/* Bill Form */}
         <div className="mb-4">
           <label className="block text-gray-700 mb-2">Bill Amount ($)</label>
-          <div className="flex gap-2">
+          <div data-testid="bill-form-row" className="flex flex-col sm:flex-row gap-2">
             <input 
               type="number" 
               step="0.01"
@@ -1071,21 +1088,21 @@ export default function ProjectDetails() {
               onChange={e => setBillAmount(e.target.value)} 
               className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1" 
             />
-            <button onClick={submitBill} className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Submit Bill</button>
+            <button onClick={submitBill} className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600 w-full sm:w-auto">Submit Bill</button>
           </div>
         </div>
         
         {/* Schedule Form */}
         <div className="mb-4">
           <label className="block text-gray-700 mb-2">Schedule Date</label>
-          <div className="flex gap-2">
+          <div data-testid="schedule-form-row" className="flex flex-col sm:flex-row gap-2">
             <input 
               type="date" 
               value={scheduleDate} 
               onChange={e => setScheduleDate(e.target.value)} 
               className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1" 
             />
-            <button onClick={submitSchedule} className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Schedule Job</button>
+            <button onClick={submitSchedule} className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600 w-full sm:w-auto">Schedule Job</button>
           </div>
         </div>
 
@@ -1108,8 +1125,137 @@ export default function ProjectDetails() {
           <p className="text-black mt-1" data-testid="proposed-system-text">{proposedSystemStatement}</p>
         </div>
       )}
-      <h2 className="text-xl mt-6 text-black">Materials</h2>
-      <div data-testid="materials-table-wrapper" className="mt-2 overflow-x-auto">
+      <h2 className="text-lg sm:text-xl mt-6 text-black">Materials</h2>
+
+      {isMobileView && (
+      <div data-testid="materials-mobile-list" className="mt-2 space-y-3 sm:hidden">
+        {project.materials && project.materials.length > 0 ? (
+          <>
+            {project.materials.map((mat) => (
+              <div key={`mobile-${mat._id}`} className="bg-white border border-gray-300 rounded-lg p-3">
+                {editingMaterialId === mat._id ? (
+                  <div className="space-y-2">
+                    <input
+                      aria-label="Edit Item"
+                      placeholder="Item"
+                      value={editMaterial.item}
+                      onChange={(e) => setEditMaterial({ ...editMaterial, item: e.target.value })}
+                      className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                    />
+                    <div className="grid grid-cols-1 gap-2">
+                      <input
+                        type="number"
+                        step="1"
+                        aria-label="Edit Quantity"
+                        placeholder="Quantity"
+                        value={editMaterial.quantity}
+                        onChange={(e) => setEditMaterial({ ...editMaterial, quantity: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        aria-label="Edit Cost ($)"
+                        placeholder="Cost ($)"
+                        value={editMaterial.cost}
+                        onChange={(e) => setEditMaterial({ ...editMaterial, cost: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        aria-label="Edit Markup (%)"
+                        placeholder="Markup %"
+                        value={editMaterial.markup}
+                        onChange={(e) => setEditMaterial({ ...editMaterial, markup: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => updateMaterial(mat._id)}
+                        className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={cancelEditMaterial}
+                        className="bg-gray-200 text-black px-3 py-1 rounded hover:bg-gray-300"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => deleteMaterial(mat._id)}
+                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-black font-semibold break-words">{mat.item}</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                      <p className="text-gray-600">Qty: <span className="text-black">{mat.quantity}</span></p>
+                      <p className="text-gray-600">Markup: <span className="text-black">{parseFloat(mat.markup || 0).toFixed(0)}%</span></p>
+                      <p className="text-gray-600 col-span-2">Cost: <span className="text-black">${parseFloat(mat.cost).toFixed(2)}</span></p>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => startEditMaterial(mat)}
+                        className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => deleteMaterial(mat._id)}
+                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+
+            <div className="bg-gray-100 border border-gray-300 rounded-lg p-3">
+              <div data-testid="materials-total-controls-mobile" className="flex flex-wrap items-center gap-3 mb-2">
+                <span className="font-bold text-black">Total Material Cost:</span>
+                <button
+                  onClick={() => generateBidPdf({ incrementQuote: true })}
+                  className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm font-medium"
+                >
+                  Generate Bid
+                </button>
+                <button
+                  onClick={() => generateBidPdf({ incrementQuote: false })}
+                  className="bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm font-medium"
+                >
+                  Regenerate Bid
+                </button>
+                <label className="inline-flex items-center gap-2 text-sm text-black">
+                  <input
+                    type="checkbox"
+                    checked={includeMonitoringAgreement}
+                    onChange={(e) => setIncludeMonitoringAgreement(e.target.checked)}
+                  />
+                  Include Monitoring Agreement
+                </label>
+              </div>
+              <p className="text-black text-lg font-bold">${totalMaterialCost.toFixed(2)}</p>
+            </div>
+          </>
+        ) : (
+          <div className="bg-white border border-gray-300 rounded-lg p-4 text-black text-center">
+            No materials added yet
+          </div>
+        )}
+      </div>
+      )}
+
+      {!isMobileView && (
+      <div data-testid="materials-table-wrapper" className="mt-2 hidden sm:block overflow-x-auto">
         <table className="w-full table-fixed border-collapse border">
           <colgroup>
             <col className="w-[40%]" />
@@ -1238,7 +1384,7 @@ export default function ProjectDetails() {
             <tfoot>
               <tr className="bg-gray-100 font-bold">
                 <td className="text-black p-3 border-t-2" colSpan="3">
-                  <div className="flex items-center gap-3">
+                  <div data-testid="materials-total-controls" className="flex flex-wrap items-center gap-3">
                     <span>Total Material Cost:</span>
                     <button
                       onClick={() => generateBidPdf({ incrementQuote: true })}
@@ -1271,6 +1417,7 @@ export default function ProjectDetails() {
           )}
         </table>
       </div>
+      )}
       
       {/* Add Material Form */}
       <div className="mt-4 bg-white border border-gray-300 rounded-lg p-4">
