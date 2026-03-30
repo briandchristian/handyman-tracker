@@ -9,6 +9,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import axios from 'axios';
 import ProjectDetails from '../ProjectDetails';
 import { jsPDF } from 'jspdf';
+import { strToU8, zipSync } from 'fflate';
 import { BID_QUOTE_LOCAL_STORAGE_KEY } from '../../utils/bidQuoteSequence';
 
 jest.mock('axios');
@@ -52,6 +53,11 @@ describe('ProjectDetails Component', () => {
     global.alert = jest.fn();
     global.URL.createObjectURL = jest.fn(() => 'blob:bid-pdf-url');
     window.open = jest.fn();
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      arrayBuffer: async () => new ArrayBuffer(0)
+    });
     mockPdfDoc = {
       internal: {
         pageSize: {
@@ -595,7 +601,9 @@ describe('ProjectDetails Component', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /generate bid/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /regenerate bid/i })).toBeInTheDocument();
+        expect(screen.getByLabelText(/include monitoring agreement/i)).toBeInTheDocument();
       });
     });
 
@@ -619,10 +627,10 @@ describe('ProjectDetails Component', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /generate bid/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
       });
 
-      await userEvent.click(screen.getByRole('button', { name: /generate bid/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
 
       await waitFor(() => {
         expect(jsPDF).toHaveBeenCalled();
@@ -719,10 +727,10 @@ describe('ProjectDetails Component', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /generate bid/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
       });
 
-      await userEvent.click(screen.getByRole('button', { name: /generate bid/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
       await waitFor(() => {
         expect(jsPDF).toHaveBeenCalled();
       });
@@ -770,10 +778,10 @@ describe('ProjectDetails Component', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /generate bid/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
       });
 
-      await userEvent.click(screen.getByRole('button', { name: /generate bid/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
 
       await waitFor(() => {
         expect(jsPDF).toHaveBeenCalled();
@@ -818,10 +826,10 @@ describe('ProjectDetails Component', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /generate bid/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
       });
 
-      await userEvent.click(screen.getByRole('button', { name: /generate bid/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
       await waitFor(() => {
         expect(jsPDF).toHaveBeenCalled();
       });
@@ -859,10 +867,10 @@ describe('ProjectDetails Component', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /generate bid/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
       });
 
-      await userEvent.click(screen.getByRole('button', { name: /generate bid/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
       await waitFor(() => expect(jsPDF).toHaveBeenCalled());
 
       const firstQuote = mockPdfDoc.text.mock.calls.find(
@@ -873,13 +881,120 @@ describe('ProjectDetails Component', () => {
       mockPdfDoc.text.mockClear();
       jsPDF.mockClear();
 
-      await userEvent.click(screen.getByRole('button', { name: /generate bid/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
       await waitFor(() => expect(jsPDF).toHaveBeenCalled());
 
       const secondQuote = mockPdfDoc.text.mock.calls.find(
         ([line]) => typeof line === 'string' && line.includes('Quote #:')
       );
       expect(secondQuote[0]).toContain('Quote #: 1001');
+    });
+
+    test('should regenerate bid with last quote number without incrementing', async () => {
+      const customerWithMaterials = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            materials: [{ _id: 'm1', item: 'X', quantity: 1, cost: 1, markup: 0 }]
+          }
+        ]
+      };
+
+      axios.get.mockResolvedValue({ data: customerWithMaterials });
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /regenerate bid/i })).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
+      await waitFor(() => expect(jsPDF).toHaveBeenCalled());
+      expect(
+        mockPdfDoc.text.mock.calls.find(
+          ([line]) => typeof line === 'string' && line.includes('Quote #:')
+        )[0]
+      ).toContain('Quote #: 1000');
+      const postCallsAfterGenerate = axios.post.mock.calls.length;
+
+      mockPdfDoc.text.mockClear();
+      jsPDF.mockClear();
+
+      await userEvent.click(screen.getByRole('button', { name: /regenerate bid/i }));
+      await waitFor(() => expect(jsPDF).toHaveBeenCalled());
+
+      const regeneratedQuote = mockPdfDoc.text.mock.calls.find(
+        ([line]) => typeof line === 'string' && line.includes('Quote #:')
+      );
+      expect(regeneratedQuote[0]).toContain('Quote #: 1000');
+      expect(axios.post.mock.calls.length).toBe(postCallsAfterGenerate);
+    });
+
+    test('should append monitoring agreement contract text when selected', async () => {
+      const customerWithMaterials = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            materials: [{ _id: 'm1', item: 'X', quantity: 1, cost: 1, markup: 0 }]
+          }
+        ]
+      };
+
+      const agreementXml = `
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+          <w:body>
+            <w:p><w:r><w:t>ALARM MONITORING SERVICES AGREEMENT</w:t></w:r></w:p>
+            <w:p><w:r><w:t>Monitoring term is 36 months.</w:t></w:r></w:p>
+          </w:body>
+        </w:document>
+      `;
+      const zipped = zipSync({ 'word/document.xml': strToU8(agreementXml) });
+      global.fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => zipped.buffer.slice(zipped.byteOffset, zipped.byteOffset + zipped.byteLength)
+      });
+
+      axios.get.mockResolvedValue({ data: customerWithMaterials });
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByLabelText(/include monitoring agreement/i));
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
+      await waitFor(() => expect(jsPDF).toHaveBeenCalled());
+
+      expect(global.fetch).toHaveBeenCalledWith('/ALARM MONITORING SERVICES AGREEMENT.docx');
+      expect(mockPdfDoc.addPage).toHaveBeenCalled();
+      expect(mockPdfDoc.rect).toHaveBeenCalled();
+      expect(mockPdfDoc.line).toHaveBeenCalled();
+      expect(
+        mockPdfDoc.text.mock.calls.some(
+          ([line]) => typeof line === 'string' && line === 'Monitoring Agreement Contract'
+        )
+      ).toBe(true);
+      expect(
+        mockPdfDoc.text.mock.calls.some(
+          ([line]) => typeof line === 'string' && line === 'Attachment A'
+        )
+      ).toBe(true);
+      expect(
+        mockPdfDoc.text.mock.calls.some(
+          ([line]) => typeof line === 'string' && line.includes('Attached to Bid')
+        )
+      ).toBe(true);
+      expect(
+        mockPdfDoc.text.mock.calls.some(
+          ([line]) =>
+            typeof line === 'string' &&
+            (line.includes('Monitoring term is 36 months.') ||
+              line.includes('Monitoring agreement source file could not be parsed.'))
+        )
+      ).toBe(true);
     });
 
     test('should add branding image to bid pdf header', async () => {
@@ -897,7 +1012,7 @@ describe('ProjectDetails Component', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /generate bid/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
       });
 
       global.Image = class {
@@ -911,7 +1026,7 @@ describe('ProjectDetails Component', () => {
         }
       };
 
-      await userEvent.click(screen.getByRole('button', { name: /generate bid/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
 
       await waitFor(() => {
         expect(mockPdfDoc.addImage).toHaveBeenCalled();
@@ -938,7 +1053,7 @@ describe('ProjectDetails Component', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /generate bid/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
       });
 
       global.Image = class {
@@ -952,7 +1067,7 @@ describe('ProjectDetails Component', () => {
         }
       };
 
-      await userEvent.click(screen.getByRole('button', { name: /generate bid/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
 
       const textLines = mockPdfDoc.text.mock.calls
         .map(([line]) => (typeof line === 'string' ? line : ''));
@@ -982,7 +1097,7 @@ describe('ProjectDetails Component', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /generate bid/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
       });
 
       global.Image = class {
@@ -996,7 +1111,7 @@ describe('ProjectDetails Component', () => {
         }
       };
 
-      await userEvent.click(screen.getByRole('button', { name: /generate bid/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
 
       const licenseCall = mockPdfDoc.text.mock.calls.some(
         ([line]) => typeof line === 'string' && line.includes('2622')
@@ -1030,10 +1145,10 @@ describe('ProjectDetails Component', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /generate bid/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
       });
 
-      await userEvent.click(screen.getByRole('button', { name: /generate bid/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
 
       await waitFor(() => {
         expect(mockPdfDoc.addPage).toHaveBeenCalled();

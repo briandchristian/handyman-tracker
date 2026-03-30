@@ -20,7 +20,7 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
   test('should show app title', () => {
     render(<BrowserRouter><MobileNav /></BrowserRouter>);
     
-    expect(screen.getByText('Fixit Phillips')).toBeInTheDocument();
+    expect(screen.getByText('CHRISTIAN SECURITY SERVICES')).toBeInTheDocument();
   });
 
   test('should show hamburger menu button', () => {

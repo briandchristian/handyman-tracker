@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { jsPDF } from 'jspdf';
+import { strFromU8, unzipSync } from 'fflate';
 import API_BASE_URL from '../config/api';
 import {
   buildProposedSystemStatement,
@@ -11,7 +12,7 @@ import {
   formatEquipmentCategoriesLabels,
   normalizeEquipmentCategories
 } from '../constants/equipmentCategories';
-import { getNextBidQuoteNumber } from '../utils/bidQuoteSequence';
+import { getLastIssuedBidQuoteNumber, getNextBidQuoteNumber } from '../utils/bidQuoteSequence';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
 
 /**
@@ -27,6 +28,43 @@ const BID_PDF_COMPANY = {
   license: 'Tennessee Alarm Systems Contractor License #: 2622',
   phone: '801-851-0909'
 };
+
+const MONITORING_AGREEMENT_DOCX_URL = '/ALARM MONITORING SERVICES AGREEMENT.docx';
+
+function extractDocxPlainText(arrayBuffer) {
+  try {
+    const files = unzipSync(new Uint8Array(arrayBuffer));
+    const xmlBytes = files['word/document.xml'];
+    if (!xmlBytes) return [];
+    const xml = strFromU8(xmlBytes);
+    const paragraphs = xml.match(/<w:p[\s\S]*?<\/w:p>/g) || [];
+    return paragraphs
+      .map((p) => {
+        const texts = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => m[1] || '');
+        return texts.join('').replace(/\s+/g, ' ').trim();
+      })
+      .filter(Boolean);
+  } catch (err) {
+    console.error('Failed to parse monitoring agreement DOCX:', err);
+    return [];
+  }
+}
+
+function classifyContractLine(line) {
+  const trimmed = (line || '').trim();
+  if (!trimmed) return { type: 'blank', text: '' };
+  if (/^[-*•]\s+/.test(trimmed)) return { type: 'bullet', text: trimmed.replace(/^[-*•]\s+/, '') };
+  if (/^(\d+[\.\)]|[A-Za-z][\.\)])\s+/.test(trimmed)) return { type: 'numbered', text: trimmed };
+  if (
+    /:$/.test(trimmed) ||
+    (trimmed.length <= 90 &&
+      trimmed === trimmed.toUpperCase() &&
+      /[A-Z]/.test(trimmed))
+  ) {
+    return { type: 'heading', text: trimmed };
+  }
+  return { type: 'paragraph', text: trimmed };
+}
 
 function layoutBidPdfHeader(doc, headerLogo, left, right, headerY) {
   const maxLogoW = 42;
@@ -90,6 +128,7 @@ export default function ProjectDetails() {
   const [editMaterial, setEditMaterial] = useState({ item: '', quantity: '', cost: '', markup: '' });
   const [expandedMaterialIds, setExpandedMaterialIds] = useState(new Set());
   const [newNote, setNewNote] = useState('');
+  const [includeMonitoringAgreement, setIncludeMonitoringAgreement] = useState(false);
   const [editingProjectInfo, setEditingProjectInfo] = useState(false);
   const [editProjectInfo, setEditProjectInfo] = useState({
     name: '',
@@ -363,7 +402,8 @@ export default function ProjectDetails() {
     img.src = '/logo.png';
   });
 
-  const generateBidPdf = async () => {
+  const generateBidPdf = async (options = {}) => {
+    const { incrementQuote = true } = options;
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -383,17 +423,19 @@ export default function ProjectDetails() {
     };
 
     /** Phase 3: quote metadata (matches standard bid template line). */
-    const quoteNum = getNextBidQuoteNumber();
-    // Keep a project note with the issued quote number for audit/history.
-    try {
-      await axios.post(
-        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/notes`,
-        { text: `Last quote number issued: ${quoteNum}` },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-      );
-      fetchProject();
-    } catch (err) {
-      console.error('Error saving bid quote note:', err);
+    const quoteNum = incrementQuote ? getNextBidQuoteNumber() : getLastIssuedBidQuoteNumber();
+    if (incrementQuote) {
+      // Keep a project note with the newly issued quote number for audit/history.
+      try {
+        await axios.post(
+          `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/notes`,
+          { text: `Last quote number issued: ${quoteNum}` },
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        );
+        fetchProject();
+      } catch (err) {
+        console.error('Error saving bid quote note:', err);
+      }
     }
     const quoteMetaLine = `Date: ${format(new Date(), 'M/d/yyyy')} | Quote #: ${quoteNum} | Valid for 30 days`;
     doc.setFontSize(10);
@@ -622,6 +664,84 @@ export default function ProjectDetails() {
     y += 7;
     ensurePageSpace(8);
     doc.text('Phone: 801-851-0909 | Email: brian_christian@hotmail.com', left, y);
+
+    if (includeMonitoringAgreement) {
+      let agreementLines = [];
+      try {
+        const response = await fetch(MONITORING_AGREEMENT_DOCX_URL);
+        if (response.ok) {
+          const agreementBuffer = await response.arrayBuffer();
+          agreementLines = extractDocxPlainText(agreementBuffer);
+        } else {
+          console.error('Monitoring agreement download failed:', response.status);
+        }
+      } catch (err) {
+        console.error('Monitoring agreement fetch failed:', err);
+      }
+
+      doc.addPage();
+      y = 20;
+
+      // Contract attachment header to visually separate from bid content.
+      doc.setFillColor(235, 241, 252);
+      doc.setDrawColor(22, 58, 120);
+      doc.rect(left, y - 6, right - left, 22, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('Attachment A', left + (right - left) / 2, y + 1, { align: 'center' });
+      doc.setFontSize(11);
+      doc.text('Monitoring Agreement Contract', left + (right - left) / 2, y + 8, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.text('Attached to Bid - Optional Addendum', left + (right - left) / 2, y + 14, { align: 'center' });
+      y += 24;
+      doc.setDrawColor(22, 58, 120);
+      doc.line(left, y, right, y);
+      y += 8;
+
+      doc.setFont('helvetica', 'bold');
+      ensurePageSpace(8);
+      doc.text('Monitoring Agreement Contract', left, y);
+      y += 7;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+
+      const linesToRender = agreementLines.length > 0
+        ? agreementLines
+        : ['Monitoring agreement source file could not be parsed.'];
+
+      linesToRender.forEach((line) => {
+        const classified = classifyContractLine(line);
+        if (classified.type === 'blank') {
+          y += 2;
+          return;
+        }
+
+        if (classified.type === 'heading') {
+          ensurePageSpace(8);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10.5);
+          doc.text(classified.text, left, y);
+          y += 6;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(10);
+          return;
+        }
+
+        const text = classified.type === 'bullet'
+          ? `• ${classified.text}`
+          : classified.text;
+        const x = classified.type === 'bullet' || classified.type === 'numbered' ? left + 2 : left;
+        const width = classified.type === 'bullet' || classified.type === 'numbered' ? right - left - 2 : right - left;
+        const wrapped = doc.splitTextToSize(text, width);
+        wrapped.forEach((ln) => {
+          ensurePageSpace(6);
+          doc.text(ln, x, y);
+          y += 5;
+        });
+        y += 1;
+      });
+    }
 
     const pdfBlob = doc.output('blob');
     const pdfUrl = URL.createObjectURL(pdfBlob);
@@ -1121,11 +1241,25 @@ export default function ProjectDetails() {
                   <div className="flex items-center gap-3">
                     <span>Total Material Cost:</span>
                     <button
-                      onClick={generateBidPdf}
+                      onClick={() => generateBidPdf({ incrementQuote: true })}
                       className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm font-medium"
                     >
                       Generate Bid
                     </button>
+                    <button
+                      onClick={() => generateBidPdf({ incrementQuote: false })}
+                      className="bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm font-medium"
+                    >
+                      Regenerate Bid
+                    </button>
+                    <label className="inline-flex items-center gap-2 text-sm text-black ml-2">
+                      <input
+                        type="checkbox"
+                        checked={includeMonitoringAgreement}
+                        onChange={(e) => setIncludeMonitoringAgreement(e.target.checked)}
+                      />
+                      Include Monitoring Agreement
+                    </label>
                   </div>
                 </td>
                 <td className="text-black p-3 border-t-2 text-lg">
