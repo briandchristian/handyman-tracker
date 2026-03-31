@@ -100,12 +100,23 @@ export default function PurchaseOrders() {
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-          <Link to="/suppliers" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 text-sm md:text-base">
-            Back to Suppliers
-          </Link>
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+            <Link to="/suppliers" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 text-sm md:text-base">
+              Back to Suppliers
+            </Link>
+            <Link to="/suppliers?openQuickReorder=1" className="bg-green-500 text-white px-3 py-2 rounded hover:bg-green-600 text-sm md:text-base">
+              + Create New PO
+            </Link>
+            <Link to="/inventory" className="bg-purple-500 text-white px-3 py-2 rounded hover:bg-purple-600 text-sm md:text-base">
+              Order from Inventory
+            </Link>
+          </div>
         </div>
         <h1 className="text-2xl md:text-3xl font-bold text-black">Purchase Orders</h1>
         <p className="text-gray-600 mt-2">Manage and track all purchase orders</p>
+        <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-black">
+          Create new purchase orders from `Suppliers` using the Quick Reorder panel, or start from `Inventory` to add stock-managed items.
+        </div>
       </div>
 
       {/* Quick Stats */}

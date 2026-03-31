@@ -392,6 +392,60 @@ describe('ProjectDetails Component', () => {
       });
     });
 
+    test('should allow selecting supplier catalog item and still add material', async () => {
+      axios.get.mockImplementation((url) => {
+        if (url.includes('/api/customers/')) {
+          return Promise.resolve({ data: mockCustomer });
+        }
+        if (url.includes('/api/suppliers')) {
+          return Promise.resolve({
+            data: {
+              suppliers: [
+                {
+                  _id: 'sup1',
+                  name: 'Home Depot',
+                  catalog: [
+                    { sku: 'LUM-2X4', description: '2x4 Lumber 8ft', unit: 'each', price: 5.99 }
+                  ]
+                }
+              ]
+            }
+          });
+        }
+        return Promise.resolve({ data: mockCustomer });
+      });
+      axios.post.mockResolvedValue({ data: { ok: true } });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: /load catalog items/i }));
+      const catalogSelect = await screen.findByLabelText(/Add from Catalog/i);
+      await userEvent.selectOptions(catalogSelect, 'sup1::0');
+      await userEvent.click(screen.getByRole('button', { name: /use selected item/i }));
+
+      expect(screen.getByPlaceholderText('Item')).toHaveValue('LUM-2X4 - 2x4 Lumber 8ft');
+      expect(screen.getByPlaceholderText(/Cost \(\$\)/i)).toHaveValue(5.99);
+
+      const addButton = screen.getByText(/add material/i);
+      await userEvent.click(addButton);
+
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenCalledWith(
+          expect.stringContaining('/materials'),
+          expect.objectContaining({
+            item: 'LUM-2X4 - 2x4 Lumber 8ft',
+            quantity: 1,
+            cost: 5.99
+          }),
+          expect.any(Object)
+        );
+      });
+    });
+
     test('should show labels above quantity, cost, and markup inputs', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
       renderWithRouter();
@@ -988,6 +1042,42 @@ describe('ProjectDetails Component', () => {
       );
       expect(regeneratedQuote[0]).toContain('Quote #: 1000');
       expect(axios.post.mock.calls.length).toBe(postCallsAfterGenerate);
+    });
+
+    test('should regenerate bid using last quote number from notes', async () => {
+      const customerWithQuoteNote = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            materials: [{ _id: 'm1', item: 'X', quantity: 1, cost: 1, markup: 0 }],
+            notes: [
+              { _id: 'n1', text: 'Random note' },
+              { _id: 'n2', text: 'Last quote number issued: 1042' }
+            ]
+          }
+        ]
+      };
+
+      axios.get.mockResolvedValue({ data: customerWithQuoteNote });
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /regenerate bid/i })).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: /regenerate bid/i }));
+      await waitFor(() => expect(jsPDF).toHaveBeenCalled());
+
+      const regeneratedQuote = mockPdfDoc.text.mock.calls.find(
+        ([line]) => typeof line === 'string' && line.includes('Quote #:')
+      );
+      expect(regeneratedQuote[0]).toContain('Quote #: 1042');
+      expect(axios.post).not.toHaveBeenCalledWith(
+        expect.stringContaining('/notes'),
+        expect.objectContaining({ text: expect.stringContaining('Last quote number issued') }),
+        expect.any(Object)
+      );
     });
 
     test('should append monitoring agreement contract text when selected', async () => {

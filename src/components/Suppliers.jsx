@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
 import QuickReorder from './QuickReorder';
 
 export default function Suppliers() {
+  const location = useLocation();
   const [suppliers, setSuppliers] = useState([]);
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
@@ -15,6 +16,7 @@ export default function Suppliers() {
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [showPOModal, setShowPOModal] = useState(false);
+  const [showManualPOModal, setShowManualPOModal] = useState(false);
   const [poData, setPOData] = useState(null);
 
   const categories = ['Electrical', 'Plumbing', 'Lumber', 'Hardware', 'HVAC', 'Roofing', 'Flooring', 'Paint'];
@@ -102,8 +104,10 @@ export default function Suppliers() {
     );
   }
 
+  const openQuickReorder = new URLSearchParams(location.search).get('openQuickReorder') === '1';
+
   return (
-    <div className="p-4 md:p-6 text-black lg:pr-[400px] max-w-6xl mx-auto">
+    <div className="p-4 md:p-6 text-black max-w-6xl mx-auto">
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
@@ -111,6 +115,13 @@ export default function Suppliers() {
             <Link to="/purchase-orders" className="bg-orange-500 text-white px-3 py-2 rounded hover:bg-orange-600 text-sm md:text-base">
               📋 POs ({stats.openPOs || 0})
             </Link>
+            <button
+              type="button"
+              onClick={() => setShowManualPOModal(true)}
+              className="bg-indigo-500 text-white px-3 py-2 rounded hover:bg-indigo-600 text-sm md:text-base"
+            >
+              Create Manual PO
+            </button>
           </div>
           <button
             onClick={() => {
@@ -409,8 +420,23 @@ export default function Suppliers() {
         />
       )}
 
+      {showManualPOModal && (
+        <ManualPOCreationModal
+          suppliers={suppliers}
+          onClose={() => setShowManualPOModal(false)}
+          onSuccess={() => {
+            setShowManualPOModal(false);
+            fetchSuppliers();
+          }}
+        />
+      )}
+
       {/* Quick Reorder Panel */}
-      <QuickReorder onCreatePO={handleCreatePO} />
+      <QuickReorder
+        onCreatePO={handleCreatePO}
+        onCreateManualPO={() => setShowManualPOModal(true)}
+        initialExpanded={openQuickReorder}
+      />
 
       {/* Bottom-right page footer actions */}
       <div
@@ -932,12 +958,280 @@ function POCreationModal({ poData, suppliers, onClose, onSuccess }) {
   );
 }
 
+function ManualPOCreationModal({ suppliers, onClose, onSuccess }) {
+  const [selectedSupplier, setSelectedSupplier] = useState('');
+  const [expectedDelivery, setExpectedDelivery] = useState('');
+  const [notes, setNotes] = useState('');
+  const [items, setItems] = useState([
+    { sku: '', description: '', quantity: 1, unit: 'each', unitPrice: 0 }
+  ]);
+  const [selectedCatalogItem, setSelectedCatalogItem] = useState('');
+
+  const activeSupplier = suppliers.find((s) => s._id === selectedSupplier) || null;
+  const activeSupplierCatalog = Array.isArray(activeSupplier?.catalog) ? activeSupplier.catalog : [];
+
+  const updateItem = (idx, key, value) => {
+    setItems((prev) => prev.map((item, i) => (i === idx ? { ...item, [key]: value } : item)));
+  };
+
+  const addItemRow = () => {
+    setItems((prev) => [...prev, { sku: '', description: '', quantity: 1, unit: 'each', unitPrice: 0 }]);
+  };
+
+  /**
+   * Lets users build a PO from supplier catalog items without retyping.
+   */
+  const addCatalogItemRow = () => {
+    if (!selectedCatalogItem) return;
+    const [sku, description] = selectedCatalogItem.split('||');
+    const catalogItem = activeSupplierCatalog.find(
+      (entry) => (entry.sku || '') === (sku || '') && (entry.description || '') === (description || '')
+    );
+    if (!catalogItem) return;
+    setItems((prev) => [
+      ...prev,
+      {
+        sku: catalogItem.sku || '',
+        description: catalogItem.description || '',
+        quantity: 1,
+        unit: catalogItem.unit || 'each',
+        unitPrice: parseFloat(catalogItem.price) || 0
+      }
+    ]);
+    setSelectedCatalogItem('');
+  };
+
+  const removeItemRow = (idx) => {
+    setItems((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
+  };
+
+  const subtotal = items.reduce(
+    (sum, item) => sum + (parseFloat(item.quantity) || 0) * (parseFloat(item.unitPrice) || 0),
+    0
+  );
+  const tax = subtotal * 0.08;
+  const shipping = 0;
+  const total = subtotal + tax + shipping;
+
+  const createManualPO = async () => {
+    if (!selectedSupplier) {
+      alert('Please select a supplier');
+      return;
+    }
+    const cleanItems = items
+      .map((item) => ({
+        sku: (item.sku || '').trim(),
+        description: (item.description || '').trim(),
+        quantity: parseFloat(item.quantity) || 0,
+        unit: item.unit || 'each',
+        unitPrice: parseFloat(item.unitPrice) || 0
+      }))
+      .filter((item) => item.description && item.quantity > 0);
+
+    if (cleanItems.length === 0) {
+      alert('Add at least one line item with description and quantity');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const payload = {
+        supplier: selectedSupplier,
+        items: cleanItems.map((item) => ({
+          ...item,
+          total: item.quantity * item.unitPrice
+        })),
+        subtotal,
+        tax,
+        shipping,
+        total,
+        notes,
+        expectedDelivery: expectedDelivery || null,
+        status: 'Draft'
+      };
+
+      await axios.post(`${API_BASE_URL}/api/purchase-orders`, payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert('✅ Manual purchase order created!');
+      onSuccess();
+    } catch (err) {
+      console.error('Error creating manual PO:', err);
+      alert('❌ Failed to create purchase order');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b border-gray-300 p-6 flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-black">Create Manual Purchase Order</h2>
+          <button onClick={onClose} className="text-gray-600 hover:text-gray-900 text-2xl font-bold">×</button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div>
+            <label htmlFor="manual-po-supplier" className="block text-sm font-medium text-black mb-1">Supplier *</label>
+            <select
+              id="manual-po-supplier"
+              value={selectedSupplier}
+              onChange={(e) => {
+                setSelectedSupplier(e.target.value);
+                setSelectedCatalogItem('');
+              }}
+              className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+            >
+              <option value="">-- Select Supplier --</option>
+              {suppliers.map((s) => (
+                <option key={s._id} value={s._id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {selectedSupplier && activeSupplierCatalog.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <label htmlFor="manual-po-catalog-pick" className="block text-sm font-medium text-black mb-2">
+                Add from supplier catalog
+              </label>
+              <div className="flex gap-2">
+                <select
+                  id="manual-po-catalog-pick"
+                  value={selectedCatalogItem}
+                  onChange={(e) => setSelectedCatalogItem(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                >
+                  <option value="">-- Select catalog item --</option>
+                  {activeSupplierCatalog.map((item, idx) => (
+                    <option
+                      key={`${item.sku || 'no-sku'}-${idx}`}
+                      value={`${item.sku || ''}||${item.description || ''}`}
+                    >
+                      {(item.sku || 'NO-SKU')} - {item.description} (${(parseFloat(item.price) || 0).toFixed(2)})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={addCatalogItemRow}
+                  className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 whitespace-nowrap"
+                >
+                  Add Item
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
+            <h3 className="font-bold text-black mb-3">Line Items</h3>
+            <div className="space-y-3">
+              {items.map((item, idx) => (
+                <div key={`manual-po-item-${idx}`} className="grid grid-cols-1 md:grid-cols-6 gap-2">
+                  <input
+                    placeholder="SKU"
+                    value={item.sku}
+                    onChange={(e) => updateItem(idx, 'sku', e.target.value)}
+                    className="p-2 border border-gray-300 rounded text-black bg-white"
+                  />
+                  <input
+                    placeholder="Description"
+                    value={item.description}
+                    onChange={(e) => updateItem(idx, 'description', e.target.value)}
+                    className="p-2 border border-gray-300 rounded text-black bg-white md:col-span-2"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="Qty"
+                    value={item.quantity}
+                    onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
+                    className="p-2 border border-gray-300 rounded text-black bg-white"
+                  />
+                  <input
+                    placeholder="Unit"
+                    value={item.unit}
+                    onChange={(e) => updateItem(idx, 'unit', e.target.value)}
+                    className="p-2 border border-gray-300 rounded text-black bg-white"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Price"
+                      value={item.unitPrice}
+                      onChange={(e) => updateItem(idx, 'unitPrice', e.target.value)}
+                      className="p-2 border border-gray-300 rounded text-black bg-white w-full"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeItemRow(idx)}
+                      className="px-3 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={addItemRow}
+              className="mt-3 bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600"
+            >
+              + Add Line Item
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-black mb-1">Expected Delivery</label>
+              <input
+                type="date"
+                value={expectedDelivery}
+                onChange={(e) => setExpectedDelivery(e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-black mb-1">Notes</label>
+              <input
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Optional notes"
+                className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+              />
+            </div>
+          </div>
+
+          <div className="bg-gray-100 border border-gray-300 rounded-lg p-4 text-sm text-black">
+            <p>Subtotal: ${subtotal.toFixed(2)}</p>
+            <p>Tax (8%): ${tax.toFixed(2)}</p>
+            <p className="font-bold text-lg mt-1">Total: ${total.toFixed(2)}</p>
+          </div>
+        </div>
+
+        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-300 p-6 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 border border-gray-300 rounded text-black bg-white hover:bg-gray-100 font-medium">
+            Cancel
+          </button>
+          <button onClick={createManualPO} className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 font-medium">
+            Create Purchase Order
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Catalog Tab Component
 function CatalogTab({ supplier, onUpdate }) {
   const [catalogItems, setCatalogItems] = useState(supplier.catalog || []);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [newItem, setNewItem] = useState({ sku: '', description: '', unit: 'each', price: 0 });
+  const [editingIndex, setEditingIndex] = useState(-1);
+  const [editItem, setEditItem] = useState({ sku: '', description: '', unit: 'each', price: 0 });
   const [uploading, setUploading] = useState(false);
 
   const filteredCatalog = catalogItems.filter(item =>
@@ -991,6 +1285,54 @@ function CatalogTab({ supplier, onUpdate }) {
     } catch (err) {
       console.error('Error deleting catalog item:', err);
       alert('❌ Failed to delete item');
+    }
+  };
+
+  const startEditItem = (item, idx) => {
+    setEditingIndex(idx);
+    setEditItem({
+      sku: item.sku || '',
+      description: item.description || '',
+      unit: item.unit || 'each',
+      price: parseFloat(item.price) || 0
+    });
+  };
+
+  const cancelEditItem = () => {
+    setEditingIndex(-1);
+    setEditItem({ sku: '', description: '', unit: 'each', price: 0 });
+  };
+
+  const handleSaveEditedItem = async () => {
+    if (!editItem.description || editItem.price <= 0) {
+      alert('Description and price are required');
+      return;
+    }
+    if (editingIndex < 0 || editingIndex >= catalogItems.length) {
+      alert('Unable to update item');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const updatedCatalog = catalogItems.map((item, idx) =>
+        idx === editingIndex
+          ? { ...item, ...editItem, lastUpdated: new Date() }
+          : item
+      );
+      await axios.put(`${API_BASE_URL}/api/suppliers/${supplier._id}`, {
+        catalog: updatedCatalog
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setCatalogItems(updatedCatalog);
+      cancelEditItem();
+      alert('✅ Catalog item updated!');
+      onUpdate?.();
+    } catch (err) {
+      console.error('Error updating catalog item:', err);
+      alert('❌ Failed to update item');
     }
   };
 
@@ -1243,20 +1585,99 @@ function CatalogTab({ supplier, onUpdate }) {
             <tbody>
               {filteredCatalog.map((item, idx) => (
                 <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="p-3 text-gray-600 text-sm">{item.sku || '-'}</td>
-                  <td className="p-3 text-black">{item.description}</td>
-                  <td className="p-3 text-gray-600 text-sm">{item.unit}</td>
-                  <td className="p-3 text-black font-semibold">${item.price?.toFixed(2)}</td>
+                  <td className="p-3 text-gray-600 text-sm">
+                    {editingIndex === idx ? (
+                      <input
+                        aria-label="Edit Catalog SKU"
+                        value={editItem.sku}
+                        onChange={(e) => setEditItem({ ...editItem, sku: e.target.value })}
+                        className="w-full p-1 border border-gray-300 rounded text-black bg-white"
+                      />
+                    ) : (
+                      item.sku || '-'
+                    )}
+                  </td>
+                  <td className="p-3 text-black">
+                    {editingIndex === idx ? (
+                      <input
+                        aria-label="Edit Catalog Description"
+                        value={editItem.description}
+                        onChange={(e) => setEditItem({ ...editItem, description: e.target.value })}
+                        className="w-full p-1 border border-gray-300 rounded text-black bg-white"
+                      />
+                    ) : (
+                      item.description
+                    )}
+                  </td>
+                  <td className="p-3 text-gray-600 text-sm">
+                    {editingIndex === idx ? (
+                      <select
+                        aria-label="Edit Catalog Unit"
+                        value={editItem.unit}
+                        onChange={(e) => setEditItem({ ...editItem, unit: e.target.value })}
+                        className="w-full p-1 border border-gray-300 rounded text-black bg-white"
+                      >
+                        <option value="each">each</option>
+                        <option value="box">box</option>
+                        <option value="ft">ft</option>
+                        <option value="yd">yd</option>
+                        <option value="lb">lb</option>
+                        <option value="gallon">gallon</option>
+                        <option value="pack">pack</option>
+                      </select>
+                    ) : (
+                      item.unit
+                    )}
+                  </td>
+                  <td className="p-3 text-black font-semibold">
+                    {editingIndex === idx ? (
+                      <input
+                        aria-label="Edit Catalog Price"
+                        type="number"
+                        step="0.01"
+                        value={editItem.price}
+                        onChange={(e) => setEditItem({ ...editItem, price: parseFloat(e.target.value) || 0 })}
+                        className="w-24 p-1 border border-gray-300 rounded text-black bg-white"
+                      />
+                    ) : (
+                      `$${item.price?.toFixed(2)}`
+                    )}
+                  </td>
                   <td className="p-3 text-gray-600 text-xs">
                     {item.lastUpdated ? format(new Date(item.lastUpdated), 'MMM d, yyyy') : '-'}
                   </td>
                   <td className="p-3">
-                    <button
-                      onClick={() => handleDeleteItem(item)}
-                      className="text-red-600 hover:text-red-800 text-sm"
-                    >
-                      Delete
-                    </button>
+                    {editingIndex === idx ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleSaveEditedItem}
+                          className="text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={cancelEditItem}
+                          className="text-gray-600 hover:text-gray-800 text-sm"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => startEditItem(item, idx)}
+                          className="text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteItem(item)}
+                          className="text-red-600 hover:text-red-800 text-sm"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
 
-export default function QuickReorder({ onCreatePO }) {
+export default function QuickReorder({ onCreatePO, onCreateManualPO, initialExpanded = false }) {
   const [reorderCart, setReorderCart] = useState([]);
   const [frequentItems, setFrequentItems] = useState([]);
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(initialExpanded);
   const [lowStockItems, setLowStockItems] = useState([]);
 
   useEffect(() => {
@@ -120,6 +120,13 @@ export default function QuickReorder({ onCreatePO }) {
           <div className="p-4 border-b border-gray-300 bg-blue-50">
             <h2 className="text-xl font-bold text-black">Quick Reorder</h2>
             <p className="text-sm text-gray-600">Add items and generate PO</p>
+            <button
+              type="button"
+              onClick={() => onCreateManualPO?.()}
+              className="mt-3 w-full bg-indigo-500 text-white py-2 rounded hover:bg-indigo-600 font-medium text-sm"
+            >
+              Create Manual PO
+            </button>
           </div>
 
           {/* Cart Summary */}

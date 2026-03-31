@@ -66,6 +66,21 @@ function classifyContractLine(line) {
   return { type: 'paragraph', text: trimmed };
 }
 
+function getLastIssuedQuoteFromNotes(notes = []) {
+  if (!Array.isArray(notes)) return null;
+  for (let i = notes.length - 1; i >= 0; i -= 1) {
+    const note = notes[i];
+    const text = typeof note === 'string' ? note : note?.text;
+    if (!text) continue;
+    const match = String(text).match(/Last quote number issued:\s*(\d+)/i);
+    if (match) {
+      const parsed = parseInt(match[1], 10);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
 function layoutBidPdfHeader(doc, headerLogo, left, right, headerY) {
   const maxLogoW = 42;
   const maxLogoH = 32;
@@ -124,6 +139,9 @@ export default function ProjectDetails() {
   const [billAmount, setBillAmount] = useState('');
   const [scheduleDate, setScheduleDate] = useState('');
   const [newMaterial, setNewMaterial] = useState({ item: '', quantity: 0, cost: 0, markup: 0 });
+  const [catalogItems, setCatalogItems] = useState([]);
+  const [selectedCatalogItem, setSelectedCatalogItem] = useState('');
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [editingMaterialId, setEditingMaterialId] = useState(null);
   const [editMaterial, setEditMaterial] = useState({ item: '', quantity: '', cost: '', markup: '' });
   const [expandedMaterialIds, setExpandedMaterialIds] = useState(new Set());
@@ -324,6 +342,49 @@ export default function ProjectDetails() {
     }
   };
 
+  const applyCatalogItemToMaterialForm = () => {
+    const picked = catalogItems.find((entry) => entry.value === selectedCatalogItem);
+    if (!picked) return;
+    const itemLabel = picked.sku
+      ? `${picked.sku} - ${picked.description}`
+      : picked.description;
+    setNewMaterial((prev) => ({
+      ...prev,
+      item: itemLabel,
+      quantity: prev.quantity && Number(prev.quantity) > 0 ? prev.quantity : 1,
+      cost: picked.price
+    }));
+  };
+
+  const loadSupplierCatalogItems = async () => {
+    if (catalogLoading || catalogItems.length > 0) return;
+    try {
+      setCatalogLoading(true);
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const res = await axios.get(`${API_BASE_URL}/api/suppliers`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const suppliers = Array.isArray(res.data) ? res.data : (res.data?.suppliers || []);
+      const flattened = suppliers.flatMap((supplier) =>
+        (supplier.catalog || []).map((item, idx) => ({
+          value: `${supplier._id || supplier.name || 'supplier'}::${idx}`,
+          supplierName: supplier.name || 'Unknown supplier',
+          sku: item.sku || '',
+          description: item.description || '',
+          unit: item.unit || 'each',
+          price: parseFloat(item.price) || 0
+        }))
+      );
+      setCatalogItems(flattened);
+    } catch (err) {
+      console.error('Error loading supplier catalogs for project materials:', err);
+      alert('Could not load catalog items right now.');
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
   const deleteMaterial = async (materialId) => {
     if (window.confirm('Are you sure you want to delete this material?')) {
       try {
@@ -440,7 +501,10 @@ export default function ProjectDetails() {
     };
 
     /** Phase 3: quote metadata (matches standard bid template line). */
-    const quoteNum = incrementQuote ? getNextBidQuoteNumber() : getLastIssuedBidQuoteNumber();
+    const noteQuoteNum = getLastIssuedQuoteFromNotes(project?.notes);
+    const quoteNum = incrementQuote
+      ? getNextBidQuoteNumber()
+      : (noteQuoteNum ?? getLastIssuedBidQuoteNumber());
     if (incrementQuote) {
       // Keep a project note with the newly issued quote number for audit/history.
       try {
@@ -1422,6 +1486,45 @@ export default function ProjectDetails() {
       {/* Add Material Form */}
       <div className="mt-4 bg-white border border-gray-300 rounded-lg p-4">
         <h3 className="text-lg font-semibold mb-3 text-black">Add New Material</h3>
+        <div className="mb-3">
+          <button
+            type="button"
+            onClick={loadSupplierCatalogItems}
+            disabled={catalogLoading || catalogItems.length > 0}
+            className="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600 disabled:bg-indigo-300"
+          >
+            {catalogItems.length > 0 ? 'Catalog Loaded' : (catalogLoading ? 'Loading Catalog...' : 'Load Catalog Items')}
+          </button>
+        </div>
+        {catalogItems.length > 0 && (
+          <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <label htmlFor="material-catalog-select" className="block text-sm font-medium text-black mb-2">
+              Add from Catalog
+            </label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select
+                id="material-catalog-select"
+                value={selectedCatalogItem}
+                onChange={(e) => setSelectedCatalogItem(e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded bg-white text-black"
+              >
+                <option value="">-- Select supplier catalog item --</option>
+                {catalogItems.map((entry) => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.supplierName}: {(entry.sku || 'NO-SKU')} - {entry.description} (${entry.price.toFixed(2)})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={applyCatalogItemToMaterialForm}
+                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 whitespace-nowrap"
+              >
+                Use Selected Item
+              </button>
+            </div>
+          </div>
+        )}
         <AlignedFormGrid testId="add-material-grid">
           <AlignedFormField label="Item" htmlFor="new-material-item" className="col-span-12 md:col-span-5">
             <input

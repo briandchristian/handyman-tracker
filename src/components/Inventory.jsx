@@ -162,6 +162,12 @@ export default function Inventory() {
             <Link to="/suppliers" className="bg-green-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-green-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
               Suppliers
             </Link>
+            <Link to="/suppliers" className="bg-indigo-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-indigo-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
+              Create PO
+            </Link>
+            <Link to="/purchase-orders" className="bg-orange-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-orange-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
+              View POs
+            </Link>
             <button
               onClick={() => setShowScanner(true)}
               className="bg-purple-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-purple-600 text-base md:text-sm font-medium flex-1 sm:flex-none"

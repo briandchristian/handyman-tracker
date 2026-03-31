@@ -564,4 +564,18 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     expect(root.className).toContain('max-w-6xl');
     expect(root.className).toContain('mx-auto');
   });
+
+  test('should expose clear create-order entry points', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /\+ Create New PO/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Order from Inventory/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('link', { name: /\+ Create New PO/i })).toHaveAttribute(
+      'href',
+      '/suppliers?openQuickReorder=1'
+    );
+  });
 });

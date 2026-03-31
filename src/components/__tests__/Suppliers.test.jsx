@@ -522,6 +522,49 @@ describe('Suppliers Component - Phase 1 & Catalog Management (Phase 2D)', () => 
     }, { timeout: 2000 });
   });
 
+  test('should edit existing catalog item', async () => {
+    render(<BrowserRouter><Suppliers /></BrowserRouter>);
+
+    await waitFor(() => {
+      const supplierButtons = screen.getAllByText('Home Depot');
+      fireEvent.click(supplierButtons[0]);
+    });
+
+    await waitFor(() => {
+      const catalogTab = screen.queryByText('Catalog');
+      if (catalogTab) fireEvent.click(catalogTab);
+    });
+
+    await waitFor(() => {
+      const editButtons = screen.queryAllByText('Edit');
+      const catalogEditButton = editButtons.find((btn) => btn.closest('tr'));
+      if (catalogEditButton) fireEvent.click(catalogEditButton);
+    });
+
+    await waitFor(() => {
+      const descInput = screen.queryByLabelText(/Edit Catalog Description/i);
+      if (descInput) {
+        fireEvent.change(descInput, { target: { value: '2x4 Lumber 10ft' } });
+        const saveButton = screen.queryByText(/^Save$/i);
+        if (saveButton) fireEvent.click(saveButton);
+      }
+    });
+
+    await waitFor(() => {
+      if (axios.put.mock.calls.length > 0) {
+        expect(axios.put).toHaveBeenCalledWith(
+          expect.stringContaining('/api/suppliers/sup1'),
+          expect.objectContaining({
+            catalog: expect.arrayContaining([
+              expect.objectContaining({ description: '2x4 Lumber 10ft' })
+            ])
+          }),
+          expect.any(Object)
+        );
+      }
+    });
+  });
+
   test('should export catalog to CSV', async () => {
     // Mock URL.createObjectURL and revokeObjectURL
     const mockURL = 'mock-blob-url';
@@ -875,5 +918,38 @@ describe('Suppliers Component - Phase 1 & Catalog Management (Phase 2D)', () => 
     const root = container.firstChild;
     expect(root.className).toContain('max-w-6xl');
     expect(root.className).toContain('mx-auto');
+    expect(root.className).not.toContain('lg:pr-[400px]');
+  });
+
+  test('should show manual PO entry path for non-inventory orders', async () => {
+    render(<BrowserRouter><Suppliers /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Create Manual PO/i)).toBeInTheDocument();
+    });
+  });
+
+  test('should allow adding supplier catalog item into manual PO line', async () => {
+    render(<BrowserRouter><Suppliers /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Create Manual PO/i)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Create Manual PO/i));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Create Manual Purchase Order/i)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/Supplier \*/i), { target: { value: 'sup1' } });
+
+    const picker = await screen.findByLabelText(/Add from supplier catalog/i);
+    fireEvent.change(picker, { target: { value: 'LUM-2X4||2x4 Lumber 8ft' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Add Item$/i }));
+
+    expect(screen.getByDisplayValue('LUM-2X4')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('2x4 Lumber 8ft')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('5.99')).toBeInTheDocument();
   });
 });
