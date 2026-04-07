@@ -17,11 +17,12 @@ describe('Inventory Component - Phase 2C', () => {
       name: '2x4 Lumber',
       sku: 'LUM-2X4',
       description: 'Standard 2x4 lumber 8ft',
-      category: 'Lumber',
+      category: 'Intrusion',
       currentStock: 50,
       unit: 'each',
       parLevel: 50,
       autoReorder: true,
+      lastPrice: 4,
       preferredSupplier: { _id: 'sup1', name: 'Home Depot' },
       lastRestocked: '2024-11-01T00:00:00.000Z'
     },
@@ -30,11 +31,12 @@ describe('Inventory Component - Phase 2C', () => {
       name: 'Drywall Screws',
       sku: 'HW-SCREW',
       description: '#6 x 1-1/4" drywall screws',
-      category: 'Hardware',
+      category: 'Fire',
       currentStock: 5,
       unit: 'box',
       parLevel: 20,
       autoReorder: false,
+      lastPrice: 3,
       preferredSupplier: { _id: 'sup2', name: "Lowe's" },
       lastRestocked: '2024-10-15T00:00:00.000Z'
     },
@@ -43,11 +45,12 @@ describe('Inventory Component - Phase 2C', () => {
       name: 'Paint Primer',
       sku: 'PAINT-PRIM',
       description: 'Interior latex primer',
-      category: 'Paint',
+      category: 'Monitoring',
       currentStock: 0,
       unit: 'gallon',
       parLevel: 10,
-      autoReorder: true
+      autoReorder: true,
+      lastPrice: 7
     }
   ];
 
@@ -286,13 +289,13 @@ describe('Inventory Component - Phase 2C', () => {
     
     await waitFor(() => {
       const categoryFilter = screen.getByLabelText(/Category/i);
-      fireEvent.change(categoryFilter, { target: { value: 'Lumber' } });
+      fireEvent.change(categoryFilter, { target: { value: 'Intrusion' } });
     });
     
     await waitFor(() => {
       const lumberElements = screen.queryAllByText('2x4 Lumber');
       expect(lumberElements.length).toBeGreaterThan(0);
-      expect(screen.queryByText('Drywall Screws')).not.toBeInTheDocument();
+      expect(screen.queryAllByText('Drywall Screws')).toHaveLength(0);
     });
   });
 
@@ -311,7 +314,7 @@ describe('Inventory Component - Phase 2C', () => {
       const primerElements = screen.queryAllByText('Paint Primer');
       expect(primerElements.length).toBeGreaterThan(0);
       // Should not show Good Stock item
-      expect(screen.queryByText('2x4 Lumber')).not.toBeInTheDocument();
+      expect(screen.queryAllByText('2x4 Lumber')).toHaveLength(0);
     });
   });
 
@@ -326,7 +329,7 @@ describe('Inventory Component - Phase 2C', () => {
     await waitFor(() => {
       const lumberElements = screen.queryAllByText('2x4 Lumber');
       expect(lumberElements.length).toBeGreaterThan(0);
-      expect(screen.queryByText('Drywall Screws')).not.toBeInTheDocument();
+      expect(screen.queryAllByText('Drywall Screws')).toHaveLength(0);
     });
   });
 
@@ -402,6 +405,35 @@ describe('Inventory Component - Phase 2C', () => {
         }
       }, { timeout: 2000 });
     }
+  });
+
+  test('should show estimated value from stock times unit price', async () => {
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Est. Value')).toBeInTheDocument();
+    });
+
+    // 50*4 + 5*3 + 0*7 = 215
+    await waitFor(() => {
+      const valueEls = screen.getAllByText('$215');
+      expect(valueEls.length).toBeGreaterThan(0);
+    });
+  });
+
+  test('should show unit price field in edit modal', async () => {
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.queryAllByText('2x4 Lumber').length).toBeGreaterThan(0);
+    });
+
+    const editButtons = screen.getAllByText('Edit');
+    fireEvent.click(editButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/unit price/i)).toBeInTheDocument();
+    });
   });
 
   test('should show statistics for inventory', async () => {

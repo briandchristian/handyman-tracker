@@ -17,17 +17,25 @@ describe('BarcodeScanner Component - Phase 2E Mobile Features', () => {
   const mockGetUserMedia = jest.fn();
   const mockStop = jest.fn();
 
+  const mockApplyConstraints = jest.fn().mockResolvedValue(undefined);
+  const mockGetCapabilities = jest.fn().mockReturnValue({});
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockDetect.mockClear();
-    
-    // Mock video stream
+    mockApplyConstraints.mockClear();
+    mockGetCapabilities.mockClear();
+    mockGetCapabilities.mockReturnValue({});
+
+    // Mock video stream (optional focus/zoom hooks on video track)
     const mockStream = {
       getTracks: () => [{
-        stop: mockStop
+        stop: mockStop,
+        getCapabilities: mockGetCapabilities,
+        applyConstraints: mockApplyConstraints,
       }]
     };
-    
+
     mockGetUserMedia.mockResolvedValue(mockStream);
     global.navigator.mediaDevices = {
       getUserMedia: mockGetUserMedia
@@ -61,9 +69,11 @@ describe('BarcodeScanner Component - Phase 2E Mobile Features', () => {
     fireEvent.click(startButton);
     
     await waitFor(() => {
-      expect(mockGetUserMedia).toHaveBeenCalledWith({
-        video: { facingMode: 'environment' }
-      });
+      expect(mockGetUserMedia).toHaveBeenCalledWith(
+        expect.objectContaining({
+          video: expect.objectContaining({ facingMode: 'environment' }),
+        })
+      );
     });
   });
 
@@ -71,7 +81,11 @@ describe('BarcodeScanner Component - Phase 2E Mobile Features', () => {
     let resolvedStream;
     mockGetUserMedia.mockImplementation(() => {
       resolvedStream = {
-        getTracks: () => [{ stop: mockStop }],
+        getTracks: () => [{
+          stop: mockStop,
+          getCapabilities: mockGetCapabilities,
+          applyConstraints: mockApplyConstraints,
+        }],
       };
       return Promise.resolve(resolvedStream);
     });
@@ -234,6 +248,45 @@ describe('BarcodeScanner Component - Phase 2E Mobile Features', () => {
     
     expect(screen.getByText(/📱 Mobile Tips:/i)).toBeInTheDocument();
     expect(screen.getByText(/Allow camera permission when prompted/i)).toBeInTheDocument();
+  });
+
+  test('should show scan zoom control after camera starts (small barcodes)', async () => {
+    const readyStateSpy = jest
+      .spyOn(window.HTMLMediaElement.prototype, 'readyState', 'get')
+      .mockReturnValue(4);
+
+    render(<BarcodeScanner onScan={mockOnScan} onClose={mockOnClose} />);
+    fireEvent.click(screen.getByText(/📷 Start Camera/i));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/scan zoom/i)).toBeInTheDocument();
+    });
+
+    readyStateSpy.mockRestore();
+  });
+
+  test('should apply hardware camera zoom when device reports zoom capability', async () => {
+    mockGetCapabilities.mockReturnValue({ zoom: { min: 1, max: 4, step: 0.5 } });
+
+    const readyStateSpy = jest
+      .spyOn(window.HTMLMediaElement.prototype, 'readyState', 'get')
+      .mockReturnValue(4);
+
+    render(<BarcodeScanner onScan={mockOnScan} onClose={mockOnClose} />);
+    fireEvent.click(screen.getByText(/📷 Start Camera/i));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/camera zoom/i)).toBeInTheDocument();
+    });
+
+    const zoomSlider = screen.getByLabelText(/camera zoom/i);
+    fireEvent.change(zoomSlider, { target: { value: '2' } });
+
+    await waitFor(() => {
+      expect(mockApplyConstraints).toHaveBeenCalled();
+    });
+
+    readyStateSpy.mockRestore();
   });
 
   test('should show supported barcode formats', () => {

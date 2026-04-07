@@ -392,6 +392,8 @@ const inventoryItemSchema = new mongoose.Schema({
   currentStock: { type: Number, default: 0 },
   unit: String,
   parLevel: { type: Number, default: 0 }, // Minimum stock level
+  /** Per-unit cost/price for estimating on-hand value (Est. Value = sum of stock × lastPrice). */
+  lastPrice: { type: Number, min: 0 },
   autoReorder: { type: Boolean, default: false },
   preferredSupplier: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier' },
   lastRestocked: Date,
@@ -1754,6 +1756,26 @@ app.put('/api/purchase-orders/:id', authMiddleware, async (req, res) => {
 
 // ===== INVENTORY ROUTES =====
 
+/** Normalize client body so ObjectId fields don’t use "" (cast error aborts the whole update). */
+function inventoryPayloadFromBody(body) {
+  const supplierRaw = body.preferredSupplier;
+  const preferredSupplier =
+    supplierRaw != null && String(supplierRaw).trim() !== '' ? supplierRaw : null;
+
+  return {
+    name: String(body.name ?? '').trim(),
+    sku: body.sku != null ? String(body.sku) : '',
+    description: body.description != null ? String(body.description) : '',
+    category: body.category != null ? String(body.category) : '',
+    currentStock: Math.max(0, Number(body.currentStock) || 0),
+    unit: body.unit != null ? String(body.unit) : 'each',
+    parLevel: Math.max(0, Number(body.parLevel) || 0),
+    lastPrice: Math.max(0, Number(body.lastPrice) || 0),
+    autoReorder: Boolean(body.autoReorder),
+    preferredSupplier,
+  };
+}
+
 // Get inventory items (with low stock alert)
 app.get('/api/inventory', authMiddleware, async (req, res) => {
   try {
@@ -1783,8 +1805,13 @@ app.get('/api/inventory', authMiddleware, async (req, res) => {
 // Create/Update inventory item
 app.post('/api/inventory', authMiddleware, async (req, res) => {
   try {
-    const item = new InventoryItem(req.body);
+    const data = inventoryPayloadFromBody(req.body);
+    if (!data.name) {
+      return res.status(400).json({ msg: 'Item name is required' });
+    }
+    const item = new InventoryItem(data);
     await item.save();
+    await item.populate('preferredSupplier', 'name');
     res.status(201).json(item);
   } catch (err) {
     console.error('Error creating inventory item:', err);
@@ -1794,10 +1821,14 @@ app.post('/api/inventory', authMiddleware, async (req, res) => {
 
 app.put('/api/inventory/:id', authMiddleware, async (req, res) => {
   try {
+    const data = inventoryPayloadFromBody(req.body);
+    if (!data.name) {
+      return res.status(400).json({ msg: 'Item name is required' });
+    }
     const item = await InventoryItem.findByIdAndUpdate(
       req.params.id,
-      req.body,
-      { new: true }
+      { $set: data },
+      { new: true, runValidators: true }
     ).populate('preferredSupplier', 'name');
     
     if (!item) {

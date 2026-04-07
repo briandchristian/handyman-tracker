@@ -46,7 +46,7 @@ describe('QuickReorder Component - Phase 2A', () => {
 
   test('should render Quick Reorder panel', async () => {
     const mockOnCreatePO = jest.fn();
-    render(<QuickReorder onCreatePO={mockOnCreatePO} />);
+    render(<QuickReorder onCreatePO={mockOnCreatePO} initialExpanded />);
     
     await waitFor(() => {
       expect(screen.getByText('Quick Reorder')).toBeInTheDocument();
@@ -55,7 +55,7 @@ describe('QuickReorder Component - Phase 2A', () => {
 
   test('should fetch and display low stock items', async () => {
     const mockOnCreatePO = jest.fn();
-    render(<QuickReorder onCreatePO={mockOnCreatePO} />);
+    render(<QuickReorder onCreatePO={mockOnCreatePO} initialExpanded />);
     
     await waitFor(() => {
       expect(axios.get).toHaveBeenCalledWith(
@@ -68,7 +68,7 @@ describe('QuickReorder Component - Phase 2A', () => {
 
   test('should add item to cart with par level quantity', async () => {
     const mockOnCreatePO = jest.fn();
-    render(<QuickReorder onCreatePO={mockOnCreatePO} />);
+    render(<QuickReorder onCreatePO={mockOnCreatePO} initialExpanded />);
     
     await waitFor(() => {
       // Use queryAllByText to avoid errors when multiple elements exist
@@ -104,7 +104,7 @@ describe('QuickReorder Component - Phase 2A', () => {
 
   test('should update cart item quantity', async () => {
     const mockOnCreatePO = jest.fn();
-    render(<QuickReorder onCreatePO={mockOnCreatePO} />);
+    render(<QuickReorder onCreatePO={mockOnCreatePO} initialExpanded />);
     
     // Add item to cart
     await waitFor(() => {
@@ -129,7 +129,7 @@ describe('QuickReorder Component - Phase 2A', () => {
 
   test('should remove item from cart', async () => {
     const mockOnCreatePO = jest.fn();
-    render(<QuickReorder onCreatePO={mockOnCreatePO} />);
+    render(<QuickReorder onCreatePO={mockOnCreatePO} initialExpanded />);
     
     // Add item
     await waitFor(() => {
@@ -151,7 +151,7 @@ describe('QuickReorder Component - Phase 2A', () => {
 
   test('should generate PO and group by supplier', async () => {
     const mockOnCreatePO = jest.fn();
-    render(<QuickReorder onCreatePO={mockOnCreatePO} />);
+    render(<QuickReorder onCreatePO={mockOnCreatePO} initialExpanded />);
     
     // Add item to cart
     await waitFor(() => {
@@ -185,7 +185,7 @@ describe('QuickReorder Component - Phase 2A', () => {
 
   test('should clear entire cart', async () => {
     const mockOnCreatePO = jest.fn();
-    render(<QuickReorder onCreatePO={mockOnCreatePO} />);
+    render(<QuickReorder onCreatePO={mockOnCreatePO} initialExpanded />);
     
     // Add items
     await waitFor(() => {
@@ -207,7 +207,7 @@ describe('QuickReorder Component - Phase 2A', () => {
 
   test('should show supplier name for items', async () => {
     const mockOnCreatePO = jest.fn();
-    render(<QuickReorder onCreatePO={mockOnCreatePO} />);
+    render(<QuickReorder onCreatePO={mockOnCreatePO} initialExpanded />);
     
     await waitFor(() => {
       const supplierNames = screen.getAllByText(/Home Depot/i);
@@ -217,7 +217,7 @@ describe('QuickReorder Component - Phase 2A', () => {
 
   test('should calculate total items in cart', async () => {
     const mockOnCreatePO = jest.fn();
-    render(<QuickReorder onCreatePO={mockOnCreatePO} />);
+    render(<QuickReorder onCreatePO={mockOnCreatePO} initialExpanded />);
     
     // Wait for items to load
     await waitFor(() => {

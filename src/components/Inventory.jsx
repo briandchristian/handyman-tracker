@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
+import { INVENTORY_CATEGORIES } from '../constants/inventoryCategories';
+import { findItemBySku, normalizeSkuCode } from '../utils/inventorySkuMatch';
 import BarcodeScanner from './BarcodeScanner';
 
 export default function Inventory() {
@@ -17,7 +19,7 @@ export default function Inventory() {
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
 
-  const categories = ['Electrical', 'Plumbing', 'Lumber', 'Hardware', 'HVAC', 'Roofing', 'Flooring', 'Paint'];
+  const categories = INVENTORY_CATEGORIES;
 
   useEffect(() => {
     fetchInventory();
@@ -117,7 +119,10 @@ export default function Inventory() {
     outOfStock: items.filter(i => getStockStatus(i) === 'out').length,
     goodStock: items.filter(i => getStockStatus(i) === 'good').length,
     autoReorder: items.filter(i => i.autoReorder).length,
-    totalValue: items.reduce((sum, i) => sum + (i.currentStock * (i.lastPrice || 0)), 0)
+    totalValue: items.reduce(
+      (sum, i) => sum + i.currentStock * (Number(i.lastPrice) || 0),
+      0
+    )
   };
 
   const openItemDetail = (item) => {
@@ -131,17 +136,32 @@ export default function Inventory() {
   };
 
   const handleBarcodeScan = (code) => {
-    console.log('Scanned code:', code);
-    // Search for item by SKU
-    const found = items.find(item => item.sku === code);
+    const normalized = normalizeSkuCode(code);
+    if (!normalized) return;
+
+    setShowScanner(false);
+
+    const found = findItemBySku(items, normalized);
     if (found) {
       openStockAdjust(found);
-      alert(`✅ Found: ${found.name}`);
-    } else {
-      // Search in search box
-      setSearchTerm(code);
-      alert(`🔍 Searching for: ${code}`);
+      return;
     }
+
+    // New product: open Add Item with SKU prefilled from scan
+    setSelectedItem({
+      name: '',
+      sku: normalized,
+      description: '',
+      category: '',
+      currentStock: 0,
+      parLevel: 0,
+      unit: 'each',
+      lastPrice: 0,
+      autoReorder: false,
+      preferredSupplier: '',
+      isNew: true,
+    });
+    setShowModal(true);
   };
 
   if (loading) {
@@ -184,6 +204,7 @@ export default function Inventory() {
                 currentStock: 0, 
                 parLevel: 0, 
                 unit: 'each',
+                lastPrice: 0,
                 autoReorder: false,
                 isNew: true 
               });
@@ -220,7 +241,10 @@ export default function Inventory() {
           <p className="text-gray-600 text-base md:text-sm">Auto-Reorder</p>
           <p className="text-3xl font-bold text-purple-600">{stats.autoReorder}</p>
         </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+        <div
+          className="bg-white border border-gray-300 rounded-lg p-4 md:p-4"
+          title="Total estimated value: current stock × unit price per item (set unit price when editing an item)."
+        >
           <p className="text-gray-600 text-base md:text-sm">Est. Value</p>
           <p className="text-2xl font-bold text-black">
             ${stats.totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}
@@ -304,6 +328,7 @@ export default function Inventory() {
                     currentStock: 0, 
                     parLevel: 0, 
                     unit: 'each',
+                    lastPrice: 0,
                     autoReorder: false,
                     isNew: true 
                   });
@@ -367,6 +392,14 @@ export default function Inventory() {
                         <span className="text-gray-600">Par Level:</span>
                         <span className="text-black">{item.parLevel || '-'}</span>
                       </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Unit price:</span>
+                        <span className="text-black">
+                          {(Number(item.lastPrice) || 0) > 0
+                            ? `$${(Number(item.lastPrice) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : '—'}
+                        </span>
+                      </div>
                       {item.preferredSupplier?.name && (
                         <div className="flex justify-between">
                           <span className="text-gray-600">Supplier:</span>
@@ -398,7 +431,7 @@ export default function Inventory() {
 
             {/* Desktop Table Layout */}
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full border-collapse min-w-[900px]">
+              <table className="w-full border-collapse min-w-[1024px]">
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
                     <th className="text-left p-4 text-black font-semibold text-sm">Item Name</th>
@@ -406,6 +439,7 @@ export default function Inventory() {
                     <th className="text-left p-4 text-black font-semibold text-sm">Category</th>
                     <th className="text-left p-4 text-black font-semibold text-sm">Stock</th>
                     <th className="text-left p-4 text-black font-semibold text-sm">Par Level</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Unit price</th>
                     <th className="text-left p-4 text-black font-semibold text-sm">Status</th>
                     <th className="text-left p-4 text-black font-semibold text-sm">Supplier</th>
                     <th className="text-left p-4 text-black font-semibold text-sm">Auto-Reorder</th>
@@ -447,6 +481,11 @@ export default function Inventory() {
                           </div>
                         </td>
                         <td className="p-4 text-black text-sm">{item.parLevel || '-'}</td>
+                        <td className="p-4 text-black text-sm tabular-nums">
+                          {(Number(item.lastPrice) || 0) > 0
+                            ? `$${(Number(item.lastPrice) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : '—'}
+                        </td>
                         <td className="p-4">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${getStockBadge(stockStatus)}`}>
                             {getStockLabel(stockStatus)}
@@ -487,6 +526,7 @@ export default function Inventory() {
         <ItemModal
           item={selectedItem}
           suppliers={suppliers}
+          categories={categories}
           onClose={() => {
             setShowModal(false);
             setSelectedItem(null);
@@ -546,8 +586,15 @@ export default function Inventory() {
   );
 }
 
+function unitPriceTextFromItem(invItem) {
+  const n = Number(invItem?.lastPrice);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return String(n);
+}
+
 // Item Edit Modal
-function ItemModal({ item, suppliers, onClose, onSave }) {
+function ItemModal({ item, suppliers, categories, onClose, onSave }) {
+  const [showSkuScanner, setShowSkuScanner] = useState(false);
   const [formData, setFormData] = useState({
     name: item.name || '',
     sku: item.sku || '',
@@ -559,9 +606,13 @@ function ItemModal({ item, suppliers, onClose, onSave }) {
     autoReorder: item.autoReorder || false,
     preferredSupplier: item.preferredSupplier?._id || ''
   });
+  const [unitPriceText, setUnitPriceText] = useState(() => unitPriceTextFromItem(item));
+
+  useEffect(() => {
+    setUnitPriceText(unitPriceTextFromItem(item));
+  }, [item._id, item.isNew, item.lastPrice]);
 
   const units = ['each', 'box', 'ft', 'yd', 'lb', 'gallon', 'pack', 'roll', 'sheet'];
-  const categories = ['Electrical', 'Plumbing', 'Lumber', 'Hardware', 'HVAC', 'Roofing', 'Flooring', 'Paint'];
 
   const handleSave = async () => {
     if (!formData.name) {
@@ -571,13 +622,18 @@ function ItemModal({ item, suppliers, onClose, onSave }) {
 
     try {
       const token = localStorage.getItem('token');
+      const lastPrice = Math.max(0, parseFloat(String(unitPriceText).replace(/,/g, '')) || 0);
+      const payload = {
+        ...formData,
+        lastPrice
+      };
       if (item.isNew) {
-        await axios.post(`${API_BASE_URL}/api/inventory`, formData, {
+        await axios.post(`${API_BASE_URL}/api/inventory`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
         alert('✅ Inventory item created!');
       } else {
-        await axios.put(`${API_BASE_URL}/api/inventory/${item._id}`, formData, {
+        await axios.put(`${API_BASE_URL}/api/inventory/${item._id}`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
         alert('✅ Inventory item updated!');
@@ -622,16 +678,32 @@ function ItemModal({ item, suppliers, onClose, onSave }) {
               />
             </div>
             <div>
-              <label htmlFor="item-sku" className="block text-base md:text-sm font-medium text-black mb-2">SKU</label>
-              <input
-                id="item-sku"
-                name="item-sku"
-                type="text"
-                value={formData.sku}
-                onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
-                placeholder="e.g., LUM-2X4-8"
-              />
+              <label htmlFor="item-sku" className="block text-base md:text-sm font-medium text-black mb-2">
+                SKU / barcode
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="item-sku"
+                  name="item-sku"
+                  type="text"
+                  value={formData.sku}
+                  onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
+                  className="min-w-0 flex-1 p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+                  placeholder="SKU, UPC, or EAN from label"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSkuScanner(true)}
+                  className="shrink-0 px-3 py-3 md:py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium text-sm md:text-sm"
+                  title="Scan barcode into this field"
+                >
+                  📷 Scan
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Scanned codes are stored here. Scanning from the inventory page fills this when adding a new item.
+              </p>
             </div>
           </div>
 
@@ -709,6 +781,26 @@ function ItemModal({ item, suppliers, onClose, onSave }) {
             </div>
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="item-unit-price" className="block text-base md:text-sm font-medium text-black mb-2">
+                Unit price
+                <span className="text-gray-500 text-sm md:text-xs ml-1">(per unit, Est. Value)</span>
+              </label>
+              <input
+                id="item-unit-price"
+                name="item-unit-price"
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value={unitPriceText}
+                onChange={(e) => setUnitPriceText(e.target.value)}
+                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+                placeholder="0.00"
+              />
+            </div>
+          </div>
+
           <div>
             <label htmlFor="preferred-supplier" className="block text-base md:text-sm font-medium text-black mb-2">Preferred Supplier</label>
             <select
@@ -759,6 +851,17 @@ function ItemModal({ item, suppliers, onClose, onSave }) {
           </button>
         </div>
       </div>
+
+      {showSkuScanner && (
+        <BarcodeScanner
+          title="Scan SKU or barcode"
+          onScan={(scanned) => {
+            setFormData((f) => ({ ...f, sku: String(scanned ?? '').trim() }));
+            setShowSkuScanner(false);
+          }}
+          onClose={() => setShowSkuScanner(false)}
+        />
+      )}
     </div>
   );
 }
@@ -782,6 +885,16 @@ function StockAdjustModal({ item, onClose, onSave }) {
     try {
       const token = localStorage.getItem('token');
       await axios.put(`${API_BASE_URL}/api/inventory/${item._id}`, {
+        // Send full item payload so server-side validators/sanitizers have required fields.
+        name: item.name || '',
+        sku: item.sku || '',
+        description: item.description || '',
+        category: item.category || '',
+        unit: item.unit || 'each',
+        parLevel: Number(item.parLevel) || 0,
+        autoReorder: Boolean(item.autoReorder),
+        preferredSupplier: item.preferredSupplier?._id || item.preferredSupplier || '',
+        lastPrice: Number(item.lastPrice) || 0,
         currentStock: newStock,
         lastRestocked: adjustmentType === 'add' ? new Date().toISOString() : item.lastRestocked
       }, {
@@ -797,10 +910,10 @@ function StockAdjustModal({ item, onClose, onSave }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto overscroll-contain bg-black/50 p-2 sm:p-4 py-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[min(100dvh,100svh)] sm:max-h-[90vh] flex flex-col overflow-hidden my-auto">
         {/* Modal Header */}
-        <div className="bg-white border-b border-gray-300 p-4 md:p-6 flex justify-between items-center">
+        <div className="bg-white border-b border-gray-300 p-4 md:p-6 flex justify-between items-center shrink-0">
           <h2 className="text-xl md:text-xl font-bold text-black">Adjust Stock</h2>
           <button
             onClick={onClose}
@@ -812,7 +925,7 @@ function StockAdjustModal({ item, onClose, onSave }) {
         </div>
 
         {/* Modal Content */}
-        <div className="p-4 md:p-6 space-y-4">
+        <div className="p-4 md:p-6 space-y-4 overflow-y-auto overscroll-y-contain flex-1 min-h-0">
           <div>
             <p className="font-semibold text-black text-lg md:text-lg">{item.name}</p>
             <p className="text-base md:text-sm text-gray-600 mt-1">Current Stock: {item.currentStock} {item.unit}</p>
@@ -898,7 +1011,7 @@ function StockAdjustModal({ item, onClose, onSave }) {
         </div>
 
         {/* Modal Footer */}
-        <div className="bg-gray-50 border-t border-gray-300 p-4 md:p-6 flex flex-col sm:flex-row justify-end gap-3">
+        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-300 p-4 md:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col sm:flex-row justify-end gap-3 shrink-0">
           <button
             onClick={onClose}
             className="px-6 py-3 md:px-4 md:py-2 border border-gray-300 rounded text-black bg-white hover:bg-gray-100 font-medium text-base md:text-sm w-full sm:w-auto"
