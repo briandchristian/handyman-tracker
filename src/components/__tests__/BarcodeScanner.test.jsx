@@ -6,8 +6,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import BarcodeScanner from '../BarcodeScanner';
 
 // Mock BarcodeDetector API
+const mockDetect = jest.fn().mockResolvedValue([]);
 global.BarcodeDetector = jest.fn().mockImplementation(() => ({
-  detect: jest.fn().mockResolvedValue([])
+  detect: mockDetect
 }));
 
 describe('BarcodeScanner Component - Phase 2E Mobile Features', () => {
@@ -18,6 +19,7 @@ describe('BarcodeScanner Component - Phase 2E Mobile Features', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockDetect.mockClear();
     
     // Mock video stream
     const mockStream = {
@@ -63,6 +65,44 @@ describe('BarcodeScanner Component - Phase 2E Mobile Features', () => {
         video: { facingMode: 'environment' }
       });
     });
+  });
+
+  test('should attach MediaStream to video element after mount (mobile black-screen fix)', async () => {
+    let resolvedStream;
+    mockGetUserMedia.mockImplementation(() => {
+      resolvedStream = {
+        getTracks: () => [{ stop: mockStop }],
+      };
+      return Promise.resolve(resolvedStream);
+    });
+
+    render(<BarcodeScanner onScan={mockOnScan} onClose={mockOnClose} />);
+    fireEvent.click(screen.getByText(/📷 Start Camera/i));
+
+    await waitFor(() => {
+      const video = document.querySelector('video');
+      expect(video).toBeInTheDocument();
+      expect(video.srcObject).toBe(resolvedStream);
+    });
+  });
+
+  test('should run barcode detection loop after camera starts', async () => {
+    const readyStateSpy = jest
+      .spyOn(window.HTMLMediaElement.prototype, 'readyState', 'get')
+      .mockReturnValue(4);
+
+    render(<BarcodeScanner onScan={mockOnScan} onClose={mockOnClose} />);
+
+    const startButton = screen.getByText(/📷 Start Camera/i);
+    fireEvent.click(startButton);
+
+    await waitFor(() => {
+      expect(mockGetUserMedia).toHaveBeenCalled();
+      expect(global.BarcodeDetector).toHaveBeenCalled();
+      expect(mockDetect).toHaveBeenCalled();
+    });
+
+    readyStateSpy.mockRestore();
   });
 
   test('should switch to manual entry mode', async () => {

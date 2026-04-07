@@ -1,4 +1,7 @@
-import 'dotenv/config';
+// Load .env first. `override: true` so project .env wins over stale MONGO_* vars in Windows User/System
+// environment (default dotenv does not override existing vars — a common cause of persistent "bad auth").
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -64,9 +67,12 @@ let isConnecting = false;
 
 // Single MongoDB connection: same MONGO_URI everywhere (from .env locally, from Vercel env in production). No loopback vs cloud branching.
 const connectDB = async () => {
-  if (!process.env.MONGO_URI) {
+  const mongoUri = process.env.MONGO_URI?.trim();
+  if (!mongoUri) {
     throw new Error('MONGO_URI is not defined in environment variables.');
   }
+  const mongoUser = process.env.MONGO_USER?.trim();
+  const mongoPassword = process.env.MONGO_PASSWORD?.trim();
 
   // Use cached connection if available and ready
   if (cachedDb && mongoose.connection.readyState === 1) {
@@ -95,12 +101,27 @@ const connectDB = async () => {
       await mongoose.disconnect();
     }
 
-    await mongoose.connect(process.env.MONGO_URI, {
+    // Prefer MONGO_USER + MONGO_PASSWORD when set: avoids edge cases parsing user:pass inside a long mongodb:// URI.
+    const connectOptions = {
       serverSelectionTimeoutMS: 30000, // 30 seconds for serverless cold starts
       socketTimeoutMS: 45000,
       maxPoolSize: 10,
       minPoolSize: 2,
-    });
+    };
+    let connectionUri = mongoUri;
+    if (mongoUser && mongoPassword) {
+      connectOptions.user = mongoUser;
+      connectOptions.pass = mongoPassword;
+      connectOptions.authSource = 'admin';
+      connectionUri = mongoUri.replace(/^mongodb:\/\/[^@]+@/, 'mongodb://');
+    }
+    if (/^(1|true|yes)$/i.test(process.env.DEBUG_MONGO_AUTH || '')) {
+      const u = mongoUser || '(from MONGO_URI only)';
+      const plen = mongoPassword?.length ?? 0;
+      const uriHead = connectionUri.replace(/^mongodb:\/\/[^@]+@/, 'mongodb://***@').slice(0, 72);
+      console.log(`[DEBUG_MONGO_AUTH] user=${u} passwordLength=${plen} uriPrefix=${uriHead}...`);
+    }
+    await mongoose.connect(connectionUri, connectOptions);
     
     cachedDb = mongoose.connection;
     console.log('MongoDB connected successfully');

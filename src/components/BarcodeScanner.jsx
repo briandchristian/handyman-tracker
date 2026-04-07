@@ -7,6 +7,8 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const [scanning, setScanning] = useState(false);
+  const scanningRef = useRef(false);
+  const detectTimeoutRef = useRef(null);
 
   useEffect(() => {
     // Check if Barcode Detection API is available
@@ -17,6 +19,17 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
     }
   }, []);
 
+  // Attach MediaStream after <video> mounts (setStream is async vs ref — without this, mobile shows a black box).
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!stream || !video) return;
+    video.srcObject = stream;
+    void Promise.resolve(video.play?.()).catch(() => {});
+    return () => {
+      video.srcObject = null;
+    };
+  }, [stream]);
+
   const startCamera = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -24,9 +37,6 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
       });
       
       setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
 
       // Start scanning if API available
       if ('BarcodeDetector' in window) {
@@ -47,10 +57,22 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
         formats: ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e']
       });
 
+      // Keep detection state in a ref so the async loop doesn't read stale React state.
       setScanning(true);
+      scanningRef.current = true;
       
       const detectBarcode = async () => {
-        if (!videoRef.current || !scanning) return;
+        if (!scanningRef.current) return;
+        if (!videoRef.current) {
+          detectTimeoutRef.current = setTimeout(detectBarcode, 200);
+          return;
+        }
+
+        // Wait until enough video data is available before attempting detection.
+        if (videoRef.current.readyState < 2) {
+          detectTimeoutRef.current = setTimeout(detectBarcode, 200);
+          return;
+        }
 
         try {
           const barcodes = await barcodeDetector.detect(videoRef.current);
@@ -65,8 +87,8 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
           // Ignore detection errors, keep trying
         }
 
-        if (scanning) {
-          setTimeout(detectBarcode, 200); // Scan every 200ms
+        if (scanningRef.current) {
+          detectTimeoutRef.current = setTimeout(detectBarcode, 200); // Scan every 200ms
         }
       };
 
@@ -78,6 +100,11 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
 
   const stopCamera = () => {
     setScanning(false);
+    scanningRef.current = false;
+    if (detectTimeoutRef.current) {
+      clearTimeout(detectTimeoutRef.current);
+      detectTimeoutRef.current = null;
+    }
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       setStream(null);
@@ -105,10 +132,10 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto overscroll-contain bg-black/95 p-2 sm:p-4 py-4 sm:py-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[min(100dvh,100svh)] sm:max-h-[90vh] flex flex-col overflow-hidden my-auto min-h-0">
         {/* Header */}
-        <div className="bg-white border-b border-gray-300 p-4 flex justify-between items-center">
+        <div className="bg-white border-b border-gray-300 p-4 flex justify-between items-center shrink-0">
           <h2 className="text-xl font-bold text-black">{title}</h2>
           <button
             onClick={handleClose}
@@ -119,7 +146,7 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
         </div>
 
         {/* Toggle Scanner/Manual */}
-        <div className="bg-gray-50 border-b border-gray-300 p-3 flex justify-center gap-3">
+        <div className="bg-gray-50 border-b border-gray-300 p-3 flex justify-center gap-3 shrink-0">
           <button
             onClick={() => setUseManual(false)}
             className={`px-4 py-2 rounded font-medium ${
@@ -145,11 +172,12 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
           </button>
         </div>
 
-        {/* Content */}
+        {/* Scrollable body: camera/manual + tips (avoids cut-off on small phones) */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain">
         {!useManual ? (
           <div className="relative bg-black">
             {!stream ? (
-              <div className="flex flex-col items-center justify-center h-96 text-white p-8">
+              <div className="flex flex-col items-center justify-center min-h-[40vh] sm:min-h-[24rem] text-white p-8">
                 <p className="text-lg mb-4 text-center">
                   Point your camera at a barcode to scan
                 </p>
@@ -164,21 +192,24 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
                 </p>
               </div>
             ) : (
-              <div className="relative">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full h-auto"
-                />
-                
-                {/* Scanning Overlay */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="border-4 border-blue-500 rounded-lg w-64 h-64 relative">
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500 animate-pulse" />
-                    <p className="absolute -bottom-10 left-0 right-0 text-white text-center font-medium">
-                      {scanning ? '🔍 Scanning...' : 'Position barcode in frame'}
-                    </p>
+              <div className="relative w-full">
+                {/* Sized box so mobile WebKit actually paints video frames */}
+                <div className="relative w-full min-h-[220px] h-[min(55dvh,420px)] sm:h-[min(70vh,480px)] max-h-[70vh] bg-black">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                  {/* Scanning overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="border-4 border-blue-500 rounded-lg w-[min(16rem,72vw)] aspect-square max-h-[min(16rem,50vh)] relative">
+                      <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500 animate-pulse" />
+                      <p className="absolute top-full left-0 right-0 mt-2 px-2 text-white text-center text-sm font-medium drop-shadow-md">
+                        {scanning ? '🔍 Scanning...' : 'Position barcode in frame'}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -217,8 +248,8 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
           </div>
         )}
 
-        {/* Help Text */}
-        <div className="bg-blue-50 border-t border-blue-200 p-3 text-sm text-gray-600">
+        {/* Help Text (inside scroll region) */}
+        <div className="bg-blue-50 border-t border-blue-200 p-3 text-sm text-gray-600 pb-6">
           <p className="font-medium text-black mb-1">📱 Mobile Tips:</p>
           <ul className="list-disc list-inside space-y-1">
             <li>Allow camera permission when prompted</li>
@@ -226,6 +257,7 @@ export default function BarcodeScanner({ onScan, onClose, title = "Scan Barcode"
             <li>Ensure good lighting for best results</li>
             <li>Use manual entry if camera not working</li>
           </ul>
+        </div>
         </div>
       </div>
     </div>

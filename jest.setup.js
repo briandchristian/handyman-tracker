@@ -7,9 +7,9 @@ if (typeof global.TextEncoder === 'undefined') {
   global.TextDecoder = TextDecoder;
 }
 
-// Mock the API config globally
+// Mock the API config globally (relative paths, same as Vite dev)
 jest.mock('./src/config/api.js', () => ({
-  default: 'http://localhost:5000'
+  default: ''
 }), { virtual: true });
 
 // Mock window.matchMedia
