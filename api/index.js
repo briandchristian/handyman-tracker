@@ -139,16 +139,6 @@ const connectDB = async () => {
 
     cachedDb = mongoose.connection;
     console.log('MongoDB connected successfully');
-    if (
-      process.env.VERCEL === '1' &&
-      mongoose.connection?.db?.databaseName === 'test'
-    ) {
-      console.warn(
-        '[MongoDB] Connected to database "test". If login fails with Atlas permission errors on test.users, ' +
-          'set MONGO_DATABASE in Vercel to the Atlas database that actually contains your users collection. ' +
-          'Do not set MONGO_DATABASE=test unless your data really lives in "test".'
-      );
-    }
     return cachedDb;
   } catch (err) {
     console.error('MongoDB connection error:', err.message);
