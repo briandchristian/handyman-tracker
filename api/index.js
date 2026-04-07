@@ -7,6 +7,10 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import {
+  applyMongoDatabaseName,
+  mongoConnectionStringMissingDbName,
+} from './mongoUri.js';
 
 const app = express();
 
@@ -115,6 +119,16 @@ const connectDB = async () => {
       connectOptions.authSource = 'admin';
       connectionUri = mongoUri.replace(/^mongodb:\/\/[^@]+@/, 'mongodb://');
     }
+    const mongoDbName =
+      process.env.MONGO_DATABASE?.trim() || process.env.MONGO_DB_NAME?.trim();
+    connectionUri = applyMongoDatabaseName(connectionUri, mongoDbName);
+    if (mongoConnectionStringMissingDbName(connectionUri)) {
+      throw new Error(
+        'MongoDB URI has no database name, so the driver uses "test" and Atlas can deny reads (e.g. test.users). ' +
+          'In Vercel, set MONGO_DATABASE (or MONGO_DB_NAME) to the Atlas database that contains your data, ' +
+          'or add /yourDbName before ? in MONGO_URI.'
+      );
+    }
     if (/^(1|true|yes)$/i.test(process.env.DEBUG_MONGO_AUTH || '')) {
       const u = mongoUser || '(from MONGO_URI only)';
       const plen = mongoPassword?.length ?? 0;
@@ -122,9 +136,19 @@ const connectDB = async () => {
       console.log(`[DEBUG_MONGO_AUTH] user=${u} passwordLength=${plen} uriPrefix=${uriHead}...`);
     }
     await mongoose.connect(connectionUri, connectOptions);
-    
+
     cachedDb = mongoose.connection;
     console.log('MongoDB connected successfully');
+    if (
+      process.env.VERCEL === '1' &&
+      mongoose.connection?.db?.databaseName === 'test'
+    ) {
+      console.warn(
+        '[MongoDB] Connected to database "test". If login fails with Atlas permission errors on test.users, ' +
+          'set MONGO_DATABASE in Vercel to the Atlas database that actually contains your users collection. ' +
+          'Do not set MONGO_DATABASE=test unless your data really lives in "test".'
+      );
+    }
     return cachedDb;
   } catch (err) {
     console.error('MongoDB connection error:', err.message);
