@@ -11,24 +11,36 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { assertInMemoryMongoUri } from '../mongoTestSafety.js';
 
 process.env.JWT_SECRET = 'test-secret';
 process.env.VERCEL = '1';
 
 const originalMongoUri = process.env.MONGO_URI;
+const originalMongoDatabase = process.env.MONGO_DATABASE;
+const originalMongoDbName = process.env.MONGO_DB_NAME;
 let mongoServer;
 let app;
 let authToken;
 let adminId;
 
 beforeAll(async () => {
+  process.env.NODE_ENV = 'test';
+  delete process.env.MONGO_DATABASE;
+  delete process.env.MONGO_DB_NAME;
+
   mongoServer = await MongoMemoryServer.create();
   const mongoUri = mongoServer.getUri();
+  assertInMemoryMongoUri(mongoUri);
   process.env.MONGO_URI = mongoUri;
   await mongoose.disconnect();
   await mongoose.connect(mongoUri);
   const appModule = await import('../index.js');
   app = appModule.default;
+
+  // Warm the app's cached Mongo connection before seeding auth fixtures.
+  await request(app).get('/api/health');
+
   const User = mongoose.model('User');
   const hashed = await bcrypt.hash('p', 10);
   const admin = await User.create({
@@ -46,9 +58,17 @@ afterAll(async () => {
   await mongoose.disconnect();
   if (mongoServer) await mongoServer.stop();
   if (originalMongoUri) process.env.MONGO_URI = originalMongoUri;
+  else delete process.env.MONGO_URI;
+  if (originalMongoDatabase) process.env.MONGO_DATABASE = originalMongoDatabase;
+  else delete process.env.MONGO_DATABASE;
+  if (originalMongoDbName) process.env.MONGO_DB_NAME = originalMongoDbName;
+  else delete process.env.MONGO_DB_NAME;
 });
 
 afterEach(async () => {
+  const activeUri = mongoose.connection?.client?.s?.url || process.env.MONGO_URI || '';
+  assertInMemoryMongoUri(activeUri);
+
   const collections = mongoose.connection.collections;
   for (const key in collections) await collections[key].deleteMany({});
   const User = mongoose.model('User');

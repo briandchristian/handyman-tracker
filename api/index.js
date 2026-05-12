@@ -1,7 +1,8 @@
 // Load .env first. `override: true` so project .env wins over stale MONGO_* vars in Windows User/System
 // environment (default dotenv does not override existing vars — a common cause of persistent "bad auth").
 import dotenv from 'dotenv';
-dotenv.config({ override: true });
+import { shouldOverrideDotenv } from './envConfig.js';
+dotenv.config({ override: shouldOverrideDotenv(process.env) });
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -11,6 +12,9 @@ import {
   applyMongoDatabaseName,
   mongoConnectionStringMissingDbName,
 } from './mongoUri.js';
+import { fetchAdiPriceAndInventoryDetails } from './suppliers/adiPriceInventory.js';
+import { fetchAdiOrderGeneration } from './suppliers/adiOrderGeneration.js';
+import { fetchAdiOrderInquiry } from './suppliers/adiOrderInquiry.js';
 
 const app = express();
 
@@ -113,7 +117,8 @@ const connectDB = async () => {
       minPoolSize: 2,
     };
     let connectionUri = mongoUri;
-    if (mongoUser && mongoPassword) {
+    const isLocalMongoUri = /^mongodb:\/\/(127\.0\.0\.1|localhost)/.test(connectionUri);
+    if (!isLocalMongoUri && mongoUser && mongoPassword) {
       connectOptions.user = mongoUser;
       connectOptions.pass = mongoPassword;
       connectOptions.authSource = 'admin';
@@ -285,10 +290,12 @@ const customerSchema = new mongoose.Schema({
     },
     bidAmount: Number,
     billAmount: Number,
+    taxRate: { type: Number, default: 0 },
+    paidToDate: { type: Number, default: 0 },
     status: { type: String, enum: ['Pending', 'Bidded', 'Scheduled', 'Completed', 'Billed'] },
     scheduleDate: Date,
     completedAt: Date,
-    materials: [{ item: String, quantity: Number, cost: Number, markup: Number }],
+    materials: [{ item: String, quantity: Number, cost: Number, markup: Number, taxable: { type: Boolean, default: true } }],
     notes: [{ text: String, addedAt: { type: Date, default: Date.now } }],
     createdAt: { type: Date, default: Date.now }
   }]
@@ -382,6 +389,16 @@ const purchaseOrderSchema = new mongoose.Schema({
   shipping: Number,
   total: Number,
   notes: String,
+  // ADI integration metadata so inquiry can be re-run later without re-entering IDs.
+  adiIntegration: {
+    customerNumber: String,
+    customerSuffix: String,
+    adiOrderNumber: String,
+    lastSyncedAt: Date,
+    lastInquiryStatus: String,
+    lastInquiryMessage: String,
+    lastInquiryAt: Date,
+  },
   attachments: [{
     name: String,
     url: String,
@@ -1265,6 +1282,56 @@ app.put('/api/customers/:customerId/projects/:projectId/bill', authMiddleware, a
   }
 });
 
+app.put('/api/customers/:customerId/projects/:projectId/paid', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.customerId);
+    if (!customer) {
+      return res.status(404).json({ msg: 'Customer not found' });
+    }
+    const project = customer.projects.id(req.params.projectId);
+    if (!project) {
+      return res.status(404).json({ msg: 'Project not found' });
+    }
+
+    const paidToDate = Number(req.body?.paidToDate);
+    if (!Number.isFinite(paidToDate) || paidToDate < 0) {
+      return res.status(400).json({ msg: 'paidToDate must be a valid non-negative number' });
+    }
+
+    project.paidToDate = paidToDate;
+    await customer.save();
+    res.json(project);
+  } catch (err) {
+    console.error('Error updating paid to date:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.put('/api/customers/:customerId/projects/:projectId/tax-rate', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.customerId);
+    if (!customer) {
+      return res.status(404).json({ msg: 'Customer not found' });
+    }
+    const project = customer.projects.id(req.params.projectId);
+    if (!project) {
+      return res.status(404).json({ msg: 'Project not found' });
+    }
+
+    const taxRate = Number(req.body?.taxRate);
+    if (!Number.isFinite(taxRate) || taxRate < 0) {
+      return res.status(400).json({ msg: 'taxRate must be a valid non-negative number' });
+    }
+
+    project.taxRate = taxRate;
+    await customer.save();
+    res.json(project);
+  } catch (err) {
+    console.error('Error updating tax rate:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
 app.put('/api/customers/:customerId/projects/:projectId/schedule', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerId);
@@ -1455,12 +1522,13 @@ app.post('/api/customers/:customerId/projects/:projectId/materials', authMiddlew
       return res.status(404).json({ msg: 'Project not found' });
     }
     
-    const { item, quantity, cost, markup } = req.body || {};
+    const { item, quantity, cost, markup, taxable } = req.body || {};
     project.materials.push({
       item,
       quantity: Number(quantity),
       cost: Number(cost),
-      markup: Number(markup || 0)
+      markup: Number(markup || 0),
+      taxable: taxable === undefined ? true : Boolean(taxable),
     });
     await customer.save();
     
@@ -1489,12 +1557,13 @@ app.put('/api/customers/:customerId/projects/:projectId/materials/:materialId', 
       return res.status(404).json({ msg: 'Material not found' });
     }
 
-    const { item, quantity, cost, markup } = req.body;
+    const { item, quantity, cost, markup, taxable } = req.body;
 
     if (item !== undefined) material.item = String(item).trim();
     if (quantity !== undefined) material.quantity = Number(quantity);
     if (cost !== undefined) material.cost = Number(cost);
     if (markup !== undefined) material.markup = Number(markup);
+    if (taxable !== undefined) material.taxable = Boolean(taxable);
 
     await customer.save();
     res.json({ msg: 'Material updated', materials: project.materials });
@@ -1551,6 +1620,73 @@ app.post('/api/customers/:customerId/projects/:projectId/notes', authMiddleware,
     res.status(201).json(project.notes);
   } catch (err) {
     console.error('Error adding note:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.put('/api/customers/:customerId/projects/:projectId/notes/:noteId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { customerId, projectId, noteId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(customerId)) {
+      return res.status(400).json({ msg: 'Invalid customer ID format' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      return res.status(400).json({ msg: 'Invalid project ID format' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(noteId)) {
+      return res.status(400).json({ msg: 'Invalid note ID format' });
+    }
+
+    const customer = await Customer.findById(customerId);
+    if (!customer) return res.status(404).json({ msg: 'Customer not found' });
+
+    const project = customer.projects.id(projectId);
+    if (!project) return res.status(404).json({ msg: 'Project not found' });
+
+    const note = project.notes.id(noteId);
+    if (!note) return res.status(404).json({ msg: 'Note not found' });
+
+    const { text } = req.body;
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return res.status(400).json({ msg: 'Note text is required' });
+    }
+
+    note.text = text.trim();
+    await customer.save();
+    res.json({ msg: 'Note updated', notes: project.notes });
+  } catch (err) {
+    console.error('Error updating note:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.delete('/api/customers/:customerId/projects/:projectId/notes/:noteId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { customerId, projectId, noteId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(customerId)) {
+      return res.status(400).json({ msg: 'Invalid customer ID format' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      return res.status(400).json({ msg: 'Invalid project ID format' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(noteId)) {
+      return res.status(400).json({ msg: 'Invalid note ID format' });
+    }
+
+    const customer = await Customer.findById(customerId);
+    if (!customer) return res.status(404).json({ msg: 'Customer not found' });
+
+    const project = customer.projects.id(projectId);
+    if (!project) return res.status(404).json({ msg: 'Project not found' });
+
+    const note = project.notes.id(noteId);
+    if (!note) return res.status(404).json({ msg: 'Note not found' });
+
+    project.notes.pull(noteId);
+    await customer.save();
+    res.json({ msg: 'Note deleted', notes: project.notes });
+  } catch (err) {
+    console.error('Error deleting note:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });
@@ -1685,6 +1821,187 @@ app.put('/api/suppliers/:id/favorite', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('Error toggling favorite:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// ===== ADI SUPPLIER INTEGRATION ROUTES =====
+/**
+ * Phase 2 (Price & Inventory): proxy endpoint for ADI price/inventory lookups.
+ * Uses env-backed ADI credentials and reuses shared auth-signature generation.
+ */
+app.post('/api/suppliers/adi/price-inventory', authMiddleware, async (req, res) => {
+  try {
+    const credentials = {
+      apiKey: process.env.ADI_API_KEY,
+      apiPassword: process.env.ADI_API_PASSWORD,
+      apiSecretKey: process.env.ADI_API_SECRET_KEY,
+    };
+
+    if (!credentials.apiKey || !credentials.apiPassword || !credentials.apiSecretKey) {
+      return res.status(500).json({ msg: 'ADI API credentials are not configured.' });
+    }
+
+    const { customerNumber, customerSuffix, itemList, clientRequestId, timestamp } = req.body || {};
+
+    const adiRequest = {
+      credentials,
+      customerNumber,
+      customerSuffix,
+      itemList,
+    };
+    if (clientRequestId !== undefined) adiRequest.clientRequestId = clientRequestId;
+    if (timestamp !== undefined) adiRequest.timestamp = timestamp;
+
+    const adiResponse = await fetchAdiPriceAndInventoryDetails(adiRequest);
+
+    return res.json(adiResponse);
+  } catch (err) {
+    const message = err?.message || 'Failed to fetch ADI price and inventory details.';
+    const isValidationError =
+      message.includes('required') ||
+      message.includes('cannot contain more than 50 items') ||
+      message.includes('must be a positive number');
+
+    if (isValidationError) {
+      return res.status(400).json({ msg: message });
+    }
+
+    return res.status(502).json({ msg: 'ADI request failed.', details: message });
+  }
+});
+
+/**
+ * Phase 3 (Order Generation): proxy endpoint for ADI order placement.
+ * Uses env-backed ADI credentials and shared signature generation.
+ */
+app.post('/api/suppliers/adi/order-generation', authMiddleware, async (req, res) => {
+  try {
+    const credentials = {
+      apiKey: process.env.ADI_API_KEY,
+      apiPassword: process.env.ADI_API_PASSWORD,
+      apiSecretKey: process.env.ADI_API_SECRET_KEY,
+    };
+
+    if (!credentials.apiKey || !credentials.apiPassword || !credentials.apiSecretKey) {
+      return res.status(500).json({ msg: 'ADI API credentials are not configured.' });
+    }
+
+    const {
+      customerNumber,
+      customerSuffix,
+      poNumber,
+      referenceNumber,
+      shipmentPickupIndicator,
+      shipmentComplete,
+      shipmentCarrier,
+      shipmentMethod,
+      pickupDC,
+      promoCode,
+      promoCodeType,
+      emailAddress,
+      dropShipmentName,
+      dropShipmentAddress1,
+      dropShipmentAddress2,
+      dropShipmentAddress3,
+      dropShipmentCity,
+      dropShipmentStateProvince,
+      dropShipmentZipcode,
+      dropShipmentCountryCode,
+      orderList,
+      clientRequestId,
+      timestamp,
+    } = req.body || {};
+
+    const adiRequest = {
+      credentials,
+      customerNumber,
+      customerSuffix,
+      poNumber,
+      referenceNumber,
+      shipmentPickupIndicator,
+      shipmentComplete,
+      shipmentCarrier,
+      shipmentMethod,
+      pickupDC,
+      promoCode,
+      promoCodeType,
+      emailAddress,
+      dropShipmentName,
+      dropShipmentAddress1,
+      dropShipmentAddress2,
+      dropShipmentAddress3,
+      dropShipmentCity,
+      dropShipmentStateProvince,
+      dropShipmentZipcode,
+      dropShipmentCountryCode,
+      orderList,
+    };
+    if (clientRequestId !== undefined) adiRequest.clientRequestId = clientRequestId;
+    if (timestamp !== undefined) adiRequest.timestamp = timestamp;
+
+    const adiResponse = await fetchAdiOrderGeneration(adiRequest);
+
+    return res.json(adiResponse);
+  } catch (err) {
+    const message = err?.message || 'Failed to generate ADI order.';
+    const isValidationError =
+      message.includes('required') ||
+      message.includes('must be') ||
+      message.includes('cannot');
+
+    if (isValidationError) {
+      return res.status(400).json({ msg: message });
+    }
+
+    return res.status(502).json({ msg: 'ADI request failed.', details: message });
+  }
+});
+
+/**
+ * Phase 4 (Order Inquiry): proxy endpoint for ADI order tracking/inquiry.
+ * Uses env-backed ADI credentials and shared signature generation.
+ */
+app.post('/api/suppliers/adi/order-inquiry', authMiddleware, async (req, res) => {
+  try {
+    const credentials = {
+      apiKey: process.env.ADI_API_KEY,
+      apiPassword: process.env.ADI_API_PASSWORD,
+      apiSecretKey: process.env.ADI_API_SECRET_KEY,
+    };
+
+    if (!credentials.apiKey || !credentials.apiPassword || !credentials.apiSecretKey) {
+      return res.status(500).json({ msg: 'ADI API credentials are not configured.' });
+    }
+
+    const {
+      customerNumber,
+      customerSuffix,
+      adiOrderNumber,
+      clientRequestId,
+      timestamp,
+    } = req.body || {};
+
+    const adiRequest = {
+      credentials,
+      customerNumber,
+      customerSuffix,
+      adiOrderNumber,
+    };
+    if (clientRequestId !== undefined) adiRequest.clientRequestId = clientRequestId;
+    if (timestamp !== undefined) adiRequest.timestamp = timestamp;
+
+    const adiResponse = await fetchAdiOrderInquiry(adiRequest);
+
+    return res.json(adiResponse);
+  } catch (err) {
+    const message = err?.message || 'Failed to fetch ADI order inquiry details.';
+    const isValidationError = message.includes('required') || message.includes('must be');
+
+    if (isValidationError) {
+      return res.status(400).json({ msg: message });
+    }
+
+    return res.status(502).json({ msg: 'ADI request failed.', details: message });
   }
 });
 

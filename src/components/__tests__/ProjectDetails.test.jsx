@@ -91,6 +91,16 @@ describe('ProjectDetails Component', () => {
         if (this.onerror) this.onerror(new Error('mock image load error'));
       }
     };
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn()
+    }));
   });
 
   afterEach(() => {
@@ -348,6 +358,62 @@ describe('ProjectDetails Component', () => {
       // Ensure wrapper is still the completed-section container.
       expect(container.textContent).toContain('Mark as Completed');
     });
+
+    test('should update paid to date amount', async () => {
+      axios.get.mockResolvedValue({ data: mockCustomer });
+      axios.put.mockResolvedValue({
+        data: { ...mockCustomer.projects[0], paidToDate: 2500 }
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
+      });
+
+      const paidInput = screen.getByPlaceholderText(/Enter paid amount/i);
+      await userEvent.type(paidInput, '2500');
+
+      axios.get.mockResolvedValueOnce({ data: mockCustomer });
+
+      await userEvent.click(screen.getByRole('button', { name: /record payment/i }));
+
+      await waitFor(() => {
+        expect(axios.put).toHaveBeenCalledWith(
+          expect.stringContaining('/api/customers/cust123/projects/proj456/paid'),
+          { paidToDate: 2500 },
+          expect.any(Object)
+        );
+      });
+    });
+
+    test('should update project tax rate', async () => {
+      axios.get.mockResolvedValue({ data: mockCustomer });
+      axios.put.mockResolvedValue({
+        data: { ...mockCustomer.projects[0], taxRate: 8.25 }
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
+      });
+
+      const taxInput = screen.getByPlaceholderText(/Enter tax rate/i);
+      await userEvent.type(taxInput, '8.25');
+
+      axios.get.mockResolvedValueOnce({ data: mockCustomer });
+
+      await userEvent.click(screen.getByRole('button', { name: /save tax rate/i }));
+
+      await waitFor(() => {
+        expect(axios.put).toHaveBeenCalledWith(
+          expect.stringContaining('/api/customers/cust123/projects/proj456/tax-rate'),
+          { taxRate: 8.25 },
+          expect.any(Object)
+        );
+      });
+    });
   });
 
   describe('Materials Management', () => {
@@ -481,7 +547,7 @@ describe('ProjectDetails Component', () => {
       });
 
       // Unit cost ($10) * quantity (4) => $40.00 total.
-      expect(screen.getByText('$40.00')).toBeInTheDocument();
+      expect(screen.getAllByText('$40.00').length).toBeGreaterThan(0);
     });
 
     test('should edit an existing material line item', async () => {
@@ -531,7 +597,7 @@ describe('ProjectDetails Component', () => {
       await userEvent.clear(costInput);
       await userEvent.type(costInput, '10');
 
-      await userEvent.click(screen.getByRole('button', { name: /save/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
       await waitFor(() => {
         expect(axios.put).toHaveBeenCalled();
@@ -548,7 +614,53 @@ describe('ProjectDetails Component', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText('$50.00')).toBeInTheDocument();
+        expect(screen.getAllByText('$50.00').length).toBeGreaterThan(0);
+      });
+    });
+
+    test('should remove a material from taxable list', async () => {
+      const customerWithMaterials = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            materials: [
+              { _id: 'm1', item: 'Labor', quantity: 1, cost: 100, markup: 0, taxable: true }
+            ]
+          }
+        ]
+      };
+
+      axios.get.mockResolvedValueOnce({ data: customerWithMaterials });
+      axios.put.mockResolvedValueOnce({ data: { msg: 'Material updated' } });
+      axios.get.mockResolvedValueOnce({
+        data: {
+          ...mockCustomer,
+          projects: [
+            {
+              ...mockCustomer.projects[0],
+              materials: [
+                { _id: 'm1', item: 'Labor', quantity: 1, cost: 100, markup: 0, taxable: false }
+              ]
+            }
+          ]
+        }
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('Labor')).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: /remove from taxable/i }));
+
+      await waitFor(() => {
+        expect(axios.put).toHaveBeenCalledWith(
+          expect.stringContaining('/materials/m1'),
+          expect.objectContaining({ taxable: false }),
+          expect.any(Object)
+        );
       });
     });
 
@@ -577,7 +689,7 @@ describe('ProjectDetails Component', () => {
       const table = screen.getByRole('table');
       expect(table.className).toContain('table-fixed');
 
-      const showMoreBtn = screen.getByTestId('material-expand-m-long');
+      const showMoreBtn = await screen.findByTestId('material-expand-m-long');
       expect(showMoreBtn).toHaveTextContent(/show more/i);
 
       await userEvent.click(showMoreBtn);
@@ -634,7 +746,7 @@ describe('ProjectDetails Component', () => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
       });
 
-      expect(screen.getByText('$220.00')).toBeInTheDocument();
+      expect(screen.getAllByText('$220.00').length).toBeGreaterThan(0);
       expect(screen.getByText('10%')).toBeInTheDocument();
     });
 
@@ -657,8 +769,117 @@ describe('ProjectDetails Component', () => {
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /regenerate bid/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /generate invoice/i })).toBeInTheDocument();
         expect(screen.getByLabelText(/include monitoring agreement/i)).toBeInTheDocument();
       });
+    });
+
+    test('should generate invoice pdf with original total, paid to date, and remaining', async () => {
+      const customerWithMaterials = {
+        ...mockCustomer,
+        phone: '555-123-4567',
+        address: '123 Main St',
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            description: 'Complete kitchen renovation',
+            taxRate: 10,
+            paidToDate: 22,
+            notes: [{ text: 'Last quote number issued: 1026' }],
+            materials: [
+              { _id: 'm1', item: 'Lumber', quantity: 2, cost: 100, markup: 10 }
+            ]
+          }
+        ]
+      };
+
+      axios.get.mockResolvedValue({ data: customerWithMaterials });
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /generate invoice/i })).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: /generate invoice/i }));
+
+      await waitFor(() => {
+        expect(jsPDF).toHaveBeenCalled();
+        expect(global.URL.createObjectURL).toHaveBeenCalled();
+        expect(window.open).toHaveBeenCalledWith('blob:bid-pdf-url', '_blank');
+      });
+
+      const invoiceTitleCall = mockPdfDoc.text.mock.calls.find(
+        ([line]) => typeof line === 'string' && line.startsWith('Invoice:')
+      );
+      expect(invoiceTitleCall[0]).toContain('John Doe');
+
+      const invoiceMetaCall = mockPdfDoc.text.mock.calls.find(
+        ([line]) => typeof line === 'string' && line.includes('Invoice #:')
+      );
+      expect(invoiceMetaCall[0]).toMatch(/Date:\s*\d{1,2}\/\d{1,2}\/\d{4}/);
+      expect(invoiceMetaCall[0]).toContain('Invoice #: 1026');
+
+      const originalTotalCall = mockPdfDoc.text.mock.calls.find(
+        ([line]) => typeof line === 'string' && line.includes('Original Total:')
+      );
+      expect(originalTotalCall[0]).toContain('$242.00');
+
+      const salesTaxCall = mockPdfDoc.text.mock.calls.find(
+        ([line]) => typeof line === 'string' && line.includes('Sales Tax')
+      );
+      expect(salesTaxCall[0]).toContain('$22.00');
+
+      const paidToDateCall = mockPdfDoc.text.mock.calls.find(
+        ([line]) => typeof line === 'string' && line.includes('Paid to Date:')
+      );
+      expect(paidToDateCall[0]).toContain('$22.00');
+
+      const totalRemainingCall = mockPdfDoc.text.mock.calls.find(
+        ([line]) => typeof line === 'string' && line.includes('Total Remaining:')
+      );
+      expect(totalRemainingCall[0]).toContain('$220.00');
+
+      expect(
+        mockPdfDoc.text.mock.calls.some(
+          ([line]) => typeof line === 'string' && line.includes('Invoice Line Items')
+        )
+      ).toBe(false);
+    });
+
+    test('should exclude non-taxable items from sales tax in invoice', async () => {
+      const customerWithMaterials = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            taxRate: 10,
+            paidToDate: 0,
+            notes: [{ text: 'Last quote number issued: 1026' }],
+            materials: [
+              { _id: 'm1', item: 'Device', quantity: 1, cost: 100, markup: 0, taxable: true },
+              { _id: 'm2', item: 'Labor', quantity: 1, cost: 100, markup: 0, taxable: false }
+            ]
+          }
+        ]
+      };
+
+      axios.get.mockResolvedValue({ data: customerWithMaterials });
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /generate invoice/i })).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: /generate invoice/i }));
+
+      await waitFor(() => {
+        expect(jsPDF).toHaveBeenCalled();
+      });
+
+      const salesTaxCall = mockPdfDoc.text.mock.calls.find(
+        ([line]) => typeof line === 'string' && line.includes('Sales Tax')
+      );
+      expect(salesTaxCall[0]).toContain('$10.00');
     });
 
     test('should use mobile-safe wrapping layout for key project controls', async () => {
@@ -1301,6 +1522,93 @@ describe('ProjectDetails Component', () => {
 
       await waitFor(() => {
         expect(mockPdfDoc.addPage).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('Notes Management', () => {
+    test('should edit a project note and persist changes', async () => {
+      const customerWithNotes = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            notes: [{ _id: 'note1', text: 'Initial note text', addedAt: '2026-01-01T00:00:00.000Z' }]
+          }
+        ]
+      };
+      const customerAfterEdit = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            notes: [{ _id: 'note1', text: 'Updated note text', addedAt: '2026-01-01T00:00:00.000Z' }]
+          }
+        ]
+      };
+
+      axios.get.mockResolvedValueOnce({ data: customerWithNotes });
+      axios.put.mockResolvedValueOnce({ data: { msg: 'Note updated' } });
+      axios.get.mockResolvedValueOnce({ data: customerAfterEdit });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('Initial note text')).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: /edit note/i }));
+      const editNoteInput = screen.getByLabelText(/edit note text/i);
+      await userEvent.clear(editNoteInput);
+      await userEvent.type(editNoteInput, 'Updated note text');
+      await userEvent.click(screen.getByRole('button', { name: /save note/i }));
+
+      await waitFor(() => {
+        expect(axios.put).toHaveBeenCalledWith(
+          expect.stringContaining('/api/customers/cust123/projects/proj456/notes/note1'),
+          { text: 'Updated note text' },
+          expect.any(Object)
+        );
+      });
+    });
+
+    test('should delete a project note', async () => {
+      const customerWithNotes = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            notes: [{ _id: 'note1', text: 'Delete me', addedAt: '2026-01-01T00:00:00.000Z' }]
+          }
+        ]
+      };
+      const customerAfterDelete = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            notes: []
+          }
+        ]
+      };
+
+      axios.get.mockResolvedValueOnce({ data: customerWithNotes });
+      axios.delete.mockResolvedValueOnce({ data: { msg: 'Note deleted' } });
+      axios.get.mockResolvedValueOnce({ data: customerAfterDelete });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('Delete me')).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: /delete note/i }));
+
+      await waitFor(() => {
+        expect(axios.delete).toHaveBeenCalledWith(
+          expect.stringContaining('/api/customers/cust123/projects/proj456/notes/note1'),
+          expect.any(Object)
+        );
       });
     });
   });

@@ -21,6 +21,13 @@ export default function Customers() {
   const [editCustomer, setEditCustomer] = useState({ name: '', email: '', phone: '', address: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  // Mobile UX: collapsible sections reduce scrolling fatigue on small screens.
+  const [mobileSections, setMobileSections] = useState({
+    customerManagement: true,
+    addCustomer: false,
+    customerList: true,
+    addProject: false
+  });
 
   useEffect(() => {
     fetchCustomers();
@@ -192,6 +199,13 @@ export default function Customers() {
     }
   };
 
+  const toggleMobileSection = (sectionKey) => {
+    setMobileSections(prev => ({
+      ...prev,
+      [sectionKey]: !prev[sectionKey]
+    }));
+  };
+
   return (
     <div className="p-4 md:p-6 text-black h-screen flex flex-col max-w-6xl mx-auto">
       {/* Header */}
@@ -216,247 +230,279 @@ export default function Customers() {
       {/* TOP HALF - Customer Data */}
       <div className="flex-1 overflow-auto mb-6">
         <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <h2 className="text-xl font-semibold mb-4 text-black">Customer Management</h2>
-          
-          {/* Add Customer Form */}
-          <div className="mb-6 pb-4 border-b border-gray-200">
-            <h3 className="text-lg md:text-lg font-medium mb-3 text-black">Add New Customer</h3>
-            <AlignedFormGrid testId="add-customer-grid">
-              <AlignedFormField label="Name" htmlFor="new-customer-name" className="col-span-12 md:col-span-3">
-                <input
-                  id="new-customer-name"
-                  placeholder="Name"
-                  value={newCustomer.name}
-                  onChange={e => setNewCustomer({ ...newCustomer, name: e.target.value })}
-                  className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
-                />
-              </AlignedFormField>
-              <AlignedFormField label="Email" htmlFor="new-customer-email" className="col-span-12 md:col-span-3">
-                <input
-                  id="new-customer-email"
-                  placeholder="Email"
-                  value={newCustomer.email}
-                  onChange={e => setNewCustomer({ ...newCustomer, email: e.target.value })}
-                  className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
-                />
-              </AlignedFormField>
-              <AlignedFormField label="Phone" htmlFor="new-customer-phone" className="col-span-12 sm:col-span-6 md:col-span-2">
-                <input
-                  id="new-customer-phone"
-                  placeholder="Phone (XXX-XXX-XXXX)"
-                  value={newCustomer.phone}
-                  onChange={handlePhoneChange}
-                  maxLength="12"
-                  className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
-                />
-              </AlignedFormField>
-              <AlignedFormField label="Address" htmlFor="new-customer-address" className="col-span-12 sm:col-span-6 md:col-span-2">
-                <input
-                  id="new-customer-address"
-                  placeholder="Address"
-                  value={newCustomer.address}
-                  onChange={e => setNewCustomer({ ...newCustomer, address: e.target.value })}
-                  className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
-                />
-              </AlignedFormField>
-              <div className="col-span-12 md:col-span-2">
-                <button onClick={addCustomer} className="w-full bg-green-500 text-white px-4 py-3 md:py-2 rounded hover:bg-green-600 text-base md:text-sm font-medium">
-                  Add Customer
-                </button>
-              </div>
-            </AlignedFormGrid>
-          </div>
-          
-          {/* Customers List */}
-          {/* Mobile Card Layout */}
-          <div className="md:hidden space-y-4">
-            {customers.map(cust => (
-              <div key={cust._id} className="border border-gray-200 rounded-lg p-4 bg-white">
-                {editingCustomerId === cust._id ? (
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                      <input 
-                        value={editCustomer.name} 
-                        onChange={e => setEditCustomer({ ...editCustomer, name: e.target.value })} 
-                        className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                      <input 
-                        value={editCustomer.email} 
-                        onChange={e => setEditCustomer({ ...editCustomer, email: e.target.value })} 
-                        className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                      <input 
-                        value={editCustomer.phone} 
-                        onChange={handleEditPhoneChange} 
-                        maxLength="12"
-                        className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-                      <input 
-                        value={editCustomer.address} 
-                        onChange={e => setEditCustomer({ ...editCustomer, address: e.target.value })} 
-                        className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
-                      />
-                    </div>
-                    <div className="flex gap-2 pt-2">
-                      <button onClick={() => saveCustomer(cust._id)} className="flex-1 bg-green-500 text-white px-4 py-3 rounded text-base hover:bg-green-600 font-medium">
-                        Save
-                      </button>
-                      <button onClick={cancelEditing} className="flex-1 bg-gray-500 text-white px-4 py-3 rounded text-base hover:bg-gray-600 font-medium">
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="mb-3">
-                      <h3 className="text-lg font-semibold text-black">{cust.name}</h3>
-                    </div>
-                    <div className="space-y-2 text-base">
-                      <div>
-                        <span className="text-gray-600">Email: </span>
-                        <span className="text-black">{cust.email}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Phone: </span>
-                        <span className="text-black">{cust.phone}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Address: </span>
-                        <span className="text-black">{cust.address || '-'}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Projects: </span>
-                        {cust.projects && cust.projects.length > 0 ? (
-                          <div className="mt-1 space-y-1">
-                            {cust.projects.map(proj => (
-                              <div key={proj._id}>
-                                <Link to={`/projects/${cust._id}/${proj._id}`} className="text-blue-500 hover:underline">{proj.name}</Link>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-gray-500">No projects</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-gray-200 flex gap-2">
-                      <button onClick={() => startEditing(cust)} className="flex-1 bg-blue-500 text-white px-4 py-3 rounded text-base hover:bg-blue-600 font-medium">
-                        Edit
-                      </button>
-                      <button onClick={() => deleteCustomer(cust._id)} className="flex-1 bg-red-500 text-white px-4 py-3 rounded text-base hover:bg-red-600 font-medium">
-                        Delete
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
+          <h2 className="text-xl font-semibold mb-4 text-black hidden md:block">Customer Management</h2>
+          <button
+            type="button"
+            aria-expanded={mobileSections.customerManagement}
+            onClick={() => toggleMobileSection('customerManagement')}
+            className="md:hidden w-full text-left bg-gray-100 border border-gray-300 rounded-lg px-4 py-3 mb-3 font-semibold text-black"
+          >
+            Customer Management
+          </button>
 
-          {/* Desktop Table Layout */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full border-collapse border min-w-[900px]">
-              <thead>
-                <tr className="text-black bg-gray-50">
-                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Name</th>
-                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Email</th>
-                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Phone</th>
-                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Address</th>
-                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Projects</th>
-                  <th className="text-black text-left p-3 border-b text-sm font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className={`${mobileSections.customerManagement ? 'block' : 'hidden'} md:block`}>
+            {/* Add Customer Form */}
+            <div className="mb-6 pb-4 border-b border-gray-200">
+              <h3 className="text-lg md:text-lg font-medium mb-3 text-black hidden md:block">Add New Customer</h3>
+              <button
+                type="button"
+                aria-expanded={mobileSections.addCustomer}
+                onClick={() => toggleMobileSection('addCustomer')}
+                className="md:hidden w-full text-left bg-gray-50 border border-gray-300 rounded px-4 py-3 mb-3 font-medium text-black"
+              >
+                Add New Customer
+              </button>
+              <div className={`${mobileSections.addCustomer ? 'block' : 'hidden'} md:block`}>
+                <AlignedFormGrid testId="add-customer-grid">
+                  <AlignedFormField label="Name" htmlFor="new-customer-name" className="col-span-12 md:col-span-3">
+                    <input
+                      id="new-customer-name"
+                      placeholder="Name"
+                      value={newCustomer.name}
+                      onChange={e => setNewCustomer({ ...newCustomer, name: e.target.value })}
+                      className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
+                    />
+                  </AlignedFormField>
+                  <AlignedFormField label="Email" htmlFor="new-customer-email" className="col-span-12 md:col-span-3">
+                    <input
+                      id="new-customer-email"
+                      placeholder="Email"
+                      value={newCustomer.email}
+                      onChange={e => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                      className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
+                    />
+                  </AlignedFormField>
+                  <AlignedFormField label="Phone" htmlFor="new-customer-phone" className="col-span-12 sm:col-span-6 md:col-span-2">
+                    <input
+                      id="new-customer-phone"
+                      placeholder="Phone (XXX-XXX-XXXX)"
+                      value={newCustomer.phone}
+                      onChange={handlePhoneChange}
+                      maxLength="12"
+                      className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
+                    />
+                  </AlignedFormField>
+                  <AlignedFormField label="Address" htmlFor="new-customer-address" className="col-span-12 sm:col-span-6 md:col-span-2">
+                    <input
+                      id="new-customer-address"
+                      placeholder="Address"
+                      value={newCustomer.address}
+                      onChange={e => setNewCustomer({ ...newCustomer, address: e.target.value })}
+                      className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
+                    />
+                  </AlignedFormField>
+                  <div className="col-span-12 md:col-span-2">
+                    <button onClick={addCustomer} className="w-full bg-green-500 text-white px-4 py-3 md:py-2 rounded hover:bg-green-600 text-base md:text-sm font-medium">
+                      Add Customer
+                    </button>
+                  </div>
+                </AlignedFormGrid>
+              </div>
+            </div>
+
+            {/* Customers List */}
+            <div className="mb-3 md:hidden">
+              <button
+                type="button"
+                aria-expanded={mobileSections.customerList}
+                onClick={() => toggleMobileSection('customerList')}
+                className="w-full text-left bg-gray-50 border border-gray-300 rounded px-4 py-3 font-medium text-black"
+              >
+                Customer List
+              </button>
+            </div>
+            <div className={`${mobileSections.customerList ? 'block' : 'hidden'} md:block`}>
+              {/* Mobile Card Layout */}
+              <div className="md:hidden space-y-4">
                 {customers.map(cust => (
-                  <tr key={cust._id} className="text-black">
+                  <div key={cust._id} className="border border-gray-200 rounded-lg p-4 bg-white">
                     {editingCustomerId === cust._id ? (
-                      <>
-                        <td className="p-2">
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
                           <input 
                             value={editCustomer.name} 
                             onChange={e => setEditCustomer({ ...editCustomer, name: e.target.value })} 
-                            className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                            className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
                           />
-                        </td>
-                        <td className="p-2">
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                           <input 
                             value={editCustomer.email} 
                             onChange={e => setEditCustomer({ ...editCustomer, email: e.target.value })} 
-                            className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                            className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
                           />
-                        </td>
-                        <td className="p-2">
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
                           <input 
                             value={editCustomer.phone} 
                             onChange={handleEditPhoneChange} 
                             maxLength="12"
-                            className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                            className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
                           />
-                        </td>
-                        <td className="p-2">
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
                           <input 
                             value={editCustomer.address} 
                             onChange={e => setEditCustomer({ ...editCustomer, address: e.target.value })} 
-                            className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                            className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
                           />
-                        </td>
-                        <td className="p-2 text-gray-500 text-sm">
-                          (Editing...)
-                        </td>
-                        <td className="p-2">
-                          <div className="flex gap-1">
-                            <button onClick={() => saveCustomer(cust._id)} className="bg-green-500 text-white px-2 py-1 rounded text-sm hover:bg-green-600">
-                              Save
-                            </button>
-                            <button onClick={cancelEditing} className="bg-gray-500 text-white px-2 py-1 rounded text-sm hover:bg-gray-600">
-                              Cancel
-                            </button>
-                          </div>
-                        </td>
-                      </>
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                          <button onClick={() => saveCustomer(cust._id)} className="flex-1 bg-green-500 text-white px-4 py-3 rounded text-base hover:bg-green-600 font-medium">
+                            Save
+                          </button>
+                          <button onClick={cancelEditing} className="flex-1 bg-gray-500 text-white px-4 py-3 rounded text-base hover:bg-gray-600 font-medium">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
                     ) : (
                       <>
-                        <td className="text-black p-2 text-sm">{cust.name}</td>
-                        <td className="text-black p-2 text-sm">{cust.email}</td>
-                        <td className="text-black p-2 text-sm">{cust.phone}</td>
-                        <td className="text-black p-2 text-sm">{cust.address}</td>
-                        <td className="p-2">
-                          {cust.projects && cust.projects.length > 0 ? (
-                            cust.projects.map(proj => (
-                              <div key={proj._id} className="mb-1">
-                                <Link to={`/projects/${cust._id}/${proj._id}`} className="text-blue-500 text-sm hover:underline">{proj.name}</Link>
-                              </div>
-                            ))
-                          ) : (
-                            <span className="text-gray-500 text-sm">No projects</span>
-                          )}
-                        </td>
-                        <td className="p-2">
-                          <div className="flex gap-1">
-                            <button onClick={() => startEditing(cust)} className="bg-blue-500 text-white px-2 py-1 rounded text-sm hover:bg-blue-600">
-                              Edit
-                            </button>
-                            <button onClick={() => deleteCustomer(cust._id)} className="bg-red-500 text-white px-2 py-1 rounded text-sm hover:bg-red-600">
-                              Delete
-                            </button>
+                        <div className="mb-3">
+                          <h3 className="text-lg font-semibold text-black">{cust.name}</h3>
+                        </div>
+                        <div className="space-y-2 text-base">
+                          <div>
+                            <span className="text-gray-600">Email: </span>
+                            <span className="text-black">{cust.email}</span>
                           </div>
-                        </td>
+                          <div>
+                            <span className="text-gray-600">Phone: </span>
+                            <span className="text-black">{cust.phone}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Address: </span>
+                            <span className="text-black">{cust.address || '-'}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Projects: </span>
+                            {cust.projects && cust.projects.length > 0 ? (
+                              <div className="mt-1 space-y-1">
+                                {cust.projects.map(proj => (
+                                  <div key={proj._id}>
+                                    <Link to={`/projects/${cust._id}/${proj._id}`} className="text-blue-500 hover:underline">{proj.name}</Link>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-gray-500">No projects</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-gray-200 flex gap-2">
+                          <button onClick={() => startEditing(cust)} className="flex-1 bg-blue-500 text-white px-4 py-3 rounded text-base hover:bg-blue-600 font-medium">
+                            Edit
+                          </button>
+                          <button onClick={() => deleteCustomer(cust._id)} className="flex-1 bg-red-500 text-white px-4 py-3 rounded text-base hover:bg-red-600 font-medium">
+                            Delete
+                          </button>
+                        </div>
                       </>
                     )}
-                  </tr>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+
+              {/* Desktop Table Layout */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full border-collapse border min-w-[900px]">
+                  <thead>
+                    <tr className="text-black bg-gray-50">
+                      <th className="text-black text-left p-3 border-b text-sm font-semibold">Name</th>
+                      <th className="text-black text-left p-3 border-b text-sm font-semibold">Email</th>
+                      <th className="text-black text-left p-3 border-b text-sm font-semibold">Phone</th>
+                      <th className="text-black text-left p-3 border-b text-sm font-semibold">Address</th>
+                      <th className="text-black text-left p-3 border-b text-sm font-semibold">Projects</th>
+                      <th className="text-black text-left p-3 border-b text-sm font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customers.map(cust => (
+                      <tr key={cust._id} className="text-black">
+                        {editingCustomerId === cust._id ? (
+                          <>
+                            <td className="p-2">
+                              <input 
+                                value={editCustomer.name} 
+                                onChange={e => setEditCustomer({ ...editCustomer, name: e.target.value })} 
+                                className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input 
+                                value={editCustomer.email} 
+                                onChange={e => setEditCustomer({ ...editCustomer, email: e.target.value })} 
+                                className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input 
+                                value={editCustomer.phone} 
+                                onChange={handleEditPhoneChange} 
+                                maxLength="12"
+                                className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input 
+                                value={editCustomer.address} 
+                                onChange={e => setEditCustomer({ ...editCustomer, address: e.target.value })} 
+                                className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                              />
+                            </td>
+                            <td className="p-2 text-gray-500 text-sm">
+                              (Editing...)
+                            </td>
+                            <td className="p-2">
+                              <div className="flex gap-1">
+                                <button onClick={() => saveCustomer(cust._id)} className="bg-green-500 text-white px-2 py-1 rounded text-sm hover:bg-green-600">
+                                  Save
+                                </button>
+                                <button onClick={cancelEditing} className="bg-gray-500 text-white px-2 py-1 rounded text-sm hover:bg-gray-600">
+                                  Cancel
+                                </button>
+                              </div>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="text-black p-2 text-sm">{cust.name}</td>
+                            <td className="text-black p-2 text-sm">{cust.email}</td>
+                            <td className="text-black p-2 text-sm">{cust.phone}</td>
+                            <td className="text-black p-2 text-sm">{cust.address}</td>
+                            <td className="p-2">
+                              {cust.projects && cust.projects.length > 0 ? (
+                                cust.projects.map(proj => (
+                                  <div key={proj._id} className="mb-1">
+                                    <Link to={`/projects/${cust._id}/${proj._id}`} className="text-blue-500 text-sm hover:underline">{proj.name}</Link>
+                                  </div>
+                                ))
+                              ) : (
+                                <span className="text-gray-500 text-sm">No projects</span>
+                              )}
+                            </td>
+                            <td className="p-2">
+                              <div className="flex gap-1">
+                                <button onClick={() => startEditing(cust)} className="bg-blue-500 text-white px-2 py-1 rounded text-sm hover:bg-blue-600">
+                                  Edit
+                                </button>
+                                <button onClick={() => deleteCustomer(cust._id)} className="bg-red-500 text-white px-2 py-1 rounded text-sm hover:bg-red-600">
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -464,132 +510,142 @@ export default function Customers() {
       {/* BOTTOM HALF - Add Projects with Search */}
       <div className="flex-1 overflow-auto">
         <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <h2 className="text-xl font-semibold mb-4 text-black">Add Project to Customer</h2>
-          
-          {/* Search Customer */}
-          <div className="mb-4">
-            <label className="block text-gray-700 mb-2 font-medium text-base md:text-sm">Search Customer</label>
-            <input 
-              type="text"
-              placeholder="Type customer name to search..." 
-              value={searchQuery} 
-              onChange={handleSearch}
-              className="w-full p-4 md:p-3 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
-            />
-          </div>
-          
-          {/* Display Selected Customer */}
-          {selectedCustomer ? (
-            <div className="mb-6">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <h3 className="text-lg font-semibold text-blue-900 mb-2">Selected Customer</h3>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-gray-600">Name:</span>
-                    <span className="ml-2 text-black font-medium">{selectedCustomer.name}</span>
+          <h2 className="text-xl font-semibold mb-4 text-black hidden md:block">Add Project to Customer</h2>
+          <button
+            type="button"
+            aria-expanded={mobileSections.addProject}
+            onClick={() => toggleMobileSection('addProject')}
+            className="md:hidden w-full text-left bg-gray-100 border border-gray-300 rounded-lg px-4 py-3 mb-3 font-semibold text-black"
+          >
+            Add Project to Customer
+          </button>
+
+          <div className={`${mobileSections.addProject ? 'block' : 'hidden'} md:block`}>
+            {/* Search Customer */}
+            <div className="mb-4">
+              <label className="block text-gray-700 mb-2 font-medium text-base md:text-sm">Search Customer</label>
+              <input 
+                type="text"
+                placeholder="Type customer name to search..." 
+                value={searchQuery} 
+                onChange={handleSearch}
+                className="w-full p-4 md:p-3 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
+              />
+            </div>
+            
+            {/* Display Selected Customer */}
+            {selectedCustomer ? (
+              <div className="mb-6">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                  <h3 className="text-lg font-semibold text-blue-900 mb-2">Selected Customer</h3>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-gray-600">Name:</span>
+                      <span className="ml-2 text-black font-medium">{selectedCustomer.name}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Email:</span>
+                      <span className="ml-2 text-black">{selectedCustomer.email}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Phone:</span>
+                      <span className="ml-2 text-black">{selectedCustomer.phone}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Address:</span>
+                      <span className="ml-2 text-black">{selectedCustomer.address}</span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-gray-600">Email:</span>
-                    <span className="ml-2 text-black">{selectedCustomer.email}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Phone:</span>
-                    <span className="ml-2 text-black">{selectedCustomer.phone}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Address:</span>
-                    <span className="ml-2 text-black">{selectedCustomer.address}</span>
-                  </div>
+                  
+                  {/* Existing Projects for this Customer */}
+                  {selectedCustomer.projects && selectedCustomer.projects.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-blue-200">
+                      <p className="text-gray-700 font-medium mb-2">Existing Projects:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedCustomer.projects.map(proj => (
+                          <Link 
+                            key={proj._id}
+                            to={`/projects/${selectedCustomer._id}/${proj._id}`}
+                            className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200"
+                          >
+                            {proj.name}
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
-                {/* Existing Projects for this Customer */}
-                {selectedCustomer.projects && selectedCustomer.projects.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-blue-200">
-                    <p className="text-gray-700 font-medium mb-2">Existing Projects:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedCustomer.projects.map(proj => (
-                        <Link 
-                          key={proj._id}
-                          to={`/projects/${selectedCustomer._id}/${proj._id}`}
-                          className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200"
-                        >
-                          {proj.name}
-                        </Link>
-                      ))}
+                {/* Add New Project Form */}
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h3 className="text-lg md:text-lg font-semibold text-black mb-3">Add New Project</h3>
+                  <AlignedFormGrid testId="add-project-grid">
+                    <AlignedFormField label="Project Name" htmlFor="new-project-name" className="col-span-12 md:col-span-4">
+                      <input
+                        id="new-project-name"
+                        placeholder="Project Name"
+                        value={newProject.name}
+                        onChange={e => setNewProject({ ...newProject, name: e.target.value })}
+                        className="w-full p-4 md:p-2 border border-gray-300 rounded bg-white text-black text-base md:text-sm"
+                      />
+                    </AlignedFormField>
+                    <AlignedFormField label="Description" htmlFor="new-project-description" className="col-span-12 md:col-span-6">
+                      <input
+                        id="new-project-description"
+                        placeholder="Description"
+                        value={newProject.description}
+                        onChange={e => setNewProject({ ...newProject, description: e.target.value })}
+                        className="w-full p-4 md:p-2 border border-gray-300 rounded bg-white text-black text-base md:text-sm"
+                      />
+                    </AlignedFormField>
+                    <div className="col-span-12">
+                      <p className="block text-sm font-medium text-gray-700 mb-2">Equipment categories</p>
+                      <div className="flex flex-wrap gap-4" data-testid="new-project-equipment-categories">
+                        {EQUIPMENT_CATEGORY_OPTIONS.map(({ key, label }) => (
+                          <label
+                            key={key}
+                            htmlFor={`new-project-equip-${key}`}
+                            className="flex items-center gap-2 cursor-pointer text-black text-sm"
+                          >
+                            <input
+                              id={`new-project-equip-${key}`}
+                              type="checkbox"
+                              checked={!!newProject.equipmentCategories[key]}
+                              onChange={(e) =>
+                                setNewProject({
+                                  ...newProject,
+                                  equipmentCategories: {
+                                    ...newProject.equipmentCategories,
+                                    [key]: e.target.checked
+                                  }
+                                })
+                              }
+                              className="rounded border-gray-300"
+                            />
+                            {label}
+                          </label>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-              
-              {/* Add New Project Form */}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <h3 className="text-lg md:text-lg font-semibold text-black mb-3">Add New Project</h3>
-                <AlignedFormGrid testId="add-project-grid">
-                  <AlignedFormField label="Project Name" htmlFor="new-project-name" className="col-span-12 md:col-span-4">
-                    <input
-                      id="new-project-name"
-                      placeholder="Project Name"
-                      value={newProject.name}
-                      onChange={e => setNewProject({ ...newProject, name: e.target.value })}
-                      className="w-full p-4 md:p-2 border border-gray-300 rounded bg-white text-black text-base md:text-sm"
-                    />
-                  </AlignedFormField>
-                  <AlignedFormField label="Description" htmlFor="new-project-description" className="col-span-12 md:col-span-6">
-                    <input
-                      id="new-project-description"
-                      placeholder="Description"
-                      value={newProject.description}
-                      onChange={e => setNewProject({ ...newProject, description: e.target.value })}
-                      className="w-full p-4 md:p-2 border border-gray-300 rounded bg-white text-black text-base md:text-sm"
-                    />
-                  </AlignedFormField>
-                  <div className="col-span-12">
-                    <p className="block text-sm font-medium text-gray-700 mb-2">Equipment categories</p>
-                    <div className="flex flex-wrap gap-4" data-testid="new-project-equipment-categories">
-                      {EQUIPMENT_CATEGORY_OPTIONS.map(({ key, label }) => (
-                        <label
-                          key={key}
-                          htmlFor={`new-project-equip-${key}`}
-                          className="flex items-center gap-2 cursor-pointer text-black text-sm"
-                        >
-                          <input
-                            id={`new-project-equip-${key}`}
-                            type="checkbox"
-                            checked={!!newProject.equipmentCategories[key]}
-                            onChange={(e) =>
-                              setNewProject({
-                                ...newProject,
-                                equipmentCategories: {
-                                  ...newProject.equipmentCategories,
-                                  [key]: e.target.checked
-                                }
-                              })
-                            }
-                            className="rounded border-gray-300"
-                          />
-                          {label}
-                        </label>
-                      ))}
+                    <div className="col-span-12 md:col-span-2">
+                      <button
+                        onClick={addProject}
+                        className="w-full bg-green-500 text-white px-6 py-4 md:py-2 rounded hover:bg-green-600 font-medium text-base md:text-sm"
+                      >
+                        Add Project
+                      </button>
                     </div>
-                  </div>
-                  <div className="col-span-12 md:col-span-2">
-                    <button
-                      onClick={addProject}
-                      className="w-full bg-green-500 text-white px-6 py-4 md:py-2 rounded hover:bg-green-600 font-medium text-base md:text-sm"
-                    >
-                      Add Project
-                    </button>
-                  </div>
-                </AlignedFormGrid>
+                  </AlignedFormGrid>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <p className="text-gray-500 text-lg">
-                {searchQuery ? 'No customer found matching your search' : 'Search for a customer to add a project'}
-              </p>
-            </div>
-          )}
+            ) : (
+              <div className="text-center py-12">
+                <p className="text-gray-500 text-lg">
+                  {searchQuery ? 'No customer found matching your search' : 'Search for a customer to add a project'}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

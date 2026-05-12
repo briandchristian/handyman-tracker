@@ -4,6 +4,12 @@ import axios from 'axios';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
 import CameraCapture from './CameraCapture';
+import {
+  fetchAdiPriceInventory,
+  generateAdiOrder,
+  inquireAdiOrder,
+} from '../services/adiSupplierApi';
+import { handleApiError, formatErrorAlert } from '../utils/errorHandler';
 
 // Helper functions (outside component so modal can use them)
 const getStatusBadge = (status) => {
@@ -330,13 +336,41 @@ export default function PurchaseOrders() {
 }
 
 // PO Detail Modal Component
-function PODetailModal({ po, onClose, onUpdate }) {
+export function PODetailModal({ po, onClose, onUpdate }) {
   console.log('PODetailModal rendering with:', po);
   
   const [showCamera, setShowCamera] = useState(false);
   const [attachedPhotos, setAttachedPhotos] = useState([]);
+
+  const [status, setStatus] = useState(po?.status || 'Draft');
+  const [notes, setNotes] = useState(po?.notes || '');
   
-  // Safety check first
+  // Safe date formatting
+  const safeFormatDate = (date) => {
+    if (!date) return '';
+    try {
+      return format(new Date(date), 'yyyy-MM-dd');
+    } catch {
+      return '';
+    }
+  };
+
+  const [expectedDelivery, setExpectedDelivery] = useState(safeFormatDate(po?.expectedDelivery));
+  const [receivedDate, setReceivedDate] = useState(safeFormatDate(po?.receivedDate));
+  const [paidDate, setPaidDate] = useState(safeFormatDate(po?.paidDate));
+  const [adiCustomerNumber, setAdiCustomerNumber] = useState(po?.adiIntegration?.customerNumber || '');
+  const [adiCustomerSuffix, setAdiCustomerSuffix] = useState(po?.adiIntegration?.customerSuffix || '000');
+  const [adiOrderNumber, setAdiOrderNumber] = useState(po?.adiIntegration?.adiOrderNumber || '');
+  const [adiLoading, setAdiLoading] = useState(false);
+  const [adiLastMessage, setAdiLastMessage] = useState('');
+  const [adiLastSyncedAt, setAdiLastSyncedAt] = useState(po?.adiIntegration?.lastSyncedAt || null);
+  const [adiInquirySnapshot, setAdiInquirySnapshot] = useState({
+    status: po?.adiIntegration?.lastInquiryStatus || '',
+    message: po?.adiIntegration?.lastInquiryMessage || '',
+    at: po?.adiIntegration?.lastInquiryAt || null,
+  });
+
+  // Safety check after hooks to keep hook order stable across renders.
   if (!po || !po.items || !Array.isArray(po.items)) {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -354,27 +388,262 @@ function PODetailModal({ po, onClose, onUpdate }) {
     );
   }
 
-  const [status, setStatus] = useState(po.status || 'Draft');
-  const [notes, setNotes] = useState(po.notes || '');
-  
-  // Safe date formatting
-  const safeFormatDate = (date) => {
-    if (!date) return '';
+  const ensureAdiCustomerFields = () => {
+    if (!adiCustomerNumber.trim()) {
+      alert('Enter ADI Customer Number first.');
+      return false;
+    }
+    if (!adiCustomerSuffix.trim()) {
+      alert('Enter ADI Customer Suffix first.');
+      return false;
+    }
+    return true;
+  };
+
+  const handleAdiPriceLookup = async () => {
+    if (!ensureAdiCustomerFields()) return;
+
     try {
-      return format(new Date(date), 'yyyy-MM-dd');
-    } catch {
-      return '';
+      setAdiLoading(true);
+      const payload = {
+        customerNumber: adiCustomerNumber.trim(),
+        customerSuffix: adiCustomerSuffix.trim(),
+        itemList: po.items.map((item) => ({
+          ItemNumber: String(item.sku || '').trim(),
+          Quantity: Number(item.quantity) || 0,
+        })),
+      };
+
+      const response = await fetchAdiPriceInventory(payload);
+      const itemCount = Array.isArray(response.ItemList) ? response.ItemList.length : 0;
+      const message = `ADI Price Lookup complete (${itemCount} items). ReturnCode: ${response.ReturnCode || 'N/A'}`;
+      setAdiLastMessage(message);
+      alert(`✅ ${message}`);
+    } catch (err) {
+      const errorInfo = handleApiError(err, 'ADI price lookup');
+      alert(formatErrorAlert(errorInfo));
+    } finally {
+      setAdiLoading(false);
     }
   };
 
-  const [expectedDelivery, setExpectedDelivery] = useState(safeFormatDate(po.expectedDelivery));
-  const [receivedDate, setReceivedDate] = useState(safeFormatDate(po.receivedDate));
-  const [paidDate, setPaidDate] = useState(safeFormatDate(po.paidDate));
+  const deriveAdiInquiryStatus = (inquiryResponse) => {
+    const directStatus =
+      inquiryResponse?.OrderStatus ||
+      inquiryResponse?.Status ||
+      inquiryResponse?.OrderState;
+    if (typeof directStatus === 'string' && directStatus.trim()) {
+      return directStatus.trim();
+    }
+
+    const message = inquiryResponse?.ReturnMessage;
+    if (typeof message === 'string' && message.trim()) {
+      const statusMatch = message.match(/\b(open|closed|shipped|cancelled|confirmed|delivered|processing)\b/i);
+      if (statusMatch?.[1]) {
+        const word = statusMatch[1].toLowerCase();
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      }
+      return message.trim();
+    }
+
+    return 'Unknown';
+  };
+
+  const persistAdiIntegration = async (adiIntegrationPayload) => {
+    const token = localStorage.getItem('token');
+    await axios.put(
+      `${API_BASE_URL}/api/purchase-orders/${po._id}`,
+      { adiIntegration: adiIntegrationPayload },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (adiIntegrationPayload.lastSyncedAt !== undefined) {
+      setAdiLastSyncedAt(adiIntegrationPayload.lastSyncedAt);
+    }
+  };
+
+  const buildAdiIntegrationPayload = (overrides = {}) => ({
+    customerNumber: (overrides.customerNumber ?? adiCustomerNumber ?? '').toString().trim(),
+    customerSuffix: (overrides.customerSuffix ?? adiCustomerSuffix ?? '').toString().trim(),
+    adiOrderNumber: (overrides.adiOrderNumber ?? adiOrderNumber ?? '').toString().trim(),
+    lastSyncedAt:
+      overrides.lastSyncedAt ??
+      adiLastSyncedAt ??
+      po?.adiIntegration?.lastSyncedAt ??
+      null,
+    lastInquiryStatus:
+      (overrides.lastInquiryStatus ?? adiInquirySnapshot.status ?? po?.adiIntegration?.lastInquiryStatus ?? '')
+        .toString()
+        .trim(),
+    lastInquiryMessage:
+      (overrides.lastInquiryMessage ?? adiInquirySnapshot.message ?? po?.adiIntegration?.lastInquiryMessage ?? '')
+        .toString()
+        .trim(),
+    lastInquiryAt:
+      overrides.lastInquiryAt ??
+      adiInquirySnapshot.at ??
+      po?.adiIntegration?.lastInquiryAt ??
+      null,
+  });
+
+  const extractAdiOrderNumber = (orderGenerationResponse, fallbackMessage) => {
+    const candidates = [
+      orderGenerationResponse?.AdiOrderNumber,
+      orderGenerationResponse?.ADIOrderNumber,
+      orderGenerationResponse?.OrderNumber,
+      orderGenerationResponse?.orderNumber,
+      orderGenerationResponse?.OrderNo,
+      orderGenerationResponse?.OrderID,
+      fallbackMessage,
+    ];
+
+    for (const candidate of candidates) {
+      const asText = candidate == null ? '' : String(candidate);
+      const match = asText.match(/\b\d{10}\b/);
+      if (match?.[0]) return match[0];
+    }
+    return '';
+  };
+
+  const handleAdiOrderGeneration = async () => {
+    if (!ensureAdiCustomerFields()) return;
+
+    try {
+      setAdiLoading(true);
+      const payload = {
+        customerNumber: adiCustomerNumber.trim(),
+        customerSuffix: adiCustomerSuffix.trim(),
+        poNumber: po.poNumber,
+        shipmentPickupIndicator: 'P',
+        orderList: po.items.map((item) => ({
+          ItemNumber: String(item.sku || '').trim(),
+          Quantity: Number(item.quantity) || 0,
+          ItemPrice: Number(item.unitPrice) || 0,
+        })),
+      };
+
+      const response = await generateAdiOrder(payload);
+      const message = response.ReturnMessage || 'ADI order generation completed.';
+      setAdiLastMessage(message);
+
+      let successAlert = `✅ ${message}`;
+      // Extract 10-digit ADI order number from response/message when present.
+      const foundOrderNumber = extractAdiOrderNumber(response, message);
+      if (foundOrderNumber) {
+        setAdiOrderNumber(foundOrderNumber);
+
+        // Auto-inquiry keeps the PO snapshot fresh right after generation.
+        const inquiryResponse = await inquireAdiOrder({
+          customerNumber: adiCustomerNumber.trim(),
+          customerSuffix: adiCustomerSuffix.trim(),
+          adiOrderNumber: foundOrderNumber,
+        });
+        const inquiryMessage = inquiryResponse?.ReturnMessage || 'ADI order inquiry completed.';
+        const inquiryStatus = deriveAdiInquiryStatus(inquiryResponse);
+        const inquiryAt = new Date().toISOString();
+
+        setAdiInquirySnapshot({
+          status: inquiryStatus,
+          message: inquiryMessage,
+          at: inquiryAt,
+        });
+        setAdiLastSyncedAt(inquiryAt);
+
+        await persistAdiIntegration({
+          customerNumber: adiCustomerNumber.trim(),
+          customerSuffix: adiCustomerSuffix.trim(),
+          adiOrderNumber: foundOrderNumber,
+          lastSyncedAt: inquiryAt,
+          lastInquiryStatus: inquiryStatus,
+          lastInquiryMessage: inquiryMessage,
+          lastInquiryAt: inquiryAt,
+        });
+
+        setAdiLastMessage(`${message} Inquiry: ${inquiryMessage}`);
+      } else {
+        const pendingMessage =
+          'ADI order number could not be auto-detected. Enter ADI Order Number and run ADI Order Inquiry.';
+        const syncedAt = new Date().toISOString();
+        const previousInquiryAt = adiInquirySnapshot.at ?? po?.adiIntegration?.lastInquiryAt ?? null;
+        setAdiOrderNumber('');
+        setAdiInquirySnapshot({
+          status: 'Pending Manual Inquiry',
+          message: pendingMessage,
+          at: previousInquiryAt,
+        });
+        setAdiLastSyncedAt(syncedAt);
+        await persistAdiIntegration(
+          buildAdiIntegrationPayload({
+            customerNumber: adiCustomerNumber.trim(),
+            customerSuffix: adiCustomerSuffix.trim(),
+            adiOrderNumber: '',
+            lastSyncedAt: syncedAt,
+            lastInquiryStatus: 'Pending Manual Inquiry',
+            lastInquiryMessage: pendingMessage,
+            lastInquiryAt: previousInquiryAt,
+          })
+        );
+        setAdiLastMessage(`${message} ${pendingMessage}`);
+        successAlert = `⚠️ ${pendingMessage}`;
+      }
+
+      alert(successAlert);
+    } catch (err) {
+      const errorInfo = handleApiError(err, 'ADI order generation');
+      alert(formatErrorAlert(errorInfo));
+    } finally {
+      setAdiLoading(false);
+    }
+  };
+
+  const handleAdiOrderInquiry = async () => {
+    if (!ensureAdiCustomerFields()) return;
+    if (!adiOrderNumber.trim()) {
+      alert('Enter ADI Order Number first.');
+      return;
+    }
+
+    try {
+      setAdiLoading(true);
+      const payload = {
+        customerNumber: adiCustomerNumber.trim(),
+        customerSuffix: adiCustomerSuffix.trim(),
+        adiOrderNumber: adiOrderNumber.trim(),
+      };
+
+      const response = await inquireAdiOrder(payload);
+      const message = response.ReturnMessage || 'ADI order inquiry completed.';
+      const inquiryStatus = deriveAdiInquiryStatus(response);
+      const inquiryAt = new Date().toISOString();
+
+      setAdiLastMessage(message);
+      setAdiInquirySnapshot({
+        status: inquiryStatus,
+        message,
+        at: inquiryAt,
+      });
+      setAdiLastSyncedAt(inquiryAt);
+      await persistAdiIntegration({
+        customerNumber: adiCustomerNumber.trim(),
+        customerSuffix: adiCustomerSuffix.trim(),
+        adiOrderNumber: adiOrderNumber.trim(),
+        lastSyncedAt: inquiryAt,
+        lastInquiryStatus: inquiryStatus,
+        lastInquiryMessage: message,
+        lastInquiryAt: inquiryAt,
+      });
+      alert(`✅ ${message}`);
+    } catch (err) {
+      const errorInfo = handleApiError(err, 'ADI order inquiry');
+      alert(formatErrorAlert(errorInfo));
+    } finally {
+      setAdiLoading(false);
+    }
+  };
 
   const handleUpdateStatus = async (newStatus) => {
     try {
       const token = localStorage.getItem('token');
-      const updates = { status: newStatus, notes };
+      const updates = { status: newStatus, notes, adiIntegration: buildAdiIntegrationPayload() };
 
       // Auto-set dates based on status
       if (newStatus === 'Received' && !receivedDate) {
@@ -402,14 +671,20 @@ function PODetailModal({ po, onClose, onUpdate }) {
   const handleSave = async () => {
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`${API_BASE_URL}/api/purchase-orders/${po._id}`, {
-        notes,
-        expectedDelivery: expectedDelivery || null,
-        receivedDate: receivedDate || null,
-        paidDate: paidDate || null
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await axios.put(
+        `${API_BASE_URL}/api/purchase-orders/${po._id}`,
+        {
+          notes,
+          expectedDelivery: expectedDelivery || null,
+          receivedDate: receivedDate || null,
+          paidDate: paidDate || null,
+          // Preserve ADI metadata so manual PO edits do not drop integration state.
+          adiIntegration: buildAdiIntegrationPayload(),
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
       alert('✅ Purchase order updated!');
       onUpdate();
@@ -657,6 +932,92 @@ function PODetailModal({ po, onClose, onUpdate }) {
                 </button>
               )}
             </div>
+          </div>
+
+          {/* ADI Integration Actions */}
+          <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+            <h3 className="font-bold text-black mb-3">ADI Integration</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+              <div>
+                <label htmlFor="adi-customer-number" className="block text-sm font-medium text-black mb-1">
+                  Customer Number
+                </label>
+                <input
+                  id="adi-customer-number"
+                  type="text"
+                  value={adiCustomerNumber}
+                  onChange={(e) => setAdiCustomerNumber(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                  placeholder="CUST001"
+                />
+              </div>
+              <div>
+                <label htmlFor="adi-customer-suffix" className="block text-sm font-medium text-black mb-1">
+                  Customer Suffix
+                </label>
+                <input
+                  id="adi-customer-suffix"
+                  type="text"
+                  value={adiCustomerSuffix}
+                  onChange={(e) => setAdiCustomerSuffix(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                  placeholder="000"
+                />
+              </div>
+              <div>
+                <label htmlFor="adi-order-number" className="block text-sm font-medium text-black mb-1">
+                  ADI Order Number
+                </label>
+                <input
+                  id="adi-order-number"
+                  type="text"
+                  value={adiOrderNumber}
+                  onChange={(e) => setAdiOrderNumber(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                  placeholder="1234567890"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleAdiPriceLookup}
+                disabled={adiLoading}
+                className="bg-indigo-500 text-white px-3 py-2 rounded hover:bg-indigo-600 disabled:opacity-60"
+              >
+                ADI Price Lookup
+              </button>
+              <button
+                onClick={handleAdiOrderGeneration}
+                disabled={adiLoading}
+                className="bg-indigo-600 text-white px-3 py-2 rounded hover:bg-indigo-700 disabled:opacity-60"
+              >
+                ADI Generate Order
+              </button>
+              <button
+                onClick={handleAdiOrderInquiry}
+                disabled={adiLoading}
+                className="bg-indigo-700 text-white px-3 py-2 rounded hover:bg-indigo-800 disabled:opacity-60"
+              >
+                ADI Order Inquiry
+              </button>
+            </div>
+
+            {adiLastMessage && (
+              <p className="text-sm text-gray-700 mt-3">{adiLastMessage}</p>
+            )}
+            {adiInquirySnapshot.status && (
+              <div className="mt-2 text-sm text-gray-700">
+                <p>
+                  <span className="font-medium">Last ADI Inquiry Status:</span> {adiInquirySnapshot.status}
+                </p>
+                {adiInquirySnapshot.message && (
+                  <p>
+                    <span className="font-medium">Last ADI Inquiry Message:</span> {adiInquirySnapshot.message}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Items */}

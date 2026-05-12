@@ -137,15 +137,19 @@ export default function ProjectDetails() {
   const [loading, setLoading] = useState(true);
   const [bidAmount, setBidAmount] = useState('');
   const [billAmount, setBillAmount] = useState('');
+  const [taxRateAmount, setTaxRateAmount] = useState('');
+  const [paidToDateAmount, setPaidToDateAmount] = useState('');
   const [scheduleDate, setScheduleDate] = useState('');
   const [newMaterial, setNewMaterial] = useState({ item: '', quantity: 0, cost: 0, markup: 0 });
   const [catalogItems, setCatalogItems] = useState([]);
   const [selectedCatalogItem, setSelectedCatalogItem] = useState('');
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [editingMaterialId, setEditingMaterialId] = useState(null);
-  const [editMaterial, setEditMaterial] = useState({ item: '', quantity: '', cost: '', markup: '' });
+  const [editMaterial, setEditMaterial] = useState({ item: '', quantity: '', cost: '', markup: '', taxable: true });
   const [expandedMaterialIds, setExpandedMaterialIds] = useState(new Set());
   const [newNote, setNewNote] = useState('');
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editNoteText, setEditNoteText] = useState('');
   const [includeMonitoringAgreement, setIncludeMonitoringAgreement] = useState(false);
   const [isMobileView, setIsMobileView] = useState(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
@@ -286,6 +290,44 @@ export default function ProjectDetails() {
     }
   };
 
+  const submitPaidToDate = async () => {
+    if (paidToDateAmount === '' || Number(paidToDateAmount) < 0) {
+      alert('Please enter a valid paid amount');
+      return;
+    }
+    try {
+      await axios.put(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/paid`,
+        { paidToDate: parseFloat(paidToDateAmount) },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      setPaidToDateAmount('');
+      fetchProject();
+    } catch (err) {
+      console.error('Error submitting paid amount:', err);
+      alert('Failed to record payment: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const submitTaxRate = async () => {
+    if (taxRateAmount === '' || Number(taxRateAmount) < 0) {
+      alert('Please enter a valid tax rate');
+      return;
+    }
+    try {
+      await axios.put(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/tax-rate`,
+        { taxRate: parseFloat(taxRateAmount) },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      setTaxRateAmount('');
+      fetchProject();
+    } catch (err) {
+      console.error('Error submitting tax rate:', err);
+      alert('Failed to save tax rate: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
   const submitSchedule = async () => {
     if (!scheduleDate) {
       alert('Please select a date');
@@ -405,13 +447,14 @@ export default function ProjectDetails() {
       item: mat.item || '',
       quantity: String(mat.quantity ?? ''),
       cost: String(mat.cost ?? ''),
-      markup: String(mat.markup ?? 0)
+      markup: String(mat.markup ?? 0),
+      taxable: mat.taxable !== false,
     });
   };
 
   const cancelEditMaterial = () => {
     setEditingMaterialId(null);
-    setEditMaterial({ item: '', quantity: '', cost: '', markup: '' });
+    setEditMaterial({ item: '', quantity: '', cost: '', markup: '', taxable: true });
   };
 
   const toggleMaterialExpansion = (materialId) => {
@@ -448,7 +491,8 @@ export default function ProjectDetails() {
           item: editMaterial.item.trim(),
           quantity: qty,
           cost: unitCost,
-          markup: markupPct
+          markup: markupPct,
+          taxable: editMaterial.taxable !== false,
         },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
@@ -461,12 +505,52 @@ export default function ProjectDetails() {
     }
   };
 
+  const toggleMaterialTaxable = async (material) => {
+    try {
+      await axios.put(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/materials/${material._id}`,
+        { taxable: material.taxable === false },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      fetchProject();
+    } catch (err) {
+      console.error('Error updating material taxable flag:', err);
+      alert('Failed to update taxable status: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
   const totalMaterialCost = (project?.materials || []).reduce((sum, mat) => {
     const qty = parseFloat(mat.quantity || 0);
     const unitCost = parseFloat(mat.cost || 0);
     const markupPct = parseFloat(mat.markup || 0);
     return sum + qty * (unitCost * (1 + markupPct / 100));
   }, 0);
+  const taxableMaterialCost = (project?.materials || []).reduce((sum, mat) => {
+    if (mat?.taxable === false) return sum;
+    const qty = parseFloat(mat.quantity || 0);
+    const unitCost = parseFloat(mat.cost || 0);
+    const markupPct = parseFloat(mat.markup || 0);
+    return sum + qty * (unitCost * (1 + markupPct / 100));
+  }, 0);
+  const effectiveTaxRate = (() => {
+    const parsedRate = parseFloat(project?.taxRate || 0);
+    if (Number.isNaN(parsedRate) || parsedRate < 0) return 0;
+    return parsedRate;
+  })();
+  const salesTaxAmount = taxableMaterialCost * (effectiveTaxRate / 100);
+  const invoiceSubtotal = (() => {
+    const parsedBillAmount = parseFloat(project?.billAmount || 0);
+    return parsedBillAmount > 0 ? parsedBillAmount : totalMaterialCost;
+  })();
+  const originalInvoiceTotal = (() => {
+    return invoiceSubtotal + salesTaxAmount;
+  })();
+  const paidToDateTotal = (() => {
+    const parsedPaid = parseFloat(project?.paidToDate || 0);
+    if (Number.isNaN(parsedPaid) || parsedPaid < 0) return 0;
+    return Math.min(parsedPaid, originalInvoiceTotal);
+  })();
+  const totalRemaining = Math.max(originalInvoiceTotal - paidToDateTotal, 0);
 
   /**
    * Phase 1 Bid PDF:
@@ -829,6 +913,106 @@ export default function ProjectDetails() {
     window.open(pdfUrl, '_blank');
   };
 
+  /**
+   * Invoice PDF uses bid styling, but summarizes totals only.
+   */
+  const generateInvoicePdf = async () => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const left = 14;
+    const right = pageWidth - 14;
+    const headerY = 10;
+    const bottomMargin = 14;
+    const defaultTopY = 20;
+
+    const headerLogo = await loadBidHeaderImage();
+    let y = layoutBidPdfHeader(doc, headerLogo, left, right, headerY);
+    const ensurePageSpace = (neededHeight = 8) => {
+      if (y + neededHeight > pageHeight - bottomMargin) {
+        doc.addPage();
+        y = defaultTopY;
+      }
+    };
+
+    // Keep invoice number aligned with the most recently issued quote number for this project.
+    const noteQuoteNum = getLastIssuedQuoteFromNotes(project?.notes);
+    const invoiceNumber = noteQuoteNum ?? getLastIssuedBidQuoteNumber();
+    const invoiceMetaLine = `Date: ${format(new Date(), 'M/d/yyyy')} | Invoice #: ${invoiceNumber}`;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    ensurePageSpace(8);
+    doc.text(invoiceMetaLine, left, y);
+    y += 8;
+
+    doc.setFontSize(18);
+    ensurePageSpace(9);
+    doc.text(`Invoice: ${customer?.name || 'N/A'}`, left, y);
+    y += 9;
+
+    doc.setFontSize(11);
+    ensurePageSpace(28);
+    doc.text(`Project: ${project?.name || 'N/A'}`, left, y); y += 7;
+    doc.text(`Address: ${customer?.address || 'N/A'}`, left, y); y += 7;
+    doc.text(`Phone: ${customer?.phone || 'N/A'}`, left, y); y += 7;
+    doc.text(`Description: ${project?.description || 'No description'}`, left, y); y += 7;
+    doc.setDrawColor(38, 131, 198);
+    doc.line(left, y, right, y);
+    y += 8;
+
+    ensurePageSpace(24);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text(
+      `Subtotal: $${invoiceSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      left,
+      y
+    );
+    y += 8;
+    doc.text(
+      `Sales Tax (${effectiveTaxRate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%): $${salesTaxAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      left,
+      y
+    );
+    y += 8;
+    doc.text(
+      `Original Total: $${originalInvoiceTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      left,
+      y
+    );
+    y += 8;
+    doc.text(
+      `Paid to Date: $${paidToDateTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      left,
+      y
+    );
+    y += 8;
+    doc.setTextColor(38, 131, 198);
+    doc.text(
+      `Total Remaining: $${totalRemaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      left,
+      y
+    );
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(0, 0, 0);
+    y += 6;
+    ensurePageSpace(10);
+    doc.setDrawColor(38, 131, 198);
+    doc.line(left, y, right, y);
+    y += 8;
+
+    doc.setFontSize(10.5);
+    ensurePageSpace(7);
+    doc.text('Thank you for your business!', left, y);
+    y += 6;
+    ensurePageSpace(7);
+    doc.text('Payment due upon receipt unless otherwise agreed in writing.', left, y);
+
+    const pdfBlob = doc.output('blob');
+    const pdfUrl = URL.createObjectURL(pdfBlob);
+    window.open(pdfUrl, '_blank');
+  };
+
   const addNote = async () => {
     const text = (newNote || '').trim();
     if (!text) {
@@ -850,6 +1034,53 @@ export default function ProjectDetails() {
         ? ' If using a deployed API, redeploy so the notes route is live. If local, restart the backend (npm start).'
         : '';
       alert('Failed to add note: ' + (msg || err.message) + hint);
+    }
+  };
+
+  const startEditNote = (note) => {
+    setEditingNoteId(String(note?._id || ''));
+    setEditNoteText(note?.text || '');
+  };
+
+  const cancelEditNote = () => {
+    setEditingNoteId(null);
+    setEditNoteText('');
+  };
+
+  const saveEditedNote = async (noteId) => {
+    const text = (editNoteText || '').trim();
+    if (!text) {
+      alert('Please enter a note');
+      return;
+    }
+
+    try {
+      await axios.put(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/notes/${noteId}`,
+        { text },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      cancelEditNote();
+      fetchProject();
+    } catch (err) {
+      console.error('Error updating note:', err);
+      alert('Failed to update note: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const deleteNote = async (noteId) => {
+    try {
+      await axios.delete(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/notes/${noteId}`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      if (editingNoteId === String(noteId)) {
+        cancelEditNote();
+      }
+      fetchProject();
+    } catch (err) {
+      console.error('Error deleting note:', err);
+      alert('Failed to delete note: ' + (err.response?.data?.msg || err.message));
     }
   };
 
@@ -1112,6 +1343,30 @@ export default function ProjectDetails() {
             <p className="text-black font-medium text-lg">${project.billAmount ? project.billAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Not set'}</p>
           </div>
           <div>
+            <p className="text-gray-600 mb-1">Paid to Date:</p>
+            <p className="text-black font-medium text-lg">
+              ${(parseFloat(project.paidToDate || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-600 mb-1">Tax Rate:</p>
+            <p className="text-black font-medium text-lg">
+              {effectiveTaxRate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-600 mb-1">Sales Tax (on Items):</p>
+            <p className="text-black font-medium text-lg">
+              ${salesTaxAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-600 mb-1">Total Remaining:</p>
+            <p className="text-black font-medium text-lg">
+              ${totalRemaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+          </div>
+          <div>
             <p className="text-gray-600 mb-1">Schedule Date:</p>
             <p className="text-black font-medium">
               {project.scheduleDate ? format(new Date(project.scheduleDate), 'PPP') : 'Not scheduled'}
@@ -1153,6 +1408,40 @@ export default function ProjectDetails() {
               className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1" 
             />
             <button onClick={submitBill} className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600 w-full sm:w-auto">Submit Bill</button>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-gray-700 mb-2">Sales Tax Rate (%)</label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Enter tax rate"
+              value={taxRateAmount}
+              onChange={e => setTaxRateAmount(e.target.value)}
+              className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1"
+            />
+            <button onClick={submitTaxRate} className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600 w-full sm:w-auto">
+              Save Tax Rate
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-gray-700 mb-2">Paid to Date ($)</label>
+          <div data-testid="paid-form-row" className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Enter paid amount"
+              value={paidToDateAmount}
+              onChange={e => setPaidToDateAmount(e.target.value)}
+              className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1"
+            />
+            <button onClick={submitPaidToDate} className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600 w-full sm:w-auto">
+              Record Payment
+            </button>
           </div>
         </div>
         
@@ -1263,6 +1552,9 @@ export default function ProjectDetails() {
                       <p className="text-gray-600">Qty: <span className="text-black">{mat.quantity}</span></p>
                       <p className="text-gray-600">Markup: <span className="text-black">{parseFloat(mat.markup || 0).toFixed(0)}%</span></p>
                       <p className="text-gray-600 col-span-2">Cost: <span className="text-black">${parseFloat(mat.cost).toFixed(2)}</span></p>
+                      <p className="text-gray-600 col-span-2">
+                        Taxable: <span className="text-black">{mat.taxable === false ? 'No' : 'Yes'}</span>
+                      </p>
                     </div>
                     <div className="mt-3 flex gap-2">
                       <button
@@ -1270,6 +1562,12 @@ export default function ProjectDetails() {
                         className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600"
                       >
                         Edit
+                      </button>
+                      <button
+                        onClick={() => toggleMaterialTaxable(mat)}
+                        className="bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600"
+                      >
+                        {mat.taxable === false ? 'Add to Taxable' : 'Remove from Taxable'}
                       </button>
                       <button
                         onClick={() => deleteMaterial(mat._id)}
@@ -1298,6 +1596,12 @@ export default function ProjectDetails() {
                 >
                   Regenerate Bid
                 </button>
+                <button
+                  onClick={generateInvoicePdf}
+                  className="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 text-sm font-medium"
+                >
+                  Generate Invoice
+                </button>
                 <label className="inline-flex items-center gap-2 text-sm text-black">
                   <input
                     type="checkbox"
@@ -1322,9 +1626,10 @@ export default function ProjectDetails() {
       <div data-testid="materials-table-wrapper" className="mt-2 hidden sm:block overflow-x-auto">
         <table className="w-full table-fixed border-collapse border">
           <colgroup>
-            <col className="w-[40%]" />
-            <col className="w-[15%]" />
-            <col className="w-[15%]" />
+            <col className="w-[36%]" />
+            <col className="w-[12%]" />
+            <col className="w-[12%]" />
+            <col className="w-[10%]" />
             <col className="w-[10%]" />
             <col className="w-[20%]" />
           </colgroup>
@@ -1334,6 +1639,7 @@ export default function ProjectDetails() {
               <th className="text-black text-left p-3 border-b">Quantity</th>
               <th className="text-black text-left p-3 border-b">Cost</th>
               <th className="text-black text-left p-3 border-b">%Markup</th>
+              <th className="text-black text-left p-3 border-b">Taxable</th>
               <th className="text-black text-left p-3 border-b">Actions</th>
             </tr>
           </thead>
@@ -1365,6 +1671,7 @@ export default function ProjectDetails() {
                   <td className="text-black p-2">{mat.quantity}</td>
                   <td className="text-black p-2">${parseFloat(mat.cost).toFixed(2)}</td>
                   <td className="text-black p-2">{parseFloat(mat.markup || 0).toFixed(0)}%</td>
+                  <td className="text-black p-2">{mat.taxable === false ? 'No' : 'Yes'}</td>
                   <td className="p-2 whitespace-nowrap">
                     {editingMaterialId === mat._id ? (
                       <div className="flex gap-2 flex-wrap items-center">
@@ -1402,6 +1709,14 @@ export default function ProjectDetails() {
                           onChange={(e) => setEditMaterial({ ...editMaterial, markup: e.target.value })}
                           className="p-2 border border-gray-300 rounded bg-gray-100 text-black w-24"
                         />
+                        <label className="inline-flex items-center gap-1 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={editMaterial.taxable !== false}
+                            onChange={(e) => setEditMaterial({ ...editMaterial, taxable: e.target.checked })}
+                          />
+                          Taxable
+                        </label>
                         <button
                           onClick={() => updateMaterial(mat._id)}
                           className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
@@ -1424,6 +1739,12 @@ export default function ProjectDetails() {
                     ) : (
                       <div className="flex gap-2">
                         <button
+                          onClick={() => toggleMaterialTaxable(mat)}
+                          className="bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600"
+                        >
+                          {mat.taxable === false ? 'Add to Taxable' : 'Remove from Taxable'}
+                        </button>
+                        <button
                           onClick={() => startEditMaterial(mat)}
                           className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600"
                         >
@@ -1441,13 +1762,13 @@ export default function ProjectDetails() {
                 </tr>
               ))
             ) : (
-              <tr><td colSpan="5" className="text-black text-center p-4">No materials added yet</td></tr>
+              <tr><td colSpan="6" className="text-black text-center p-4">No materials added yet</td></tr>
             )}
           </tbody>
           {project.materials && project.materials.length > 0 && (
             <tfoot>
               <tr className="bg-gray-100 font-bold">
-                <td className="text-black p-3 border-t-2" colSpan="3">
+                <td className="text-black p-3 border-t-2" colSpan="4">
                   <div data-testid="materials-total-controls" className="flex flex-wrap items-center gap-3">
                     <span>Total Material Cost:</span>
                     <button
@@ -1461,6 +1782,12 @@ export default function ProjectDetails() {
                       className="bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm font-medium"
                     >
                       Regenerate Bid
+                    </button>
+                    <button
+                      onClick={generateInvoicePdf}
+                      className="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 text-sm font-medium"
+                    >
+                      Generate Invoice
                     </button>
                     <label className="inline-flex items-center gap-2 text-sm text-black ml-2">
                       <input
@@ -1586,9 +1913,55 @@ export default function ProjectDetails() {
           <ul className="space-y-2 mb-4">
             {project.notes.map((note, i) => (
               <li key={note._id ? String(note._id) : `note-${i}`} className="text-black border-l-4 border-blue-400 pl-3 py-1">
-                <p className="whitespace-pre-wrap">{note.text}</p>
-                {note.addedAt && (
-                  <p className="text-sm text-gray-500 mt-1">{format(new Date(note.addedAt), 'PPp')}</p>
+                {editingNoteId === String(note._id) ? (
+                  <div className="space-y-2">
+                    <textarea
+                      aria-label="Edit note text"
+                      rows={3}
+                      value={editNoteText}
+                      onChange={(e) => setEditNoteText(e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => saveEditedNote(String(note._id))}
+                        className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
+                      >
+                        Save Note
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditNote}
+                        className="bg-gray-200 text-black px-3 py-1 rounded hover:bg-gray-300"
+                      >
+                        Cancel Edit
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="whitespace-pre-wrap">{note.text}</p>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => startEditNote(note)}
+                        className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
+                      >
+                        Edit Note
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteNote(String(note._id))}
+                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                      >
+                        Delete Note
+                      </button>
+                    </div>
+                    {note.addedAt && (
+                      <p className="text-sm text-gray-500 mt-1">{format(new Date(note.addedAt), 'PPp')}</p>
+                    )}
+                  </>
                 )}
               </li>
             ))}

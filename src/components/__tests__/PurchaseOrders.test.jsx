@@ -4,11 +4,21 @@
 
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
-import PurchaseOrders from '../PurchaseOrders';
+import PurchaseOrders, { PODetailModal } from '../PurchaseOrders';
 import axios from 'axios';
+import {
+  fetchAdiPriceInventory,
+  generateAdiOrder,
+  inquireAdiOrder,
+} from '../../services/adiSupplierApi';
 
 // Mock axios
 jest.mock('axios');
+jest.mock('../../services/adiSupplierApi', () => ({
+  fetchAdiPriceInventory: jest.fn(),
+  generateAdiOrder: jest.fn(),
+  inquireAdiOrder: jest.fn(),
+}));
 
 describe('PurchaseOrders Component - Phase 2B', () => {
   const mockPOData = [
@@ -17,6 +27,15 @@ describe('PurchaseOrders Component - Phase 2B', () => {
       poNumber: 'PO-2024-001',
       supplier: { _id: 'sup1', name: 'Home Depot', phone: '555-1234' },
       status: 'Draft',
+      adiIntegration: {
+        customerNumber: 'CUST-EXISTING',
+        customerSuffix: '111',
+        adiOrderNumber: '9999999999',
+        lastSyncedAt: '2024-11-10T08:00:00.000Z',
+        lastInquiryAt: '2024-11-10T09:00:00.000Z',
+        lastInquiryStatus: 'Open',
+        lastInquiryMessage: 'Order is Open',
+      },
       items: [
         { sku: 'LUM-2X4', description: '2x4 Lumber', quantity: 50, unit: 'each', unitPrice: 5.99, total: 299.50 }
       ],
@@ -91,6 +110,18 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     });
     axios.put.mockResolvedValue({ 
       data: { msg: 'PO updated' } 
+    });
+    fetchAdiPriceInventory.mockResolvedValue({
+      ReturnCode: '00',
+      ItemList: [{ ItemNumber: 'LUM-2X4', Quantity: 50 }],
+    });
+    generateAdiOrder.mockResolvedValue({
+      ReturnCode: '00',
+      ReturnMessage: 'Order 1234567890 created successfully',
+    });
+    inquireAdiOrder.mockResolvedValue({
+      ReturnCode: '00',
+      ReturnMessage: 'Order is Open',
     });
   });
 
@@ -577,5 +608,362 @@ describe('PurchaseOrders Component - Phase 2B', () => {
       'href',
       '/suppliers?openQuickReorder=1'
     );
+  });
+
+  test('should call ADI price lookup wrapper from PO detail modal', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      const poNumbers = screen.getAllByText('PO-2024-001');
+      fireEvent.click(poNumbers[0]);
+    });
+
+    await waitFor(() => {
+      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
+        target: { value: 'CUST001' },
+      });
+      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
+        target: { value: '000' },
+      });
+    });
+
+    fireEvent.click(screen.getByText('ADI Price Lookup'));
+
+    await waitFor(() => {
+      expect(fetchAdiPriceInventory).toHaveBeenCalledWith({
+        customerNumber: 'CUST001',
+        customerSuffix: '000',
+        itemList: [{ ItemNumber: 'LUM-2X4', Quantity: 50 }],
+      });
+    });
+  });
+
+  test('should call ADI order generation wrapper from PO detail modal', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      const poNumbers = screen.getAllByText('PO-2024-001');
+      fireEvent.click(poNumbers[0]);
+    });
+
+    await waitFor(() => {
+      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
+        target: { value: 'CUST001' },
+      });
+      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
+        target: { value: '000' },
+      });
+    });
+
+    fireEvent.click(screen.getByText('ADI Generate Order'));
+
+    await waitFor(() => {
+      expect(generateAdiOrder).toHaveBeenCalledWith({
+        customerNumber: 'CUST001',
+        customerSuffix: '000',
+        poNumber: 'PO-2024-001',
+        shipmentPickupIndicator: 'P',
+        orderList: [{ ItemNumber: 'LUM-2X4', Quantity: 50, ItemPrice: 5.99 }],
+      });
+    });
+  });
+
+  test('should call ADI order inquiry wrapper from PO detail modal', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      const poNumbers = screen.getAllByText('PO-2024-001');
+      fireEvent.click(poNumbers[0]);
+    });
+
+    await waitFor(() => {
+      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
+        target: { value: 'CUST001' },
+      });
+      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
+        target: { value: '000' },
+      });
+      fireEvent.change(screen.getByLabelText(/ADI Order Number/i), {
+        target: { value: '1234567890' },
+      });
+    });
+
+    fireEvent.click(screen.getByText('ADI Order Inquiry'));
+
+    await waitFor(() => {
+      expect(inquireAdiOrder).toHaveBeenCalledWith({
+        customerNumber: 'CUST001',
+        customerSuffix: '000',
+        adiOrderNumber: '1234567890',
+      });
+    });
+  });
+
+  test('should prefill ADI fields from persisted purchase-order metadata', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      const poNumbers = screen.getAllByText('PO-2024-001');
+      fireEvent.click(poNumbers[0]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Customer Number/i)).toHaveValue('CUST-EXISTING');
+      expect(screen.getByLabelText(/Customer Suffix/i)).toHaveValue('111');
+      expect(screen.getByLabelText(/ADI Order Number/i)).toHaveValue('9999999999');
+    });
+  });
+
+  test('should persist ADI order number on the purchase order after generation', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      const poNumbers = screen.getAllByText('PO-2024-001');
+      fireEvent.click(poNumbers[0]);
+    });
+
+    await waitFor(() => {
+      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
+        target: { value: 'CUST001' },
+      });
+      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
+        target: { value: '000' },
+      });
+    });
+
+    fireEvent.click(screen.getByText('ADI Generate Order'));
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('po1'),
+        expect.objectContaining({
+          adiIntegration: expect.objectContaining({
+            customerNumber: 'CUST001',
+            customerSuffix: '000',
+            adiOrderNumber: '1234567890',
+          }),
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('should auto-run ADI inquiry after successful ADI order generation', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      const poNumbers = screen.getAllByText('PO-2024-001');
+      fireEvent.click(poNumbers[0]);
+    });
+
+    await waitFor(() => {
+      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
+        target: { value: 'CUST001' },
+      });
+      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
+        target: { value: '000' },
+      });
+    });
+
+    fireEvent.click(screen.getByText('ADI Generate Order'));
+
+    await waitFor(() => {
+      expect(inquireAdiOrder).toHaveBeenCalledWith({
+        customerNumber: 'CUST001',
+        customerSuffix: '000',
+        adiOrderNumber: '1234567890',
+      });
+    });
+  });
+
+  test('should persist ADI inquiry snapshot after generation + inquiry', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      const poNumbers = screen.getAllByText('PO-2024-001');
+      fireEvent.click(poNumbers[0]);
+    });
+
+    await waitFor(() => {
+      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
+        target: { value: 'CUST001' },
+      });
+      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
+        target: { value: '000' },
+      });
+    });
+
+    fireEvent.click(screen.getByText('ADI Generate Order'));
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('po1'),
+        expect.objectContaining({
+          adiIntegration: expect.objectContaining({
+            lastInquiryStatus: 'Open',
+          }),
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('should display last ADI inquiry snapshot in the modal', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      const poNumbers = screen.getAllByText('PO-2024-001');
+      fireEvent.click(poNumbers[0]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Last ADI Inquiry Status:/i)).toBeInTheDocument();
+      expect(document.body.textContent).toMatch(/Last ADI Inquiry Status:\s*Open/i);
+    });
+  });
+
+  test('should persist pending inquiry snapshot when generation has no detectable ADI order number', async () => {
+    generateAdiOrder.mockResolvedValueOnce({
+      ReturnCode: '00',
+      ReturnMessage: 'Order created successfully',
+    });
+
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      const poNumbers = screen.getAllByText('PO-2024-002');
+      fireEvent.click(poNumbers[0]);
+    });
+
+    await waitFor(() => {
+      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
+        target: { value: 'CUST002' },
+      });
+      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
+        target: { value: '001' },
+      });
+    });
+
+    fireEvent.click(screen.getByText('ADI Generate Order'));
+
+    await waitFor(() => {
+      expect(inquireAdiOrder).not.toHaveBeenCalled();
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('po2'),
+        expect.objectContaining({
+          adiIntegration: expect.objectContaining({
+            customerNumber: 'CUST002',
+            customerSuffix: '001',
+            adiOrderNumber: '',
+            lastInquiryStatus: 'Pending Manual Inquiry',
+          }),
+        }),
+        expect.any(Object)
+      );
+    });
+
+    expect(global.alert).toHaveBeenCalledWith(
+      expect.stringContaining('ADI order number could not be auto-detected')
+    );
+  });
+
+  test('should preserve adiIntegration when saving notes and dates', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      const poNumbers = screen.getAllByText('PO-2024-001');
+      fireEvent.click(poNumbers[0]);
+    });
+
+    await waitFor(() => {
+      const notesTextarea = screen.getByDisplayValue('Urgent order');
+      fireEvent.change(notesTextarea, { target: { value: 'Saved note with ADI metadata' } });
+      fireEvent.click(screen.getByText('Save Changes'));
+    });
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('po1'),
+        expect.objectContaining({
+          notes: 'Saved note with ADI metadata',
+          adiIntegration: expect.objectContaining({
+            customerNumber: 'CUST-EXISTING',
+            customerSuffix: '111',
+            adiOrderNumber: '9999999999',
+            lastSyncedAt: '2024-11-10T08:00:00.000Z',
+            lastInquiryAt: '2024-11-10T09:00:00.000Z',
+          }),
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('should preserve adiIntegration metadata when updating status', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      const poNumbers = screen.getAllByText('PO-2024-001');
+      fireEvent.click(poNumbers[0]);
+    });
+
+    await waitFor(() => {
+      const markAsSentButton = screen.getByText(/📤 Mark as Sent/i);
+      fireEvent.click(markAsSentButton);
+    });
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('po1'),
+        expect.objectContaining({
+          status: 'Sent',
+          adiIntegration: expect.objectContaining({
+            customerNumber: 'CUST-EXISTING',
+            customerSuffix: '111',
+            adiOrderNumber: '9999999999',
+          }),
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('PODetailModal should not violate hook order on valid-to-invalid po rerender', async () => {
+    const onClose = jest.fn();
+    const onUpdate = jest.fn();
+
+    const validPo = {
+      _id: 'po-hook-test',
+      poNumber: 'PO-2024-999',
+      status: 'Draft',
+      notes: '',
+      items: [{ sku: 'SKU-1', description: 'Item 1', quantity: 1, unitPrice: 1, total: 1 }],
+      subtotal: 1,
+      tax: 0,
+      shipping: 0,
+      total: 1,
+      orderDate: '2024-11-10T00:00:00.000Z',
+      supplier: { name: 'Hook Test Supplier' },
+    };
+
+    const invalidPo = {
+      _id: 'po-hook-invalid',
+      poNumber: 'PO-INVALID',
+      status: 'Draft',
+    };
+
+    const { rerender } = render(
+      <PODetailModal po={validPo} onClose={onClose} onUpdate={onUpdate} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('PO-2024-999')).toBeInTheDocument();
+    });
+
+    expect(() =>
+      rerender(<PODetailModal po={invalidPo} onClose={onClose} onUpdate={onUpdate} />)
+    ).not.toThrow();
+
+    expect(screen.getByText(/Unable to load purchase order details/i)).toBeInTheDocument();
   });
 });

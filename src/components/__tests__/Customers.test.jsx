@@ -15,6 +15,17 @@ const renderWithRouter = (component) => {
   return render(<BrowserRouter>{component}</BrowserRouter>);
 };
 
+const createMatchMediaMock = (matches) => jest.fn().mockImplementation((query) => ({
+  matches,
+  media: query,
+  onchange: null,
+  addListener: jest.fn(),
+  removeListener: jest.fn(),
+  addEventListener: jest.fn(),
+  removeEventListener: jest.fn(),
+  dispatchEvent: jest.fn()
+}));
+
 describe('Customers Component', () => {
   const mockCustomers = [
     {
@@ -44,6 +55,16 @@ describe('Customers Component', () => {
   });
 
   describe('Rendering and Data Fetching', () => {
+    let originalMatchMedia;
+
+    beforeEach(() => {
+      originalMatchMedia = window.matchMedia;
+    });
+
+    afterEach(() => {
+      window.matchMedia = originalMatchMedia;
+    });
+
     test('should fetch and display customers on mount', async () => {
       axios.get.mockResolvedValue({ data: mockCustomers });
 
@@ -109,6 +130,46 @@ describe('Customers Component', () => {
       expect(root.className).toContain('max-w-6xl');
       expect(root.className).toContain('mx-auto');
     });
+
+    test('should expose mobile section toggles with default expanded states', async () => {
+      // Mobile-only controls (md:hidden) should be tested in an explicit mobile viewport mock.
+      window.matchMedia = createMatchMediaMock(true);
+      axios.get.mockResolvedValue({ data: [] });
+      renderWithRouter(<Customers />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Customer Management/i })).toBeInTheDocument();
+      });
+
+      const customerManagementToggle = screen.getByRole('button', { name: /Customer Management/i });
+      const addProjectToggle = screen.getByRole('button', { name: /Add Project to Customer/i });
+      const addCustomerToggle = screen.getByRole('button', { name: /Add New Customer/i });
+      const customerListToggle = screen.getByRole('button', { name: /Customer List/i });
+
+      expect(customerManagementToggle).toHaveAttribute('aria-expanded', 'true');
+      expect(addCustomerToggle).toHaveAttribute('aria-expanded', 'false');
+      expect(customerListToggle).toHaveAttribute('aria-expanded', 'true');
+      expect(addProjectToggle).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    test('should toggle mobile sections when pressed', async () => {
+      // Keep this test stable by simulating mobile rendering conditions.
+      window.matchMedia = createMatchMediaMock(true);
+      axios.get.mockResolvedValue({ data: [] });
+      renderWithRouter(<Customers />);
+
+      const addProjectToggle = await screen.findByRole('button', { name: /Add Project to Customer/i });
+      expect(addProjectToggle).toHaveAttribute('aria-expanded', 'false');
+
+      await userEvent.click(addProjectToggle);
+      expect(addProjectToggle).toHaveAttribute('aria-expanded', 'true');
+
+      const addCustomerToggle = screen.getByRole('button', { name: /Add New Customer/i });
+      expect(addCustomerToggle).toHaveAttribute('aria-expanded', 'false');
+
+      await userEvent.click(addCustomerToggle);
+      expect(addCustomerToggle).toHaveAttribute('aria-expanded', 'true');
+    });
   });
 
   describe('Adding Customers', () => {
@@ -117,7 +178,7 @@ describe('Customers Component', () => {
       renderWithRouter(<Customers />);
 
       await waitFor(() => {
-        expect(screen.getByText('Add New Customer')).toBeInTheDocument();
+        expect(screen.getAllByText('Add New Customer').length).toBeGreaterThan(0);
       });
 
       expect(screen.getByLabelText('Name')).toBeInTheDocument();
@@ -324,7 +385,7 @@ describe('Customers Component', () => {
 
       // Validation testing would require actual form interaction
       // Component structure changed - skip detailed validation test
-      expect(screen.getByText('Add Project to Customer')).toBeInTheDocument();
+      expect(screen.getAllByText('Add Project to Customer').length).toBeGreaterThan(0);
     });
   });
 
