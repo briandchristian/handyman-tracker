@@ -11,6 +11,10 @@ export default function UserManagement() {
   const [error, setError] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [activeTab, setActiveTab] = useState('pending'); // 'pending' or 'all'
+  const [passwordResetUser, setPasswordResetUser] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   useEffect(() => {
     fetchCurrentUser();
@@ -138,6 +142,48 @@ export default function UserManagement() {
       fetchPendingUsers();
     } catch (err) {
       alert(`❌ Failed to delete user: ${err.response?.data?.msg || err.message}`);
+    }
+  };
+
+  const openPasswordReset = (user) => {
+    setPasswordResetUser(user);
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+  };
+
+  const closePasswordReset = () => {
+    setPasswordResetUser(null);
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+  };
+
+  const handlePasswordReset = async (e) => {
+    e.preventDefault();
+    setPasswordError('');
+
+    if (newPassword.length < 6) {
+      setPasswordError('Password must be at least 6 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Passwords do not match');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(
+        `${API_BASE_URL}/api/admin/users/${passwordResetUser._id}/password`,
+        { newPassword },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      alert(`🔑 Password updated for ${passwordResetUser.username}`);
+      closePasswordReset();
+    } catch (err) {
+      setPasswordError(err.response?.data?.msg || err.message || 'Failed to reset password');
     }
   };
 
@@ -288,7 +334,14 @@ export default function UserManagement() {
                       {format(new Date(user.createdAt), 'PP')}
                     </td>
                     <td className="p-4">
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          onClick={() => openPasswordReset(user)}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                          title="Reset Password"
+                        >
+                          🔑 Reset Password
+                        </button>
                         {user.role !== 'super-admin' && user.role !== 'customer' && user.status === 'approved' && (
                           <button
                             onClick={() => handlePromote(user._id, user.username)}
@@ -314,6 +367,65 @@ export default function UserManagement() {
               </tbody>
             </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {passwordResetUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold text-black mb-2">Reset Password</h3>
+            <p className="text-gray-600 mb-4">
+              Set a new password for <strong>{passwordResetUser.username}</strong>
+            </p>
+            <form onSubmit={handlePasswordReset} className="space-y-4">
+              <div>
+                <label htmlFor="new-password" className="block text-sm font-medium text-black mb-1">
+                  New Password
+                </label>
+                <input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-black"
+                  minLength={6}
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="confirm-password" className="block text-sm font-medium text-black mb-1">
+                  Confirm Password
+                </label>
+                <input
+                  id="confirm-password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-black"
+                  minLength={6}
+                  required
+                />
+              </div>
+              {passwordError && (
+                <p className="text-red-600 text-sm">{passwordError}</p>
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closePasswordReset}
+                  className="px-4 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600"
+                >
+                  Reset Password
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

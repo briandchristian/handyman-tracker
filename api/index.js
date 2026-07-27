@@ -1060,6 +1060,35 @@ app.put('/api/admin/users/:id/promote', authMiddleware, superAdminMiddleware, as
   }
 });
 
+// Reset user password (admin only)
+app.put('/api/admin/users/:id/password', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    const userId = req.params.id;
+
+    if (!newPassword) {
+      return res.status(400).json({ msg: 'New password is required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ msg: 'Password must be at least 6 characters' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ msg: 'User not found' });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    console.log(`🔑 Password reset for user: ${user.username} by ${req.user.username}`);
+    res.json({ msg: `Password updated for ${user.username}` });
+  } catch (err) {
+    console.error('Error resetting user password:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
 // Customer Routes (admin only; customers use GET/PUT /api/customer/me)
 app.get('/api/customers', authMiddleware, adminMiddleware, async (req, res) => {
   try {
