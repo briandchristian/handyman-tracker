@@ -1,7 +1,6 @@
 /**
  * Single Vercel serverless entry for all /api/* routes.
- * vercel.json rewrites /api/:path* → /api/catchall so this file is always hit
- * instead of falling through to the SPA (which would return 405 for POST).
+ * vercel.json rewrites /api/:path* → /api/catchall so this is the only function in /api/.
  */
-import app from './index.js';
+import app from '../server/app.js';
 export default app;

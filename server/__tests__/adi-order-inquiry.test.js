@@ -9,7 +9,7 @@ import {
   ADI_ORDER_INQUIRY_PATH,
   fetchAdiOrderInquiry,
   normalizeAdiOrderInquiryResponse,
-} from '../suppliers/adiOrderInquiry.js';
+} from '../lib/suppliers/adiOrderInquiry.js';
 
 describe('ADI Order Inquiry client', () => {
   const credentials = {

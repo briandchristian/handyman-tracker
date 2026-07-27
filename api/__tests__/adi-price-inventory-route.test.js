@@ -9,11 +9,11 @@ import request from 'supertest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 
-jest.mock('../suppliers/adiPriceInventory.js', () => ({
+jest.mock('../../server/lib/suppliers/adiPriceInventory.js', () => ({
   fetchAdiPriceAndInventoryDetails: jest.fn(),
 }));
 
-import { fetchAdiPriceAndInventoryDetails } from '../suppliers/adiPriceInventory.js';
+import { fetchAdiPriceAndInventoryDetails } from '../../server/lib/suppliers/adiPriceInventory.js';
 
 jest.setTimeout(30000);
 
@@ -42,7 +42,7 @@ beforeAll(async () => {
   await mongoose.disconnect();
   await mongoose.connect(mongoUri);
 
-  const appModule = await import('../index.js');
+  const appModule = await import('../../server/app.js');
   app = appModule.default;
 
   await request(app).post('/api/register').send({

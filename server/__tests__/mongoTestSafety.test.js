@@ -1,4 +1,4 @@
-import { assertInMemoryMongoUri } from '../mongoTestSafety.js';
+import { assertInMemoryMongoUri } from '../lib/mongoTestSafety.js';
 
 describe('assertInMemoryMongoUri', () => {
   test('allows localhost uri', () => {

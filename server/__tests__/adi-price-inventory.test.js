@@ -9,7 +9,7 @@ import {
   ADI_PRICE_AND_INVENTORY_PATH,
   fetchAdiPriceAndInventoryDetails,
   normalizeAdiPriceAndInventoryResponse,
-} from '../suppliers/adiPriceInventory.js';
+} from '../lib/suppliers/adiPriceInventory.js';
 
 describe('ADI Price and Inventory client', () => {
   const credentials = {

@@ -52,8 +52,11 @@ beforeAll(async () => {
   }
   
   // Import server (this registers the models)
-  const appModule = await import('../server.js');
+  const appModule = await import('../../server/app.js');
   app = appModule.default;
+
+  // Warm up app DB connection before creating users directly via Mongoose
+  await request(app).get('/api/health');
   
   // Wait a bit for models to be registered and server to connect
   await new Promise(resolve => setTimeout(resolve, 500));

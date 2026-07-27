@@ -9,7 +9,7 @@ import {
   ADI_ORDER_GENERATION_PATH,
   fetchAdiOrderGeneration,
   normalizeAdiOrderGenerationResponse,
-} from '../suppliers/adiOrderGeneration.js';
+} from '../lib/suppliers/adiOrderGeneration.js';
 
 describe('ADI Order Generation client', () => {
   const credentials = {

@@ -43,7 +43,7 @@ beforeAll(async () => {
   await mongoose.disconnect();
   await mongoose.connect(mongoUri);
 
-  const appModule = await import('../index.js');
+  const appModule = await import('../../server/app.js');
   app = appModule.default;
   User = mongoose.model('User');
 

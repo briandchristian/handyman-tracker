@@ -1,7 +1,7 @@
 import {
   applyMongoDatabaseName,
   mongoConnectionStringMissingDbName,
-} from '../mongoUri.js';
+} from '../lib/mongoUri.js';
 
 describe('mongoConnectionStringMissingDbName', () => {
   it('detects empty path before query string', () => {

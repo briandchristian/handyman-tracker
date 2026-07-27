@@ -9,7 +9,7 @@
 import {
   buildAdiAuthHeaders,
   createAdiAuthenticationSignature,
-} from '../suppliers/adiAuth.js';
+} from '../lib/suppliers/adiAuth.js';
 
 describe('ADI authentication helpers', () => {
   const credentials = {

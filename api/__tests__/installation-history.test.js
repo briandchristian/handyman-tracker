@@ -11,7 +11,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { assertInMemoryMongoUri } from '../mongoTestSafety.js';
+import { assertInMemoryMongoUri } from '../../server/lib/mongoTestSafety.js';
 
 process.env.JWT_SECRET = 'test-secret';
 process.env.VERCEL = '1';
@@ -35,7 +35,7 @@ beforeAll(async () => {
   process.env.MONGO_URI = mongoUri;
   await mongoose.disconnect();
   await mongoose.connect(mongoUri);
-  const appModule = await import('../index.js');
+  const appModule = await import('../../server/app.js');
   app = appModule.default;
 
   // Warm the app's cached Mongo connection before seeding auth fixtures.

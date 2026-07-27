@@ -53,7 +53,7 @@ beforeAll(async () => {
   
   // Import app after database is connected and MONGO_URI is set
   // Use index.js which has the full admin approval system
-  const appModule = await import('../index.js');
+  const appModule = await import('../../server/app.js');
   app = appModule.default;
 });
 

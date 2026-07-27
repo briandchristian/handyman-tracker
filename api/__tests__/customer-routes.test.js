@@ -7,7 +7,7 @@ import request from 'supertest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
-import { assertInMemoryMongoUri } from '../mongoTestSafety.js';
+import { assertInMemoryMongoUri } from '../../server/lib/mongoTestSafety.js';
 
 jest.setTimeout(30000);
 
@@ -51,7 +51,7 @@ beforeAll(async () => {
   assertInMemoryMongoUri(connectedUri);
   
   // Import app (this registers the models)
-  const appModule = await import('../server.js');
+  const appModule = await import('../../server/app.js');
   app = appModule.default;
   
   // Wait a bit for models to be registered and server to connect

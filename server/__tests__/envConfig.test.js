@@ -1,4 +1,4 @@
-import { shouldOverrideDotenv } from '../envConfig.js';
+import { shouldOverrideDotenv } from '../lib/envConfig.js';
 
 describe('shouldOverrideDotenv', () => {
   test('returns false in test environment', () => {

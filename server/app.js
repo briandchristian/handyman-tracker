@@ -1,14 +1,49 @@
-import 'dotenv/config';
+// Load .env first. `override: true` so project .env wins over stale MONGO_* vars in Windows User/System
+// environment (default dotenv does not override existing vars — a common cause of persistent "bad auth").
+import dotenv from 'dotenv';
+import { shouldOverrideDotenv } from './lib/envConfig.js';
+dotenv.config({ override: shouldOverrideDotenv(process.env) });
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import {
+  applyMongoDatabaseName,
+  mongoConnectionStringMissingDbName,
+} from './lib/mongoUri.js';
+import { fetchAdiPriceAndInventoryDetails } from './lib/suppliers/adiPriceInventory.js';
+import { fetchAdiOrderGeneration } from './lib/suppliers/adiOrderGeneration.js';
+import { fetchAdiOrderInquiry } from './lib/suppliers/adiOrderInquiry.js';
 
 const app = express();
 
+// Toggleable API debug logging (set DEBUG_API=1 in env to enable; see docs/VERCEL_DEBUG_AND_TESTING.md)
+const DEBUG_API = /^(1|true|yes)$/i.test(process.env.DEBUG_API || '');
+
 // Trust proxy to get real client IPs (important for LAN connections)
 app.set('trust proxy', true);
+
+// On Vercel, same-origin POST can have empty req.body; read raw stream first for JSON
+if (process.env.VERCEL === '1') {
+  app.use((req, res, next) => {
+    if (!/^(POST|PUT|PATCH)$/i.test(req.method)) return next();
+    const ct = req.headers['content-type'] || '';
+    if (!ct.includes('application/json')) return next();
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        req.body = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        req.body = {};
+      }
+      next();
+    });
+    req.on('error', next);
+  });
+}
 
 // Helper function to get client IP address (defined early for use in middleware)
 const getClientIp = (req) => {
@@ -34,28 +69,18 @@ const getClientIp = (req) => {
   return 'Unknown';
 };
 
-app.use(cors());
-app.use(express.json());
-
-// Debug middleware - log authentication-related requests with IP
-app.use((req, res, next) => {
-  const authEndpoints = ['/api/login', '/api/register'];
-  if (authEndpoints.includes(req.url)) {
-    const timestamp = new Date().toISOString();
-    const clientIp = getClientIp(req);
-    console.log(`[${timestamp}] 📥 ${req.method} ${req.url} - IP: ${clientIp}`);
-  }
-  next();
-});
-
 // MongoDB connection with caching for serverless
 let cachedDb = null;
 let isConnecting = false;
 
+// Single MongoDB connection: same MONGO_URI everywhere (from .env locally, from Vercel env in production). No loopback vs cloud branching.
 const connectDB = async () => {
-  if (!process.env.MONGO_URI) {
+  const mongoUri = process.env.MONGO_URI?.trim();
+  if (!mongoUri) {
     throw new Error('MONGO_URI is not defined in environment variables.');
   }
+  const mongoUser = process.env.MONGO_USER?.trim();
+  const mongoPassword = process.env.MONGO_PASSWORD?.trim();
 
   // Use cached connection if available and ready
   if (cachedDb && mongoose.connection.readyState === 1) {
@@ -84,13 +109,39 @@ const connectDB = async () => {
       await mongoose.disconnect();
     }
 
-    await mongoose.connect(process.env.MONGO_URI, {
+    // Prefer MONGO_USER + MONGO_PASSWORD when set: avoids edge cases parsing user:pass inside a long mongodb:// URI.
+    const connectOptions = {
       serverSelectionTimeoutMS: 30000, // 30 seconds for serverless cold starts
       socketTimeoutMS: 45000,
       maxPoolSize: 10,
       minPoolSize: 2,
-    });
-    
+    };
+    let connectionUri = mongoUri;
+    const isLocalMongoUri = /^mongodb:\/\/(127\.0\.0\.1|localhost)/.test(connectionUri);
+    if (!isLocalMongoUri && mongoUser && mongoPassword) {
+      connectOptions.user = mongoUser;
+      connectOptions.pass = mongoPassword;
+      connectOptions.authSource = 'admin';
+      connectionUri = mongoUri.replace(/^mongodb:\/\/[^@]+@/, 'mongodb://');
+    }
+    const mongoDbName =
+      process.env.MONGO_DATABASE?.trim() || process.env.MONGO_DB_NAME?.trim();
+    connectionUri = applyMongoDatabaseName(connectionUri, mongoDbName);
+    if (mongoConnectionStringMissingDbName(connectionUri)) {
+      throw new Error(
+        'MongoDB URI has no database name, so the driver uses "test" and Atlas can deny reads (e.g. test.users). ' +
+          'In Vercel, set MONGO_DATABASE (or MONGO_DB_NAME) to the Atlas database that contains your data, ' +
+          'or add /yourDbName before ? in MONGO_URI.'
+      );
+    }
+    if (/^(1|true|yes)$/i.test(process.env.DEBUG_MONGO_AUTH || '')) {
+      const u = mongoUser || '(from MONGO_URI only)';
+      const plen = mongoPassword?.length ?? 0;
+      const uriHead = connectionUri.replace(/^mongodb:\/\/[^@]+@/, 'mongodb://***@').slice(0, 72);
+      console.log(`[DEBUG_MONGO_AUTH] user=${u} passwordLength=${plen} uriPrefix=${uriHead}...`);
+    }
+    await mongoose.connect(connectionUri, connectOptions);
+
     cachedDb = mongoose.connection;
     console.log('MongoDB connected successfully');
     return cachedDb;
@@ -122,6 +173,55 @@ if (process.env.VERCEL !== '1') {
   });
 }
 
+app.use(cors());
+const jsonParser = express.json();
+app.use((req, res, next) => {
+  if (req.body !== undefined) return next();
+  jsonParser(req, res, next);
+});
+
+// On Vercel, normalize path so Express routes see /api/:path (catchall rewrite passes path as query param)
+app.use((req, res, next) => {
+  if (DEBUG_API) req._debugRawUrl = req.url;
+  const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  if (process.env.VERCEL === '1' && req.query && req.query.path != null) {
+    const pathSeg = Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path);
+    req.url = '/api/' + pathSeg + q;
+    req.originalUrl = '/api/' + pathSeg + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+    return next();
+  }
+  if (req.path === '/api/catchall' || req.path === '/catchall') {
+    const pathSeg = (req.query.path != null)
+      ? (Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path))
+      : '';
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    req.url = '/api/' + pathSeg + qs;
+    req.originalUrl = '/api/' + pathSeg + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+  } else if (process.env.VERCEL === '1') {
+    const pathname = req.url.includes('?') ? req.url.slice(0, req.url.indexOf('?')) : req.url;
+    if (pathname && !pathname.startsWith('/api')) {
+      req.url = '/api' + (pathname.startsWith('/') ? pathname : '/' + pathname) + q;
+      req.originalUrl = '/api' + (pathname.startsWith('/') ? pathname : '/' + pathname) + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '');
+    }
+  }
+  next();
+});
+
+// Optional debug logging: request path + response status (enable with DEBUG_API=1)
+app.use((req, res, next) => {
+  if (!DEBUG_API) return next();
+  const ts = new Date().toISOString();
+  const pathInfo = req._debugRawUrl !== undefined && req._debugRawUrl !== req.url
+    ? ` (normalized from ${req._debugRawUrl})`
+    : '';
+  console.log(`[DEBUG_API] ${ts} ${req.method} url=${req.url} path=${req.path} query.path=${JSON.stringify(req.query?.path)} VERCEL=${process.env.VERCEL || '0'}${pathInfo}`);
+  res.on('finish', () => {
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+    console.log(`[DEBUG_API] ${ts} ${req.method} ${req.url} -> ${res.statusCode} [${level}]`);
+  });
+  next();
+});
+
 // Ensure DB connection before handling requests (for serverless)
 app.use(async (req, res, next) => {
   try {
@@ -147,6 +247,17 @@ app.use(async (req, res, next) => {
   }
 });
 
+// Debug middleware - log authentication-related requests with IP
+app.use((req, res, next) => {
+  const authEndpoints = ['/api/login', '/api/register'];
+  if (authEndpoints.includes(req.url)) {
+    const timestamp = new Date().toISOString();
+    const clientIp = getClientIp(req);
+    console.log(`[${timestamp}] 📥 ${req.method} ${req.url} - IP: ${clientIp}`);
+  }
+  next();
+});
+
 // Models
 const customerSchema = new mongoose.Schema({
   name: String,
@@ -165,10 +276,12 @@ const customerSchema = new mongoose.Schema({
     },
     bidAmount: Number,
     billAmount: Number,
+    taxRate: { type: Number, default: 0 },
+    paidToDate: { type: Number, default: 0 },
     status: { type: String, enum: ['Pending', 'Bidded', 'Scheduled', 'Completed', 'Billed'] },
     scheduleDate: Date,
     completedAt: Date,
-    materials: [{ item: String, quantity: Number, cost: Number, markup: Number }],
+    materials: [{ item: String, quantity: Number, cost: Number, markup: Number, taxable: { type: Boolean, default: true } }],
     notes: [{ text: String, addedAt: { type: Date, default: Date.now } }],
     createdAt: { type: Date, default: Date.now }
   }]
@@ -197,6 +310,115 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
+// Supplier Schema
+const supplierSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  logo: String,
+  contactName: String,
+  phone: String,
+  email: String,
+  address: {
+    street: String,
+    city: String,
+    state: String,
+    zip: String,
+    country: String
+  },
+  categories: [String], // ['Electrical', 'Plumbing', 'Lumber', etc.]
+  leadTimeDays: { type: Number, default: 0 }, // Average lead time
+  minimumOrder: { type: Number, default: 0 },
+  paymentTerms: String, // 'Net 30', 'COD', etc.
+  taxRate: Number,
+  shippingMethod: String,
+  website: String,
+  notes: String,
+  isFavorite: { type: Boolean, default: false },
+  isActive: { type: Boolean, default: true },
+  catalog: [{
+    sku: String,
+    description: String,
+    unit: String, // 'each', 'box', 'ft', etc.
+    price: Number,
+    lastUpdated: { type: Date, default: Date.now }
+  }],
+  attachments: [{
+    name: String,
+    url: String,
+    type: String, // 'price-list', 'catalog', 'contract', etc.
+    uploadedAt: { type: Date, default: Date.now }
+  }],
+  createdAt: { type: Date, default: Date.now },
+  lastOrderDate: Date,
+  totalSpent: { type: Number, default: 0 }
+});
+const Supplier = mongoose.model('Supplier', supplierSchema);
+
+// Purchase Order Schema
+const purchaseOrderSchema = new mongoose.Schema({
+  poNumber: { type: String, unique: true, required: true },
+  supplier: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', required: true },
+  status: { 
+    type: String, 
+    enum: ['Draft', 'Sent', 'Confirmed', 'Received', 'Paid', 'Cancelled'], 
+    default: 'Draft' 
+  },
+  items: [{
+    sku: String,
+    description: String,
+    quantity: Number,
+    unit: String,
+    unitPrice: Number,
+    total: Number
+  }],
+  subtotal: Number,
+  tax: Number,
+  shipping: Number,
+  total: Number,
+  notes: String,
+  // ADI integration metadata so inquiry can be re-run later without re-entering IDs.
+  adiIntegration: {
+    customerNumber: String,
+    customerSuffix: String,
+    adiOrderNumber: String,
+    lastSyncedAt: Date,
+    lastInquiryStatus: String,
+    lastInquiryMessage: String,
+    lastInquiryAt: Date,
+  },
+  attachments: [{
+    name: String,
+    url: String,
+    type: String, // 'quote', 'invoice', 'delivery-photo', etc.
+    uploadedAt: { type: Date, default: Date.now }
+  }],
+  orderDate: { type: Date, default: Date.now },
+  expectedDelivery: Date,
+  receivedDate: Date,
+  paidDate: Date,
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdAt: { type: Date, default: Date.now }
+});
+const PurchaseOrder = mongoose.model('PurchaseOrder', purchaseOrderSchema);
+
+// Inventory Item Schema (for par levels and auto-reorder)
+const inventoryItemSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  sku: String,
+  description: String,
+  category: String,
+  currentStock: { type: Number, default: 0 },
+  unit: String,
+  parLevel: { type: Number, default: 0 }, // Minimum stock level
+  /** Per-unit cost/price for estimating on-hand value (Est. Value = sum of stock × lastPrice). */
+  lastPrice: { type: Number, min: 0 },
+  autoReorder: { type: Boolean, default: false },
+  preferredSupplier: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier' },
+  lastRestocked: Date,
+  createdAt: { type: Date, default: Date.now }
+});
+const InventoryItem = mongoose.model('InventoryItem', inventoryItemSchema);
+
+// Installation and Service History (Phase 1): log when projects are completed; editable with audit trail
 const serviceHistorySchema = new mongoose.Schema({
   customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
   projectId: { type: mongoose.Schema.Types.ObjectId },
@@ -276,7 +498,7 @@ const superAdminMiddleware = (req, res, next) => {
   next();
 };
 
-// Middleware for customer-only routes
+// Middleware for customer-only routes (Phase 1 & 2)
 const customerMiddleware = (req, res, next) => {
   if (req.user.role !== 'customer') {
     return res.status(403).json({ msg: 'Access denied. Customer account required.' });
@@ -285,6 +507,11 @@ const customerMiddleware = (req, res, next) => {
 };
 
 // Routes
+
+// Health check (no auth) - use GET /api/health to confirm the API is reachable on Vercel
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ ok: true, message: 'API is reachable' });
+});
 
 // Auth Routes
 app.post('/api/register', async (req, res) => {
@@ -396,9 +623,10 @@ app.post('/api/login', async (req, res) => {
       console.log(`[${timestamp}] ❌ LOGIN FAILED - Missing credentials - IP: ${clientIp}`);
       return res.status(400).json({ msg: 'Username and password are required' });
     }
-    
-    const user = await User.findOne({ username });
-    
+
+    // Allow login by username or email (admin often types email in username field)
+    const user = await User.findOne({ $or: [{ username }, { email: username }] });
+
     if (!user) {
       console.log(`[${timestamp}] ❌ LOGIN FAILED - User not found: "${username}" - IP: ${clientIp}`);
       return res.status(400).json({ msg: 'Invalid credentials' });
@@ -428,7 +656,7 @@ app.post('/api/login', async (req, res) => {
     }
     
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    console.log(`[${timestamp}] ✅ LOGIN SUCCESS - User: "${username}" (${user.role}) - IP: ${clientIp}`);
+    console.log(`[${timestamp}] ✅ LOGIN SUCCESS - User: "${user.username}" (${user.role}) - IP: ${clientIp}`);
     const payload = {
       token,
       user: {
@@ -518,10 +746,11 @@ app.post('/api/customer-bid', async (req, res) => {
   }
 });
 
-// Customer Register (Phase 1)
+// Customer Register (Phase 1): same data as request a bid + password; creates Customer + User (role customer)
 app.post('/api/customer/register', async (req, res) => {
   try {
     const { name, email, phone, address, projectName, projectDescription, password } = req.body;
+
     if (!name || !email || !phone || !password) {
       return res.status(400).json({ msg: 'Name, email, phone, and password are required' });
     }
@@ -532,10 +761,12 @@ app.post('/api/customer/register', async (req, res) => {
     if (!emailRegex.test(email)) {
       return res.status(400).json({ msg: 'Invalid email format' });
     }
+
     const existingUser = await User.findOne({ $or: [{ username: email }, { email }] });
     if (existingUser) {
       return res.status(400).json({ msg: 'An account with this email already exists. Please login instead.' });
     }
+
     let customer = await Customer.findOne({ email });
     if (customer) {
       // Update existing customer with registration data so record stays consistent
@@ -563,6 +794,7 @@ app.post('/api/customer/register', async (req, res) => {
       });
       await customer.save();
     }
+
     const hashed = await bcrypt.hash(password, 10);
     const user = new User({
       username: email,
@@ -573,6 +805,7 @@ app.post('/api/customer/register', async (req, res) => {
       customerId: customer._id
     });
     await user.save();
+
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.status(201).json({
       token,
@@ -591,11 +824,13 @@ app.post('/api/customer/register', async (req, res) => {
   }
 });
 
-// Customer My Info (Phase 2)
+// Customer My Info (Phase 2): view/edit profile only; does not change Customer Management
 app.get('/api/customer/me', authMiddleware, customerMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.user.customerId);
-    if (!customer) return res.status(404).json({ msg: 'Customer record not found' });
+    if (!customer) {
+      return res.status(404).json({ msg: 'Customer record not found' });
+    }
     const user = await User.findById(req.user.id).select('customerProfile');
     const profile = user?.customerProfile || {};
     res.json({ customer, profile: { phone: profile.phone || '', address: profile.address || '' } });
@@ -604,6 +839,7 @@ app.get('/api/customer/me', authMiddleware, customerMiddleware, async (req, res)
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });
+
 app.put('/api/customer/me', authMiddleware, customerMiddleware, async (req, res) => {
   try {
     const { phone, address } = req.body;
@@ -794,7 +1030,7 @@ app.put('/api/admin/users/:id/promote', authMiddleware, superAdminMiddleware, as
     user.status = 'approved';
     await user.save();
 
-    console.log(`⭐ User promoted: ${user.username} by ${req.user.username}`);
+    console.log(`⬆️ User promoted to super-admin: ${user.username} by ${req.user.username}`);
     res.json({ 
       msg: `User ${user.username} has been promoted to super-admin`,
       user: {
@@ -810,7 +1046,36 @@ app.put('/api/admin/users/:id/promote', authMiddleware, superAdminMiddleware, as
   }
 });
 
-// Customer Routes (admin only)
+// Reset user password (admin only)
+app.put('/api/admin/users/:id/password', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    const userId = req.params.id;
+
+    if (!newPassword) {
+      return res.status(400).json({ msg: 'New password is required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ msg: 'Password must be at least 6 characters' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ msg: 'User not found' });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    console.log(`🔑 Password reset for user: ${user.username} by ${req.user.username}`);
+    res.json({ msg: `Password updated for ${user.username}` });
+  } catch (err) {
+    console.error('Error resetting user password:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Customer Routes (admin only; customers use GET/PUT /api/customer/me)
 app.get('/api/customers', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customers = await Customer.find();
@@ -824,9 +1089,6 @@ app.get('/api/customers', authMiddleware, adminMiddleware, async (req, res) => {
 app.get('/api/customers/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customerId = req.params.id.trim();
-    console.log('Fetching customer with ID:', customerId);
-    console.log('ID length:', customerId.length);
-    console.log('ID type:', typeof customerId);
     
     // Validate MongoDB ObjectId format
     if (!mongoose.Types.ObjectId.isValid(customerId)) {
@@ -866,28 +1128,8 @@ app.get('/api/customers/:id', authMiddleware, adminMiddleware, async (req, res) 
     }
     
     if (!customer) {
-      console.error('Customer not found with ID:', customerId);
-      // List all customer IDs for debugging
-      const allCustomers = await Customer.find({}, '_id name');
-      const customerList = allCustomers.map(c => ({ 
-        id: c._id.toString(), 
-        idType: typeof c._id,
-        name: c.name 
-      }));
-      console.log('Available customers:', customerList);
-      console.log('Searching for ID:', customerId);
-      console.log('Available IDs:', customerList.map(c => c.id));
-      
-      // Check if the ID exists but with different format
-      const matchingId = customerList.find(c => c.id === customerId || c.id.toLowerCase() === customerId.toLowerCase());
-      if (matchingId) {
-        console.log('Found matching ID with different case:', matchingId);
-      }
-      
       return res.status(404).json({ 
-        msg: 'Customer not found', 
-        id: customerId,
-        availableCustomers: customerList
+        msg: 'Customer not found'
       });
     }
     
@@ -895,8 +1137,6 @@ app.get('/api/customers/:id', authMiddleware, adminMiddleware, async (req, res) 
     if (!customer.projects) {
       customer.projects = [];
     }
-    console.log('Customer found:', customer.name, 'with', customer.projects.length, 'projects');
-    console.log('Customer ID:', customer._id.toString());
     res.json(customer);
   } catch (err) {
     console.error('Error fetching customer:', err);
@@ -1057,6 +1297,56 @@ app.put('/api/customers/:customerId/projects/:projectId/bill', authMiddleware, a
   }
 });
 
+app.put('/api/customers/:customerId/projects/:projectId/paid', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.customerId);
+    if (!customer) {
+      return res.status(404).json({ msg: 'Customer not found' });
+    }
+    const project = customer.projects.id(req.params.projectId);
+    if (!project) {
+      return res.status(404).json({ msg: 'Project not found' });
+    }
+
+    const paidToDate = Number(req.body?.paidToDate);
+    if (!Number.isFinite(paidToDate) || paidToDate < 0) {
+      return res.status(400).json({ msg: 'paidToDate must be a valid non-negative number' });
+    }
+
+    project.paidToDate = paidToDate;
+    await customer.save();
+    res.json(project);
+  } catch (err) {
+    console.error('Error updating paid to date:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.put('/api/customers/:customerId/projects/:projectId/tax-rate', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.customerId);
+    if (!customer) {
+      return res.status(404).json({ msg: 'Customer not found' });
+    }
+    const project = customer.projects.id(req.params.projectId);
+    if (!project) {
+      return res.status(404).json({ msg: 'Project not found' });
+    }
+
+    const taxRate = Number(req.body?.taxRate);
+    if (!Number.isFinite(taxRate) || taxRate < 0) {
+      return res.status(400).json({ msg: 'taxRate must be a valid non-negative number' });
+    }
+
+    project.taxRate = taxRate;
+    await customer.save();
+    res.json(project);
+  } catch (err) {
+    console.error('Error updating tax rate:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
 app.put('/api/customers/:customerId/projects/:projectId/schedule', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerId);
@@ -1103,6 +1393,7 @@ app.put('/api/customers/:customerId/projects/:projectId/complete', authMiddlewar
     project.status = 'Completed';
     project.completedAt = completedAt;
     await customer.save();
+
     const historyEntry = new ServiceHistory({
       customerId: customer._id,
       projectId: project._id,
@@ -1117,6 +1408,7 @@ app.put('/api/customers/:customerId/projects/:projectId/complete', authMiddlewar
       editHistory: []
     });
     await historyEntry.save();
+
     console.log('Project marked as completed:', project.name);
     res.json(project);
   } catch (err) {
@@ -1125,9 +1417,12 @@ app.put('/api/customers/:customerId/projects/:projectId/complete', authMiddlewar
   }
 });
 
+// Installation and Service History (Phase 1 & 2)
 app.get('/api/customers/:customerId/history', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const list = await ServiceHistory.find({ customerId: req.params.customerId }).sort({ completedAt: -1 }).lean();
+    const list = await ServiceHistory.find({ customerId: req.params.customerId })
+      .sort({ completedAt: -1 })
+      .lean();
     res.json(list);
   } catch (err) {
     console.error('Error fetching customer history:', err);
@@ -1144,6 +1439,7 @@ app.get('/api/installation-history/export', authMiddleware, adminMiddleware, asy
       : [];
     const query = objectIds.length > 0 ? { _id: { $in: objectIds } } : {};
     const list = await ServiceHistory.find(query).sort({ completedAt: -1 }).lean();
+
     const headers = ['Customer Name', 'Phone', 'Address', 'Project Name', 'Summary', 'Type', 'Completed At', 'Details', 'Edit Count'];
     const escape = (v) => {
       const s = String(v == null ? '' : v);
@@ -1161,6 +1457,7 @@ app.get('/api/installation-history/export', authMiddleware, adminMiddleware, asy
       escape((e.editHistory && e.editHistory.length) || 0)
     ]);
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="installation-service-history.csv"');
     res.send(csv);
@@ -1192,6 +1489,7 @@ app.put('/api/installation-history/:id', authMiddleware, adminMiddleware, async 
   try {
     const entry = await ServiceHistory.findById(req.params.id);
     if (!entry) return res.status(404).json({ msg: 'History entry not found' });
+
     const changes = [];
     if (req.body.summary !== undefined && req.body.summary !== entry.summary) {
       changes.push(`summary: "${entry.summary}" → "${req.body.summary}"`);
@@ -1209,6 +1507,7 @@ app.put('/api/installation-history/:id', authMiddleware, adminMiddleware, async 
         entry.completedAt = new Date(req.body.completedAt);
       }
     }
+
     if (changes.length > 0) {
       const user = await User.findById(req.user.id);
       entry.editHistory.push({
@@ -1238,12 +1537,13 @@ app.post('/api/customers/:customerId/projects/:projectId/materials', authMiddlew
       return res.status(404).json({ msg: 'Project not found' });
     }
     
-    const { item, quantity, cost, markup } = req.body || {};
+    const { item, quantity, cost, markup, taxable } = req.body || {};
     project.materials.push({
       item,
       quantity: Number(quantity),
       cost: Number(cost),
-      markup: Number(markup || 0)
+      markup: Number(markup || 0),
+      taxable: taxable === undefined ? true : Boolean(taxable),
     });
     await customer.save();
     
@@ -1267,18 +1567,18 @@ app.put('/api/customers/:customerId/projects/:projectId/materials/:materialId', 
       return res.status(404).json({ msg: 'Project not found' });
     }
 
-    // Material is an embedded subdocument within the project.
     const material = project.materials.id(req.params.materialId);
     if (!material) {
       return res.status(404).json({ msg: 'Material not found' });
     }
 
-    const { item, quantity, cost, markup } = req.body;
+    const { item, quantity, cost, markup, taxable } = req.body;
 
     if (item !== undefined) material.item = String(item).trim();
     if (quantity !== undefined) material.quantity = Number(quantity);
     if (cost !== undefined) material.cost = Number(cost);
     if (markup !== undefined) material.markup = Number(markup);
+    if (taxable !== undefined) material.taxable = Boolean(taxable);
 
     await customer.save();
     res.json({ msg: 'Material updated', materials: project.materials });
@@ -1337,6 +1637,572 @@ app.post('/api/customers/:customerId/projects/:projectId/notes', authMiddleware,
     console.error('Error adding note:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
+});
+
+app.put('/api/customers/:customerId/projects/:projectId/notes/:noteId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { customerId, projectId, noteId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(customerId)) {
+      return res.status(400).json({ msg: 'Invalid customer ID format' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      return res.status(400).json({ msg: 'Invalid project ID format' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(noteId)) {
+      return res.status(400).json({ msg: 'Invalid note ID format' });
+    }
+
+    const customer = await Customer.findById(customerId);
+    if (!customer) return res.status(404).json({ msg: 'Customer not found' });
+
+    const project = customer.projects.id(projectId);
+    if (!project) return res.status(404).json({ msg: 'Project not found' });
+
+    const note = project.notes.id(noteId);
+    if (!note) return res.status(404).json({ msg: 'Note not found' });
+
+    const { text } = req.body;
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return res.status(400).json({ msg: 'Note text is required' });
+    }
+
+    note.text = text.trim();
+    await customer.save();
+    res.json({ msg: 'Note updated', notes: project.notes });
+  } catch (err) {
+    console.error('Error updating note:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.delete('/api/customers/:customerId/projects/:projectId/notes/:noteId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { customerId, projectId, noteId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(customerId)) {
+      return res.status(400).json({ msg: 'Invalid customer ID format' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      return res.status(400).json({ msg: 'Invalid project ID format' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(noteId)) {
+      return res.status(400).json({ msg: 'Invalid note ID format' });
+    }
+
+    const customer = await Customer.findById(customerId);
+    if (!customer) return res.status(404).json({ msg: 'Customer not found' });
+
+    const project = customer.projects.id(projectId);
+    if (!project) return res.status(404).json({ msg: 'Project not found' });
+
+    const note = project.notes.id(noteId);
+    if (!note) return res.status(404).json({ msg: 'Note not found' });
+
+    project.notes.pull(noteId);
+    await customer.save();
+    res.json({ msg: 'Note deleted', notes: project.notes });
+  } catch (err) {
+    console.error('Error deleting note:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// ===== SUPPLIER ROUTES =====
+
+// Get all suppliers with stats
+app.get('/api/suppliers', authMiddleware, async (req, res) => {
+  try {
+    const { category, favorites, search } = req.query;
+    
+    let query = { isActive: true };
+    if (category) query.categories = category;
+    if (favorites === 'true') query.isFavorite = true;
+    if (search) query.name = { $regex: search, $options: 'i' };
+    
+    const suppliers = await Supplier.find(query).sort({ name: 1 });
+    
+    // Calculate stats
+    const totalSuppliers = suppliers.length;
+    const openPOs = await PurchaseOrder.countDocuments({ 
+      status: { $in: ['Draft', 'Sent', 'Confirmed'] } 
+    });
+    
+    const thisMonth = new Date();
+    thisMonth.setDate(1);
+    thisMonth.setHours(0, 0, 0, 0);
+    
+    const monthlySpend = await PurchaseOrder.aggregate([
+      { $match: { orderDate: { $gte: thisMonth }, status: { $ne: 'Cancelled' } } },
+      { $group: { _id: null, total: { $sum: '$total' } } }
+    ]);
+    
+    const lowStockItems = await InventoryItem.countDocuments({
+      $expr: { $lt: ['$currentStock', '$parLevel'] },
+      parLevel: { $gt: 0 }
+    });
+    
+    res.json({
+      suppliers,
+      stats: {
+        totalSuppliers,
+        openPOs,
+        monthlySpend: monthlySpend[0]?.total || 0,
+        lowStockItems
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching suppliers:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Get single supplier with details
+app.get('/api/suppliers/:id', authMiddleware, async (req, res) => {
+  try {
+    const supplier = await Supplier.findById(req.params.id);
+    if (!supplier) {
+      return res.status(404).json({ msg: 'Supplier not found' });
+    }
+    
+    // Get order history
+    const orders = await PurchaseOrder.find({ supplier: req.params.id })
+      .sort({ orderDate: -1 })
+      .limit(20);
+    
+    res.json({ supplier, orders });
+  } catch (err) {
+    console.error('Error fetching supplier:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Create supplier
+app.post('/api/suppliers', authMiddleware, async (req, res) => {
+  try {
+    const supplier = new Supplier(req.body);
+    await supplier.save();
+    res.status(201).json(supplier);
+  } catch (err) {
+    console.error('Error creating supplier:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Update supplier
+app.put('/api/suppliers/:id', authMiddleware, async (req, res) => {
+  try {
+    const supplier = await Supplier.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+    if (!supplier) {
+      return res.status(404).json({ msg: 'Supplier not found' });
+    }
+    res.json(supplier);
+  } catch (err) {
+    console.error('Error updating supplier:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Delete supplier
+app.delete('/api/suppliers/:id', authMiddleware, async (req, res) => {
+  try {
+    const supplier = await Supplier.findByIdAndUpdate(
+      req.params.id,
+      { isActive: false },
+      { new: true }
+    );
+    if (!supplier) {
+      return res.status(404).json({ msg: 'Supplier not found' });
+    }
+    res.json({ msg: 'Supplier archived' });
+  } catch (err) {
+    console.error('Error deleting supplier:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Toggle favorite
+app.put('/api/suppliers/:id/favorite', authMiddleware, async (req, res) => {
+  try {
+    const supplier = await Supplier.findById(req.params.id);
+    if (!supplier) {
+      return res.status(404).json({ msg: 'Supplier not found' });
+    }
+    supplier.isFavorite = !supplier.isFavorite;
+    await supplier.save();
+    res.json(supplier);
+  } catch (err) {
+    console.error('Error toggling favorite:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// ===== ADI SUPPLIER INTEGRATION ROUTES =====
+/**
+ * Phase 2 (Price & Inventory): proxy endpoint for ADI price/inventory lookups.
+ * Uses env-backed ADI credentials and reuses shared auth-signature generation.
+ */
+app.post('/api/suppliers/adi/price-inventory', authMiddleware, async (req, res) => {
+  try {
+    const credentials = {
+      apiKey: process.env.ADI_API_KEY,
+      apiPassword: process.env.ADI_API_PASSWORD,
+      apiSecretKey: process.env.ADI_API_SECRET_KEY,
+    };
+
+    if (!credentials.apiKey || !credentials.apiPassword || !credentials.apiSecretKey) {
+      return res.status(500).json({ msg: 'ADI API credentials are not configured.' });
+    }
+
+    const { customerNumber, customerSuffix, itemList, clientRequestId, timestamp } = req.body || {};
+
+    const adiRequest = {
+      credentials,
+      customerNumber,
+      customerSuffix,
+      itemList,
+    };
+    if (clientRequestId !== undefined) adiRequest.clientRequestId = clientRequestId;
+    if (timestamp !== undefined) adiRequest.timestamp = timestamp;
+
+    const adiResponse = await fetchAdiPriceAndInventoryDetails(adiRequest);
+
+    return res.json(adiResponse);
+  } catch (err) {
+    const message = err?.message || 'Failed to fetch ADI price and inventory details.';
+    const isValidationError =
+      message.includes('required') ||
+      message.includes('cannot contain more than 50 items') ||
+      message.includes('must be a positive number');
+
+    if (isValidationError) {
+      return res.status(400).json({ msg: message });
+    }
+
+    return res.status(502).json({ msg: 'ADI request failed.', details: message });
+  }
+});
+
+/**
+ * Phase 3 (Order Generation): proxy endpoint for ADI order placement.
+ * Uses env-backed ADI credentials and shared signature generation.
+ */
+app.post('/api/suppliers/adi/order-generation', authMiddleware, async (req, res) => {
+  try {
+    const credentials = {
+      apiKey: process.env.ADI_API_KEY,
+      apiPassword: process.env.ADI_API_PASSWORD,
+      apiSecretKey: process.env.ADI_API_SECRET_KEY,
+    };
+
+    if (!credentials.apiKey || !credentials.apiPassword || !credentials.apiSecretKey) {
+      return res.status(500).json({ msg: 'ADI API credentials are not configured.' });
+    }
+
+    const {
+      customerNumber,
+      customerSuffix,
+      poNumber,
+      referenceNumber,
+      shipmentPickupIndicator,
+      shipmentComplete,
+      shipmentCarrier,
+      shipmentMethod,
+      pickupDC,
+      promoCode,
+      promoCodeType,
+      emailAddress,
+      dropShipmentName,
+      dropShipmentAddress1,
+      dropShipmentAddress2,
+      dropShipmentAddress3,
+      dropShipmentCity,
+      dropShipmentStateProvince,
+      dropShipmentZipcode,
+      dropShipmentCountryCode,
+      orderList,
+      clientRequestId,
+      timestamp,
+    } = req.body || {};
+
+    const adiRequest = {
+      credentials,
+      customerNumber,
+      customerSuffix,
+      poNumber,
+      referenceNumber,
+      shipmentPickupIndicator,
+      shipmentComplete,
+      shipmentCarrier,
+      shipmentMethod,
+      pickupDC,
+      promoCode,
+      promoCodeType,
+      emailAddress,
+      dropShipmentName,
+      dropShipmentAddress1,
+      dropShipmentAddress2,
+      dropShipmentAddress3,
+      dropShipmentCity,
+      dropShipmentStateProvince,
+      dropShipmentZipcode,
+      dropShipmentCountryCode,
+      orderList,
+    };
+    if (clientRequestId !== undefined) adiRequest.clientRequestId = clientRequestId;
+    if (timestamp !== undefined) adiRequest.timestamp = timestamp;
+
+    const adiResponse = await fetchAdiOrderGeneration(adiRequest);
+
+    return res.json(adiResponse);
+  } catch (err) {
+    const message = err?.message || 'Failed to generate ADI order.';
+    const isValidationError =
+      message.includes('required') ||
+      message.includes('must be') ||
+      message.includes('cannot');
+
+    if (isValidationError) {
+      return res.status(400).json({ msg: message });
+    }
+
+    return res.status(502).json({ msg: 'ADI request failed.', details: message });
+  }
+});
+
+/**
+ * Phase 4 (Order Inquiry): proxy endpoint for ADI order tracking/inquiry.
+ * Uses env-backed ADI credentials and shared signature generation.
+ */
+app.post('/api/suppliers/adi/order-inquiry', authMiddleware, async (req, res) => {
+  try {
+    const credentials = {
+      apiKey: process.env.ADI_API_KEY,
+      apiPassword: process.env.ADI_API_PASSWORD,
+      apiSecretKey: process.env.ADI_API_SECRET_KEY,
+    };
+
+    if (!credentials.apiKey || !credentials.apiPassword || !credentials.apiSecretKey) {
+      return res.status(500).json({ msg: 'ADI API credentials are not configured.' });
+    }
+
+    const {
+      customerNumber,
+      customerSuffix,
+      adiOrderNumber,
+      clientRequestId,
+      timestamp,
+    } = req.body || {};
+
+    const adiRequest = {
+      credentials,
+      customerNumber,
+      customerSuffix,
+      adiOrderNumber,
+    };
+    if (clientRequestId !== undefined) adiRequest.clientRequestId = clientRequestId;
+    if (timestamp !== undefined) adiRequest.timestamp = timestamp;
+
+    const adiResponse = await fetchAdiOrderInquiry(adiRequest);
+
+    return res.json(adiResponse);
+  } catch (err) {
+    const message = err?.message || 'Failed to fetch ADI order inquiry details.';
+    const isValidationError = message.includes('required') || message.includes('must be');
+
+    if (isValidationError) {
+      return res.status(400).json({ msg: message });
+    }
+
+    return res.status(502).json({ msg: 'ADI request failed.', details: message });
+  }
+});
+
+// ===== PURCHASE ORDER ROUTES =====
+
+// Get all purchase orders
+app.get('/api/purchase-orders', authMiddleware, async (req, res) => {
+  try {
+    const { status, supplierId } = req.query;
+    let query = {};
+    if (status) query.status = status;
+    if (supplierId) query.supplier = supplierId;
+    
+    const pos = await PurchaseOrder.find(query)
+      .populate('supplier', 'name')
+      .populate('createdBy', 'username')
+      .sort({ orderDate: -1 });
+    res.json(pos);
+  } catch (err) {
+    console.error('Error fetching purchase orders:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Generate next PO number
+async function generatePONumber() {
+  const year = new Date().getFullYear();
+  const lastPO = await PurchaseOrder.findOne({
+    poNumber: new RegExp(`^PO-${year}`)
+  }).sort({ createdAt: -1 });
+  
+  if (!lastPO) {
+    return `PO-${year}-0001`;
+  }
+  
+  const lastNum = parseInt(lastPO.poNumber.split('-')[2]);
+  const nextNum = (lastNum + 1).toString().padStart(4, '0');
+  return `PO-${year}-${nextNum}`;
+}
+
+// Create purchase order
+app.post('/api/purchase-orders', authMiddleware, async (req, res) => {
+  try {
+    const poNumber = await generatePONumber();
+    const po = new PurchaseOrder({
+      ...req.body,
+      poNumber,
+      createdBy: req.user.id
+    });
+    await po.save();
+    
+    // Update supplier's last order date and total spent
+    await Supplier.findByIdAndUpdate(po.supplier, {
+      lastOrderDate: po.orderDate,
+      $inc: { totalSpent: po.total }
+    });
+    
+    res.status(201).json(po);
+  } catch (err) {
+    console.error('Error creating purchase order:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Update purchase order
+app.put('/api/purchase-orders/:id', authMiddleware, async (req, res) => {
+  try {
+    const po = await PurchaseOrder.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    ).populate('supplier', 'name');
+    
+    if (!po) {
+      return res.status(404).json({ msg: 'Purchase order not found' });
+    }
+    res.json(po);
+  } catch (err) {
+    console.error('Error updating purchase order:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// ===== INVENTORY ROUTES =====
+
+/** Normalize client body so ObjectId fields don’t use "" (cast error aborts the whole update). */
+function inventoryPayloadFromBody(body) {
+  const supplierRaw = body.preferredSupplier;
+  const preferredSupplier =
+    supplierRaw != null && String(supplierRaw).trim() !== '' ? supplierRaw : null;
+
+  return {
+    name: String(body.name ?? '').trim(),
+    sku: body.sku != null ? String(body.sku) : '',
+    description: body.description != null ? String(body.description) : '',
+    category: body.category != null ? String(body.category) : '',
+    currentStock: Math.max(0, Number(body.currentStock) || 0),
+    unit: body.unit != null ? String(body.unit) : 'each',
+    parLevel: Math.max(0, Number(body.parLevel) || 0),
+    lastPrice: Math.max(0, Number(body.lastPrice) || 0),
+    autoReorder: Boolean(body.autoReorder),
+    preferredSupplier,
+  };
+}
+
+// Get inventory items (with low stock alert)
+app.get('/api/inventory', authMiddleware, async (req, res) => {
+  try {
+    const { lowStock } = req.query;
+    let query = {};
+    
+    if (lowStock === 'true') {
+      // Find items where currentStock < parLevel
+      const items = await InventoryItem.find({
+        parLevel: { $gt: 0 }
+      }).populate('preferredSupplier', 'name');
+      
+      const lowStockItems = items.filter(item => item.currentStock < item.parLevel);
+      return res.json(lowStockItems);
+    }
+    
+    const items = await InventoryItem.find(query)
+      .populate('preferredSupplier', 'name')
+      .sort({ name: 1 });
+    res.json(items);
+  } catch (err) {
+    console.error('Error fetching inventory:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Create/Update inventory item
+app.post('/api/inventory', authMiddleware, async (req, res) => {
+  try {
+    const data = inventoryPayloadFromBody(req.body);
+    if (!data.name) {
+      return res.status(400).json({ msg: 'Item name is required' });
+    }
+    const item = new InventoryItem(data);
+    await item.save();
+    await item.populate('preferredSupplier', 'name');
+    res.status(201).json(item);
+  } catch (err) {
+    console.error('Error creating inventory item:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.put('/api/inventory/:id', authMiddleware, async (req, res) => {
+  try {
+    const data = inventoryPayloadFromBody(req.body);
+    if (!data.name) {
+      return res.status(400).json({ msg: 'Item name is required' });
+    }
+    const item = await InventoryItem.findByIdAndUpdate(
+      req.params.id,
+      { $set: data },
+      { new: true, runValidators: true }
+    ).populate('preferredSupplier', 'name');
+    
+    if (!item) {
+      return res.status(404).json({ msg: 'Inventory item not found' });
+    }
+    res.json(item);
+  } catch (err) {
+    console.error('Error updating inventory item:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+// Catch-all: no route matched. When DEBUG_API is on, return path info in response so you can see it in F12 → Network.
+app.use((req, res) => {
+  if (DEBUG_API) {
+    return res.status(404).json({
+      msg: 'Not found',
+      debug: {
+        path: req.path,
+        url: req.url,
+        originalUrl: req.originalUrl,
+        queryPath: req.query?.path,
+        method: req.method,
+        hint: 'Enable DEBUG_API on server to see this. Check Vercel Logs for [DEBUG_API] request/response lines.',
+      },
+    });
+  }
+  res.status(404).json({ msg: 'Not found' });
 });
 
 const PORT = process.env.PORT || 5000;
