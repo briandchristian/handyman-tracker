@@ -15,6 +15,7 @@ import {
 import { fetchAdiPriceAndInventoryDetails } from './lib/suppliers/adiPriceInventory.js';
 import { fetchAdiOrderGeneration } from './lib/suppliers/adiOrderGeneration.js';
 import { fetchAdiOrderInquiry } from './lib/suppliers/adiOrderInquiry.js';
+import { sendMetaLeadEvent } from './lib/metaCapi.js';
 
 const app = express();
 
@@ -681,7 +682,13 @@ app.post('/api/login', async (req, res) => {
 // Public Customer Bid Route (no authentication required)
 app.post('/api/customer-bid', async (req, res) => {
   try {
-    const { name, email, phone, address, projectName, projectDescription } = req.body;
+    const { address, projectName, projectDescription } = req.body;
+
+    // Public form input: autofill and copy-paste routinely add surrounding
+    // whitespace, which the email regex below would otherwise reject.
+    const name = String(req.body.name ?? '').trim();
+    const email = String(req.body.email ?? '').trim();
+    const phone = String(req.body.phone ?? '').trim();
 
     // Validation
     if (!name || !email || !phone) {
@@ -739,6 +746,28 @@ app.post('/api/customer-bid', async (req, res) => {
           email: newCustomer.email
         }
       });
+    }
+
+    // Server-side Meta Conversions API Lead event. The browser pixel is often
+    // blocked, so this is the more reliable conversion signal. Deliberately not
+    // awaited: the response is already sent, and email/phone are hashed inside
+    // sendMetaLeadEvent. No-ops when META_CAPI_ACCESS_TOKEN is unset. Both the
+    // synchronous and asynchronous paths are guarded so a CAPI problem can
+    // never turn a saved bid into a failed request.
+    try {
+      Promise.resolve(
+        sendMetaLeadEvent({
+          email,
+          phone,
+          eventSourceUrl: req.headers?.referer,
+          clientIpAddress: getClientIp(req),
+          clientUserAgent: req.headers?.['user-agent'],
+        })
+      ).catch((capiErr) => {
+        console.error('Meta CAPI Lead event failed:', capiErr?.message || capiErr);
+      });
+    } catch (capiErr) {
+      console.error('Meta CAPI Lead event failed:', capiErr?.message || capiErr);
     }
   } catch (err) {
     console.error('Error submitting customer bid:', err);

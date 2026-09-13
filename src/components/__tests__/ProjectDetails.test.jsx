@@ -1487,10 +1487,14 @@ describe('ProjectDetails Component', () => {
         ([line]) => typeof line === 'string' && line.includes('2622')
       );
       const phoneCall = mockPdfDoc.text.mock.calls.some(
+        ([line]) => typeof line === 'string' && line.includes('(931) 279-7879')
+      );
+      const retiredPhoneCall = mockPdfDoc.text.mock.calls.some(
         ([line]) => typeof line === 'string' && line.includes('801-851-0909')
       );
       expect(licenseCall).toBe(true);
       expect(phoneCall).toBe(true);
+      expect(retiredPhoneCall).toBe(false);
     });
 
     test('should add a new pdf page when materials exceed page height', async () => {

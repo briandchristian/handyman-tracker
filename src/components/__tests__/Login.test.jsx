@@ -678,5 +678,166 @@ describe('Login Component', () => {
       expect(localStorage.getItem('token')).toBe('t');
     });
   });
+
+  describe('Company information block', () => {
+    test('should render the local Tennessee phone number', () => {
+      renderLogin(<Login setToken={mockSetToken} />);
+
+      expect(
+        screen.getByText('Phone Number: (931) 279-7879')
+      ).toBeInTheDocument();
+    });
+
+    test('should no longer render the retired out-of-state number', () => {
+      const { container } = renderLogin(<Login setToken={mockSetToken} />);
+
+      expect(container.textContent).not.toContain('801-851-0909');
+    });
+
+    test('should still render the alarm contracting license id', () => {
+      renderLogin(<Login setToken={mockSetToken} />);
+
+      expect(
+        screen.getByText('ID Number: 2622 Alarm Contracting Company')
+      ).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * The Meta Pixel is initialised in index.html and fires PageView on load.
+   * A bid request is the site's actual conversion, so a `Lead` event must fire
+   * on — and only on — a successful POST to /api/customer-bid. Firing on a
+   * failed request would inflate conversion counts and mislead ad bidding.
+   */
+  describe('Meta Pixel Lead tracking on bid submission', () => {
+    let fbq;
+
+    beforeEach(() => {
+      fbq = jest.fn();
+      window.fbq = fbq;
+    });
+
+    afterEach(() => {
+      delete window.fbq;
+    });
+
+    const fillAndSubmitBidForm = async () => {
+      await userEvent.type(screen.getByPlaceholderText('Your Name *'), 'John Doe');
+      await userEvent.type(screen.getByPlaceholderText('Email *'), 'john@example.com');
+      await userEvent.type(screen.getByPlaceholderText(/Phone/), '9312797879');
+      await userEvent.type(screen.getByPlaceholderText('Project Name *'), 'Alarm install');
+      await userEvent.type(
+        screen.getByPlaceholderText('Project Description *'),
+        'Burglar alarm for a new build'
+      );
+      await userEvent.click(
+        screen.getByRole('button', { name: /submit bid request/i })
+      );
+    };
+
+    test('should fire a Lead event after a successful submission', async () => {
+      axios.post.mockResolvedValue({ data: { msg: 'Bid request submitted successfully!' } });
+
+      renderLogin(<Login setToken={mockSetToken} />);
+      await fillAndSubmitBidForm();
+
+      await waitFor(() => {
+        expect(fbq).toHaveBeenCalledWith('track', 'Lead');
+      });
+    });
+
+    test('should fire the Lead event exactly once per successful submission', async () => {
+      axios.post.mockResolvedValue({ data: { msg: 'Success' } });
+
+      renderLogin(<Login setToken={mockSetToken} />);
+      await fillAndSubmitBidForm();
+
+      await waitFor(() => {
+        expect(fbq).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    test('should NOT fire a Lead event when the request fails with a network error', async () => {
+      axios.post.mockRejectedValue({ message: 'Network Error' });
+
+      renderLogin(<Login setToken={mockSetToken} />);
+      await fillAndSubmitBidForm();
+
+      await waitFor(() => {
+        expect(global.alert).toHaveBeenCalledWith(
+          expect.stringContaining('Cannot connect to server')
+        );
+      });
+      expect(fbq).not.toHaveBeenCalled();
+    });
+
+    test('should NOT fire a Lead event when the server returns an HTTP error', async () => {
+      axios.post.mockRejectedValue({
+        response: { status: 400, data: { msg: 'Invalid email format' } },
+      });
+
+      renderLogin(<Login setToken={mockSetToken} />);
+      await fillAndSubmitBidForm();
+
+      await waitFor(() => {
+        expect(global.alert).toHaveBeenCalledWith('❌ Invalid email format');
+      });
+      expect(fbq).not.toHaveBeenCalled();
+    });
+
+    test('should NOT fire a Lead event when the server returns a 500', async () => {
+      axios.post.mockRejectedValue({ response: { status: 500, data: {} } });
+
+      renderLogin(<Login setToken={mockSetToken} />);
+      await fillAndSubmitBidForm();
+
+      await waitFor(() => {
+        expect(global.alert).toHaveBeenCalled();
+      });
+      expect(fbq).not.toHaveBeenCalled();
+    });
+
+    test('should not throw when fbq is undefined (ad blocker / SSR)', async () => {
+      delete window.fbq;
+      axios.post.mockResolvedValue({ data: { msg: 'Success' } });
+
+      renderLogin(<Login setToken={mockSetToken} />);
+      await fillAndSubmitBidForm();
+
+      // The form still clears, proving handleCustomerBid ran to completion.
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Your Name *').value).toBe('');
+      });
+      expect(global.alert).toHaveBeenCalledWith('Success');
+    });
+
+    test('should not throw when fbq is present but not a function', async () => {
+      window.fbq = 'not-a-function';
+      axios.post.mockResolvedValue({ data: { msg: 'Success' } });
+
+      renderLogin(<Login setToken={mockSetToken} />);
+      await fillAndSubmitBidForm();
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Your Name *').value).toBe('');
+      });
+    });
+
+    test('should not fire a Lead event on admin login', async () => {
+      axios.post.mockResolvedValue({
+        data: { token: 'tok', user: { role: 'admin' } },
+      });
+
+      renderLogin(<Login setToken={mockSetToken} />);
+      await userEvent.type(screen.getByTestId('admin-login-username'), 'admin');
+      await userEvent.type(screen.getByTestId('admin-login-password'), 'password');
+      await userEvent.click(screen.getByRole('button', { name: /^login$/i }));
+
+      await waitFor(() => {
+        expect(mockSetToken).toHaveBeenCalledWith('tok');
+      });
+      expect(fbq).not.toHaveBeenCalledWith('track', 'Lead');
+    });
+  });
 });
 

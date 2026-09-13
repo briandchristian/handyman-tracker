@@ -26,7 +26,7 @@ const BID_PDF_COMPANY = {
   nameLine3: 'SERVICES',
   subtitle: 'ALARM SYSTEM CONTRACTOR',
   license: 'Tennessee Alarm Systems Contractor License #: 2622',
-  phone: '801-851-0909'
+  phone: '(931) 279-7879'
 };
 
 const MONITORING_AGREEMENT_DOCX_URL = '/ALARM MONITORING SERVICES AGREEMENT.docx';
@@ -828,7 +828,7 @@ export default function ProjectDetails() {
     doc.text('Name/Title ____________________________ Date: _______________', left, y);
     y += 7;
     ensurePageSpace(8);
-    doc.text('Phone: 801-851-0909 | Email: brian_christian@hotmail.com', left, y);
+    doc.text(`Phone: ${BID_PDF_COMPANY.phone} | Email: brian_christian@hotmail.com`, left, y);
 
     if (includeMonitoringAgreement) {
       let agreementLines = [];

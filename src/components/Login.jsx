@@ -227,6 +227,14 @@ export default function Login({ setToken }) {
         projectName,
         projectDescription
       });
+
+      // Meta Pixel: a submitted bid request is this site's lead conversion, so
+      // report it only after the request succeeds. Guarded because fbq is
+      // absent when the pixel is ad-blocked or the page is server-rendered.
+      if (typeof window.fbq === 'function') {
+        window.fbq('track', 'Lead');
+      }
+
       alert(res.data.msg);
       // Clear form
       setCustomerName('');
@@ -264,7 +272,7 @@ export default function Login({ setToken }) {
           <div className="text-xl md:text-2xl font-bold text-gray-900 tracking-tight uppercase">
             Christian Security Services
           </div>
-          <div className="text-sm md:text-base text-gray-700 mt-1">Phone Number: 801-851-0909</div>
+          <div className="text-sm md:text-base text-gray-700 mt-1">Phone Number: (931) 279-7879</div>
           <div className="text-sm md:text-base text-gray-700">ID Number: 2622 Alarm Contracting Company</div>
           <div className="text-sm md:text-base text-gray-700">Residential and Commercial</div>
           <div className="text-sm md:text-base text-gray-700">Burglar Alarms</div>
