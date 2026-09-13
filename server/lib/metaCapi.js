@@ -26,7 +26,7 @@
 import { createHash } from 'crypto';
 
 /** Christian Security Services Meta Pixel, matching index.html. */
-export const DEFAULT_META_PIXEL_ID = '1415642066441121';
+export const DEFAULT_META_PIXEL_ID = '1987889385503166';
 
 export const META_GRAPH_API_VERSION = 'v21.0';
 

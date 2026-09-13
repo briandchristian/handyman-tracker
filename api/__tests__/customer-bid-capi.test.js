@@ -170,7 +170,7 @@ describe('POST /api/customer-bid — Meta CAPI disabled (no access token)', () =
 describe('POST /api/customer-bid — Meta CAPI enabled', () => {
   beforeEach(() => {
     process.env.META_CAPI_ACCESS_TOKEN = 'test-capi-token';
-    process.env.META_PIXEL_ID = '1415642066441121';
+    process.env.META_PIXEL_ID = '1987889385503166';
   });
 
   test('sends a Lead event with SHA-256 hashed email and phone', async () => {
@@ -181,7 +181,7 @@ describe('POST /api/customer-bid — Meta CAPI enabled', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
 
     const [url, options] = global.fetch.mock.calls[0];
-    expect(url).toContain('1415642066441121');
+    expect(url).toContain('1987889385503166');
 
     const body = JSON.parse(options.body);
     expect(body.access_token).toBe('test-capi-token');

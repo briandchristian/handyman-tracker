@@ -153,7 +153,7 @@ describe('getMetaCapiConfig', () => {
   test('falls back to the Christian Security Services pixel id', () => {
     const config = getMetaCapiConfig({ META_CAPI_ACCESS_TOKEN: 'tok-123' });
     expect(config.pixelId).toBe(DEFAULT_META_PIXEL_ID);
-    expect(DEFAULT_META_PIXEL_ID).toBe('1415642066441121');
+    expect(DEFAULT_META_PIXEL_ID).toBe('1987889385503166');
   });
 
   test('prefers an explicitly configured pixel id', () => {
