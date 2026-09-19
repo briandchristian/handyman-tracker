@@ -7,9 +7,11 @@ on:
     paths:
       - '.github/repo-metadata.json'
       - '.github/workflows/sync-repo-metadata.yml'
+  workflow_dispatch:
 
 permissions:
-  metadata: write
+  contents: read
+  administration: write
 
 jobs:
   sync:
