@@ -17,6 +17,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "check-secrets": "node scripts/check-no-env-committed.js",
+    "gh:login": "node scripts/gh-login.js",
     "sync:github-metadata": "node scripts/sync-github-repo-metadata.js",
     "test:deployment": "node scripts/test-vercel-deployment.js",
     "ads:status": "node scripts/meta-ads-cli.js status",

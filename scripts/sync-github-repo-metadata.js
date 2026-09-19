@@ -1,24 +1,26 @@
 #!/usr/bin/env node
 /**
- * One-time local sync of GitHub repo description/homepage/topics from
- * .github/repo-metadata.json (requires: gh auth login).
+ * Local sync of GitHub repo description/homepage/topics from
+ * .github/repo-metadata.json (run npm run gh:login once first).
  */
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { resolveGhExecutable } from './resolve-gh.js';
 
 const metaPath = path.resolve(process.cwd(), '.github/repo-metadata.json');
 const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+const gh = resolveGhExecutable();
 
-const desc = meta.description.replace(/"/g, '\\"');
-const homepage = meta.homepage || '';
-
-let cmd = `gh repo edit --description "${desc}"`;
-if (homepage) {
-  cmd += ` --homepage "${homepage}"`;
+const args = ['repo', 'edit', '--description', meta.description];
+if (meta.homepage) {
+  args.push('--homepage', meta.homepage);
 }
-if (Array.isArray(meta.topics) && meta.topics.length > 0) {
-  cmd += ` --add-topic ${meta.topics.join(' --add-topic ')}`;
+if (Array.isArray(meta.topics)) {
+  for (const topic of meta.topics) {
+    args.push('--add-topic', topic);
+  }
 }
 
-execSync(cmd, { stdio: 'inherit' });
+console.log(`Using GitHub CLI: ${gh}`);
+execFileSync(gh, args, { stdio: 'inherit' });

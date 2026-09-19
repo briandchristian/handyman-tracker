@@ -8,7 +8,7 @@ The repository name `handyman-tracker` is historical; the product serves burglar
 
 Edit [`.github/repo-metadata.json`](.github/repo-metadata.json) when the public GitHub blurb should change.
 
-- **One-time (local):** `gh auth login`, then `npm run sync:github-metadata`
+- **One-time (local):** `npm run gh:login`, then `npm run sync:github-metadata` (finds `gh.exe` under `Program Files` if it is not on PATH)
 - **On every push (optional):** add a repo secret `REPO_METADATA_PAT` (classic PAT with `repo` scope) so [`.github/workflows/sync-repo-metadata.yml`](.github/workflows/sync-repo-metadata.yml) can run automatically
 
 ## Project Structure
