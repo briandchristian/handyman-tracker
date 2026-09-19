@@ -1,6 +1,8 @@
-# Handyman Tracker
+# Christian Security Services — Operations App
 
-A full-stack application for managing handyman projects, customers, and bids.
+Full-stack web app for **Christian Security Services** (Tennessee licensed alarm contractor ID 2622): public marketing and bid requests, customer and staff portals, project/material tracking, bids and invoices, inventory, and supplier catalogs.
+
+The repository name `handyman-tracker` is historical; the product serves burglar, fire, CCTV, and access control work.
 
 ## Project Structure
 

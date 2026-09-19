@@ -1,5 +1,6 @@
 {
   "name": "handyman-tracker",
+  "description": "Operations app for Christian Security Services — marketing site, bids, projects, materials, and inventory for Tennessee security installations.",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -16,6 +17,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "check-secrets": "node scripts/check-no-env-committed.js",
+    "sync:github-metadata": "gh repo edit --description \"Operations app for Christian Security Services — public marketing, bid requests, projects, materials, and inventory for TN alarm, fire, CCTV, and access control work.\" --homepage \"https://handyman-tracker.vercel.app\"",
     "test:deployment": "node scripts/test-vercel-deployment.js",
     "ads:status": "node scripts/meta-ads-cli.js status",
     "ads:pause": "node scripts/meta-ads-cli.js pause",

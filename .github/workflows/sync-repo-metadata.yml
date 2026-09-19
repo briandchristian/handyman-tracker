@@ -1,0 +1,49 @@
+# Keeps github.com repo description, homepage, and topics in sync with .github/repo-metadata.json
+name: Sync GitHub repo metadata
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/repo-metadata.json'
+      - '.github/workflows/sync-repo-metadata.yml'
+
+permissions:
+  metadata: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply description and homepage
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const meta = JSON.parse(
+              fs.readFileSync('.github/repo-metadata.json', 'utf8')
+            );
+            await github.rest.repos.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              description: meta.description,
+              homepage: meta.homepage || undefined,
+            });
+
+      - name: Apply repository topics
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const meta = JSON.parse(
+              fs.readFileSync('.github/repo-metadata.json', 'utf8')
+            );
+            if (!Array.isArray(meta.topics) || meta.topics.length === 0) return;
+            await github.request('PUT /repos/{owner}/{repo}/topics', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              names: meta.topics,
+              headers: { accept: 'application/vnd.github+json' },
+            });
