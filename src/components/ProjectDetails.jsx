@@ -151,10 +151,6 @@ export default function ProjectDetails() {
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editNoteText, setEditNoteText] = useState('');
   const [includeMonitoringAgreement, setIncludeMonitoringAgreement] = useState(false);
-  const [isMobileView, setIsMobileView] = useState(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-    return window.matchMedia('(max-width: 639px)').matches;
-  });
   const [editingProjectInfo, setEditingProjectInfo] = useState(false);
   const [editProjectInfo, setEditProjectInfo] = useState({
     name: '',
@@ -240,19 +236,6 @@ export default function ProjectDetails() {
       window.fbq('track', 'ViewContent', { value: 1 });
     }
   }, [project]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
-    const media = window.matchMedia('(max-width: 639px)');
-    const onChange = (event) => setIsMobileView(event.matches);
-    setIsMobileView(media.matches);
-    if (typeof media.addEventListener === 'function') {
-      media.addEventListener('change', onChange);
-      return () => media.removeEventListener('change', onChange);
-    }
-    media.addListener(onChange);
-    return () => media.removeListener(onChange);
-  }, []);
 
   const submitBid = async () => {
     if (!bidAmount || bidAmount <= 0) {
@@ -1193,10 +1176,10 @@ export default function ProjectDetails() {
   const proposedSystemStatement = buildProposedSystemStatement(project.equipmentCategories);
 
   return (
-    <div className="p-4 sm:p-6 text-black max-w-6xl mx-auto">
+    <div className="p-4 sm:p-6 text-black max-w-6xl mx-auto min-w-0 overflow-x-hidden">
       <div data-testid="project-top-actions" className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 mb-4">
         <Link to="/customers" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 text-center">Back to Customers</Link>
-        <Link to="/" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 text-center">
+        <Link to="/dashboard" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 text-center">
           Dashboard
         </Link>
       </div>
@@ -1480,12 +1463,11 @@ export default function ProjectDetails() {
       )}
       <h2 className="text-lg sm:text-xl mt-6 text-black">Materials</h2>
 
-      {isMobileView && (
-      <div data-testid="materials-mobile-list" className="mt-2 space-y-3 sm:hidden">
+      <div data-testid="materials-list" className="mt-2 space-y-3 max-w-full min-w-0">
         {project.materials && project.materials.length > 0 ? (
           <>
             {project.materials.map((mat) => (
-              <div key={`mobile-${mat._id}`} className="bg-white border border-gray-300 rounded-lg p-3">
+              <div key={mat._id} className="bg-white border border-gray-300 rounded-lg p-3 min-w-0">
                 {editingMaterialId === mat._id ? (
                   <div className="space-y-2">
                     <input
@@ -1495,7 +1477,7 @@ export default function ProjectDetails() {
                       onChange={(e) => setEditMaterial({ ...editMaterial, item: e.target.value })}
                       className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
                     />
-                    <div className="grid grid-cols-1 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <input
                         type="number"
                         step="1"
@@ -1521,23 +1503,34 @@ export default function ProjectDetails() {
                         placeholder="Markup %"
                         value={editMaterial.markup}
                         onChange={(e) => setEditMaterial({ ...editMaterial, markup: e.target.value })}
-                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black sm:col-span-2"
                       />
                     </div>
+                    <label className="inline-flex items-center gap-2 text-sm text-black">
+                      <input
+                        type="checkbox"
+                        checked={editMaterial.taxable !== false}
+                        onChange={(e) => setEditMaterial({ ...editMaterial, taxable: e.target.checked })}
+                      />
+                      Taxable
+                    </label>
                     <div className="flex flex-wrap gap-2">
                       <button
+                        type="button"
                         onClick={() => updateMaterial(mat._id)}
                         className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
                       >
                         Save
                       </button>
                       <button
+                        type="button"
                         onClick={cancelEditMaterial}
                         className="bg-gray-200 text-black px-3 py-1 rounded hover:bg-gray-300"
                       >
                         Cancel
                       </button>
                       <button
+                        type="button"
                         onClick={() => deleteMaterial(mat._id)}
                         className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
                       >
@@ -1546,57 +1539,87 @@ export default function ProjectDetails() {
                     </div>
                   </div>
                 ) : (
-                  <>
-                    <p className="text-black font-semibold break-words">{mat.item}</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                      <p className="text-gray-600">Qty: <span className="text-black">{mat.quantity}</span></p>
-                      <p className="text-gray-600">Markup: <span className="text-black">{parseFloat(mat.markup || 0).toFixed(0)}%</span></p>
-                      <p className="text-gray-600 col-span-2">Cost: <span className="text-black">${parseFloat(mat.cost).toFixed(2)}</span></p>
-                      <p className="text-gray-600 col-span-2">
-                        Taxable: <span className="text-black">{mat.taxable === false ? 'No' : 'Yes'}</span>
-                      </p>
+                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 min-w-0">
+                    <div className="min-w-0 flex-1">
+                      {expandedMaterialIds.has(mat._id) ? (
+                        <p className="text-black font-semibold break-words">{mat.item}</p>
+                      ) : (
+                        <p className="text-black font-semibold break-words line-clamp-3" title={mat.item}>
+                          {mat.item}
+                        </p>
+                      )}
+                      {mat.item && mat.item.length > 60 && (
+                        <button
+                          type="button"
+                          data-testid={`material-expand-${mat._id}`}
+                          onClick={() => toggleMaterialExpansion(mat._id)}
+                          className="mt-1 text-xs text-blue-600 hover:text-blue-800 underline"
+                        >
+                          {expandedMaterialIds.has(mat._id) ? 'Show less' : 'Show more'}
+                        </button>
+                      )}
+                      <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                        <p className="text-gray-600">
+                          Qty: <span className="text-black">{mat.quantity}</span>
+                        </p>
+                        <p className="text-gray-600">
+                          Cost: <span className="text-black">${parseFloat(mat.cost).toFixed(2)}</span>
+                        </p>
+                        <p className="text-gray-600">
+                          Markup: <span className="text-black">{parseFloat(mat.markup || 0).toFixed(0)}%</span>
+                        </p>
+                        <p className="text-gray-600">
+                          Taxable: <span className="text-black">{mat.taxable === false ? 'No' : 'Yes'}</span>
+                        </p>
+                      </div>
                     </div>
-                    <div className="mt-3 flex gap-2">
+                    <div className="flex flex-wrap gap-2 shrink-0">
                       <button
+                        type="button"
                         onClick={() => startEditMaterial(mat)}
-                        className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600"
+                        className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
                       >
                         Edit
                       </button>
                       <button
+                        type="button"
                         onClick={() => toggleMaterialTaxable(mat)}
-                        className="bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600"
+                        className="bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600 text-sm"
                       >
                         {mat.taxable === false ? 'Add to Taxable' : 'Remove from Taxable'}
                       </button>
                       <button
+                        type="button"
                         onClick={() => deleteMaterial(mat._id)}
-                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
+                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
                       >
                         Delete
                       </button>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             ))}
 
-            <div className="bg-gray-100 border border-gray-300 rounded-lg p-3">
-              <div data-testid="materials-total-controls-mobile" className="flex flex-wrap items-center gap-3 mb-2">
+            <div className="bg-gray-100 border border-gray-300 rounded-lg p-3 min-w-0">
+              <div data-testid="materials-total-controls" className="flex flex-wrap items-center gap-3 mb-2">
                 <span className="font-bold text-black">Total Material Cost:</span>
                 <button
+                  type="button"
                   onClick={() => generateBidPdf({ incrementQuote: true })}
                   className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm font-medium"
                 >
                   Generate Bid
                 </button>
                 <button
+                  type="button"
                   onClick={() => generateBidPdf({ incrementQuote: false })}
                   className="bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm font-medium"
                 >
                   Regenerate Bid
                 </button>
                 <button
+                  type="button"
                   onClick={generateInvoicePdf}
                   className="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 text-sm font-medium"
                 >
@@ -1620,196 +1643,7 @@ export default function ProjectDetails() {
           </div>
         )}
       </div>
-      )}
 
-      {!isMobileView && (
-      <div data-testid="materials-table-wrapper" className="mt-2 hidden sm:block overflow-x-auto">
-        <table className="w-full table-fixed border-collapse border">
-          <colgroup>
-            <col className="w-[36%]" />
-            <col className="w-[12%]" />
-            <col className="w-[12%]" />
-            <col className="w-[10%]" />
-            <col className="w-[10%]" />
-            <col className="w-[20%]" />
-          </colgroup>
-          <thead>
-            <tr className="text-black bg-gray-50">
-              <th className="text-black text-left p-3 border-b">Item</th>
-              <th className="text-black text-left p-3 border-b">Quantity</th>
-              <th className="text-black text-left p-3 border-b">Cost</th>
-              <th className="text-black text-left p-3 border-b">%Markup</th>
-              <th className="text-black text-left p-3 border-b">Taxable</th>
-              <th className="text-black text-left p-3 border-b">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {project.materials && project.materials.length > 0 ? (
-              project.materials.map(mat => (
-                <tr key={mat._id} className="text-black border-b">
-                  <td className="text-black p-2 align-top">
-                    {expandedMaterialIds.has(mat._id) ? (
-                      <div className="break-words whitespace-normal">
-                        {mat.item}
-                      </div>
-                    ) : (
-                      <div className="max-w-full truncate" title={mat.item}>
-                        {mat.item}
-                      </div>
-                    )}
-                    {mat.item && mat.item.length > 60 && (
-                      <button
-                        type="button"
-                        data-testid={`material-expand-${mat._id}`}
-                        onClick={() => toggleMaterialExpansion(mat._id)}
-                        className="mt-1 text-xs text-blue-600 hover:text-blue-800 underline"
-                      >
-                        {expandedMaterialIds.has(mat._id) ? 'Show less' : 'Show more'}
-                      </button>
-                    )}
-                  </td>
-                  <td className="text-black p-2">{mat.quantity}</td>
-                  <td className="text-black p-2">${parseFloat(mat.cost).toFixed(2)}</td>
-                  <td className="text-black p-2">{parseFloat(mat.markup || 0).toFixed(0)}%</td>
-                  <td className="text-black p-2">{mat.taxable === false ? 'No' : 'Yes'}</td>
-                  <td className="p-2 whitespace-nowrap">
-                    {editingMaterialId === mat._id ? (
-                      <div className="flex gap-2 flex-wrap items-center">
-                        <input
-                          aria-label="Edit Item"
-                          placeholder="Item"
-                          value={editMaterial.item}
-                          onChange={(e) => setEditMaterial({ ...editMaterial, item: e.target.value })}
-                          className="p-2 border border-gray-300 rounded bg-gray-100 text-black flex-1 min-w-[140px]"
-                        />
-                        <input
-                          type="number"
-                          step="1"
-                          aria-label="Edit Quantity"
-                          placeholder="Quantity"
-                          value={editMaterial.quantity}
-                          onChange={(e) => setEditMaterial({ ...editMaterial, quantity: e.target.value })}
-                          className="p-2 border border-gray-300 rounded bg-gray-100 text-black w-24"
-                        />
-                        <input
-                          type="number"
-                          step="0.01"
-                          aria-label="Edit Cost ($)"
-                          placeholder="Cost ($)"
-                          value={editMaterial.cost}
-                          onChange={(e) => setEditMaterial({ ...editMaterial, cost: e.target.value })}
-                          className="p-2 border border-gray-300 rounded bg-gray-100 text-black w-24"
-                        />
-                        <input
-                          type="number"
-                          step="0.01"
-                          aria-label="Edit Markup (%)"
-                          placeholder="Markup %"
-                          value={editMaterial.markup}
-                          onChange={(e) => setEditMaterial({ ...editMaterial, markup: e.target.value })}
-                          className="p-2 border border-gray-300 rounded bg-gray-100 text-black w-24"
-                        />
-                        <label className="inline-flex items-center gap-1 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={editMaterial.taxable !== false}
-                            onChange={(e) => setEditMaterial({ ...editMaterial, taxable: e.target.checked })}
-                          />
-                          Taxable
-                        </label>
-                        <button
-                          onClick={() => updateMaterial(mat._id)}
-                          className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={cancelEditMaterial}
-                          className="bg-gray-200 text-black px-3 py-1 rounded hover:bg-gray-300"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={() => deleteMaterial(mat._id)}
-                          className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => toggleMaterialTaxable(mat)}
-                          className="bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600"
-                        >
-                          {mat.taxable === false ? 'Add to Taxable' : 'Remove from Taxable'}
-                        </button>
-                        <button
-                          onClick={() => startEditMaterial(mat)}
-                          className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => deleteMaterial(mat._id)}
-                          className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr><td colSpan="6" className="text-black text-center p-4">No materials added yet</td></tr>
-            )}
-          </tbody>
-          {project.materials && project.materials.length > 0 && (
-            <tfoot>
-              <tr className="bg-gray-100 font-bold">
-                <td className="text-black p-3 border-t-2" colSpan="4">
-                  <div data-testid="materials-total-controls" className="flex flex-wrap items-center gap-3">
-                    <span>Total Material Cost:</span>
-                    <button
-                      onClick={() => generateBidPdf({ incrementQuote: true })}
-                      className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm font-medium"
-                    >
-                      Generate Bid
-                    </button>
-                    <button
-                      onClick={() => generateBidPdf({ incrementQuote: false })}
-                      className="bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm font-medium"
-                    >
-                      Regenerate Bid
-                    </button>
-                    <button
-                      onClick={generateInvoicePdf}
-                      className="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 text-sm font-medium"
-                    >
-                      Generate Invoice
-                    </button>
-                    <label className="inline-flex items-center gap-2 text-sm text-black ml-2">
-                      <input
-                        type="checkbox"
-                        checked={includeMonitoringAgreement}
-                        onChange={(e) => setIncludeMonitoringAgreement(e.target.checked)}
-                      />
-                      Include Monitoring Agreement
-                    </label>
-                  </div>
-                </td>
-                <td className="text-black p-3 border-t-2 text-lg">
-                  ${totalMaterialCost.toFixed(2)}
-                </td>
-                <td className="border-t-2"></td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
-      )}
-      
       {/* Add Material Form */}
       <div className="mt-4 bg-white border border-gray-300 rounded-lg p-4">
         <h3 className="text-lg font-semibold mb-3 text-black">Add New Material</h3>

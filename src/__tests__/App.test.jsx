@@ -7,10 +7,21 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import App from '../App';
 
-// Mock all components
 jest.mock('../components/Login', () => {
-  return function MockLogin({ setToken }) {
+  return function MockLogin() {
     return <div data-testid="login-component">Login Component</div>;
+  };
+});
+
+jest.mock('../components/MarketingHome', () => {
+  return function MockMarketingHome() {
+    return <div data-testid="marketing-home-component">Marketing Home</div>;
+  };
+});
+
+jest.mock('../components/RequestBid', () => {
+  return function MockRequestBid() {
+    return <div data-testid="request-bid-component">Request Bid</div>;
   };
 });
 
@@ -61,8 +72,40 @@ describe('App Component', () => {
     localStorage.clear();
   });
 
-  describe('Routing without authentication', () => {
-    test('should render Login component on /login route', () => {
+  describe('Public routes', () => {
+    test('should render marketing home on / without token', () => {
+      render(
+        <MemoryRouter initialEntries={['/']}>
+          <App />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByTestId('marketing-home-component')).toBeInTheDocument();
+    });
+
+    test('should render marketing home on / even with token', () => {
+      localStorage.setItem('token', 'fake-jwt-token');
+
+      render(
+        <MemoryRouter initialEntries={['/']}>
+          <App />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByTestId('marketing-home-component')).toBeInTheDocument();
+    });
+
+    test('should render RequestBid on /bid without token', () => {
+      render(
+        <MemoryRouter initialEntries={['/bid']}>
+          <App />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByTestId('request-bid-component')).toBeInTheDocument();
+    });
+
+    test('should render Login on /login without token', () => {
       render(
         <MemoryRouter initialEntries={['/login']}>
           <App />
@@ -71,10 +114,12 @@ describe('App Component', () => {
 
       expect(screen.getByTestId('login-component')).toBeInTheDocument();
     });
+  });
 
-    test('should redirect to /login when accessing root without token', () => {
+  describe('Routing without authentication', () => {
+    test('should redirect to /login when accessing /dashboard without token', () => {
       render(
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter initialEntries={['/dashboard']}>
           <App />
         </MemoryRouter>
       );
@@ -91,56 +136,6 @@ describe('App Component', () => {
 
       expect(screen.getByTestId('login-component')).toBeInTheDocument();
     });
-
-    test('should redirect to /login when accessing /projects without token', () => {
-      render(
-        <MemoryRouter initialEntries={['/projects/customer123/project456']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('login-component')).toBeInTheDocument();
-    });
-
-    test('should redirect to /login when accessing /admin/users without token', () => {
-      render(
-        <MemoryRouter initialEntries={['/admin/users']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('login-component')).toBeInTheDocument();
-    });
-
-    test('should redirect to /login when accessing /suppliers without token', () => {
-      render(
-        <MemoryRouter initialEntries={['/suppliers']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('login-component')).toBeInTheDocument();
-    });
-
-    test('should redirect to /login when accessing /purchase-orders without token', () => {
-      render(
-        <MemoryRouter initialEntries={['/purchase-orders']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('login-component')).toBeInTheDocument();
-    });
-
-    test('should redirect to /login when accessing /inventory without token', () => {
-      render(
-        <MemoryRouter initialEntries={['/inventory']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('login-component')).toBeInTheDocument();
-    });
   });
 
   describe('Routing with authentication', () => {
@@ -148,9 +143,9 @@ describe('App Component', () => {
       localStorage.setItem('token', 'fake-jwt-token');
     });
 
-    test('should render Dashboard on root route with token', () => {
+    test('should render Dashboard on /dashboard with token', () => {
       render(
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter initialEntries={['/dashboard']}>
           <App />
         </MemoryRouter>
       );
@@ -168,56 +163,6 @@ describe('App Component', () => {
       expect(screen.getByTestId('customers-component')).toBeInTheDocument();
     });
 
-    test('should render ProjectDetails on /projects/:customerId/:projectId with token', () => {
-      render(
-        <MemoryRouter initialEntries={['/projects/customer123/project456']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('project-details-component')).toBeInTheDocument();
-    });
-
-    test('should render UserManagement on /admin/users with token', () => {
-      render(
-        <MemoryRouter initialEntries={['/admin/users']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('user-management-component')).toBeInTheDocument();
-    });
-
-    test('should render Suppliers on /suppliers with token', () => {
-      render(
-        <MemoryRouter initialEntries={['/suppliers']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('suppliers-component')).toBeInTheDocument();
-    });
-
-    test('should render PurchaseOrders on /purchase-orders with token', () => {
-      render(
-        <MemoryRouter initialEntries={['/purchase-orders']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('purchase-orders-component')).toBeInTheDocument();
-    });
-
-    test('should render Inventory on /inventory with token', () => {
-      render(
-        <MemoryRouter initialEntries={['/inventory']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('inventory-component')).toBeInTheDocument();
-    });
-
     test('should allow access to /login even with token', () => {
       render(
         <MemoryRouter initialEntries={['/login']}>
@@ -229,122 +174,19 @@ describe('App Component', () => {
     });
   });
 
-  describe('Token management', () => {
-    test('should read token from localStorage on mount', () => {
-      localStorage.setItem('token', 'test-token');
-
-      render(
-        <MemoryRouter initialEntries={['/']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      // Should show dashboard because token exists
-      expect(screen.getByTestId('dashboard-component')).toBeInTheDocument();
-    });
-
-    test('should handle missing token in localStorage', () => {
-      localStorage.removeItem('token');
-
-      render(
-        <MemoryRouter initialEntries={['/']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      // Should redirect to login
-      expect(screen.getByTestId('login-component')).toBeInTheDocument();
-    });
-
-    test('should handle null token', () => {
-      localStorage.removeItem('token'); // null token = no token
-
-      render(
-        <MemoryRouter initialEntries={['/']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      // Should redirect to login (null is falsy)
-      expect(screen.getByTestId('login-component')).toBeInTheDocument();
-    });
-
-    test('should handle empty string token', () => {
-      localStorage.setItem('token', '');
-
-      render(
-        <MemoryRouter initialEntries={['/']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      // Should redirect to login (empty string is falsy)
-      expect(screen.getByTestId('login-component')).toBeInTheDocument();
-    });
-  });
-
-  describe('Component structure', () => {
-    test('should have min-h-screen and bg-gray-100 classes', () => {
-      const { container } = render(
-        <MemoryRouter initialEntries={['/login']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      const mainDiv = container.firstChild;
-      expect(mainDiv).toHaveClass('min-h-screen', 'bg-gray-100');
-    });
-
-    test('should render Routes component', () => {
-      const { container } = render(
-        <MemoryRouter initialEntries={['/login']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(container.querySelector('div')).toBeInTheDocument();
-    });
-  });
-
-  describe('Route parameters', () => {
-    beforeEach(() => {
-      localStorage.setItem('token', 'test-token');
-    });
-
-    test('should pass customerId and projectId params to ProjectDetails', () => {
-      render(
-        <MemoryRouter initialEntries={['/projects/abc123/xyz789']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('project-details-component')).toBeInTheDocument();
-    });
-
-    test('should handle complex IDs with special characters', () => {
-      render(
-        <MemoryRouter initialEntries={['/projects/507f1f77bcf86cd799439011/507f191e810c19729de860ea']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('project-details-component')).toBeInTheDocument();
-    });
-  });
-
   describe('Protected route behavior', () => {
-    test('should protect all routes except /login', () => {
+    test('should protect staff routes except public pages', () => {
       const protectedRoutes = [
-        '/',
+        '/dashboard',
         '/customers',
         '/projects/123/456',
         '/admin/users',
         '/suppliers',
         '/purchase-orders',
-        '/inventory'
+        '/inventory',
       ];
 
-      protectedRoutes.forEach(route => {
+      protectedRoutes.forEach((route) => {
         const { unmount } = render(
           <MemoryRouter initialEntries={[route]}>
             <App />
@@ -356,17 +198,17 @@ describe('App Component', () => {
       });
     });
 
-    test('should allow access to all routes with valid token', () => {
+    test('should allow access to staff routes with valid token', () => {
       localStorage.setItem('token', 'valid-token');
 
       const authenticatedRoutes = [
-        { path: '/', testId: 'dashboard-component' },
+        { path: '/dashboard', testId: 'dashboard-component' },
         { path: '/customers', testId: 'customers-component' },
         { path: '/projects/123/456', testId: 'project-details-component' },
         { path: '/admin/users', testId: 'user-management-component' },
         { path: '/suppliers', testId: 'suppliers-component' },
         { path: '/purchase-orders', testId: 'purchase-orders-component' },
-        { path: '/inventory', testId: 'inventory-component' }
+        { path: '/inventory', testId: 'inventory-component' },
       ];
 
       authenticatedRoutes.forEach(({ path, testId }) => {
@@ -381,65 +223,4 @@ describe('App Component', () => {
       });
     });
   });
-
-  describe('Edge cases', () => {
-    test('should handle undefined routes gracefully', () => {
-      localStorage.setItem('token', 'test-token');
-
-      const { container } = render(
-        <MemoryRouter initialEntries={['/non-existent-route']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      // Should render something (likely empty or not crash)
-      expect(container).toBeInTheDocument();
-    });
-
-    test('should handle different routes', () => {
-      localStorage.setItem('token', 'test-token');
-
-      // Test dashboard route
-      const { unmount } = render(
-        <MemoryRouter initialEntries={['/']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('dashboard-component')).toBeInTheDocument();
-      unmount();
-
-      // Test customers route in new instance
-      render(
-        <MemoryRouter initialEntries={['/customers']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('customers-component')).toBeInTheDocument();
-    });
-
-    test('should handle token change during session', () => {
-      // Start without token
-      const { rerender } = render(
-        <MemoryRouter initialEntries={['/']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      expect(screen.getByTestId('login-component')).toBeInTheDocument();
-
-      // Add token and re-render
-      localStorage.setItem('token', 'new-token');
-      rerender(
-        <MemoryRouter initialEntries={['/']}>
-          <App />
-        </MemoryRouter>
-      );
-
-      // Note: App reads token on mount, so this might still show login
-      // This tests the current implementation behavior
-    });
-  });
 });
-

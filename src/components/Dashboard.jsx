@@ -1,12 +1,36 @@
 import { Link } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
+import {
+  DEFAULT_SORT,
+  DEFAULT_STATUS_FILTER,
+  STATUS_FILTERS,
+  countProjectsByStatus,
+  filterAndSortProjects,
+  nextStatusFilter,
+} from '../utils/dashboardProjects';
+
+const SORT_LABELS = {
+  newest: 'Newest first',
+  oldest: 'Oldest first',
+  schedule: 'Schedule date',
+};
+
+const FILTER_LABELS = {
+  [STATUS_FILTERS.all]: 'All projects',
+  [STATUS_FILTERS.pending]: 'Pending',
+  [STATUS_FILTERS.scheduled]: 'Scheduled',
+  [STATUS_FILTERS.completed]: 'Completed',
+};
 
 export default function Dashboard() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState(DEFAULT_STATUS_FILTER);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState(DEFAULT_SORT);
 
   useEffect(() => {
     fetchAllProjects();
@@ -20,31 +44,23 @@ export default function Dashboard() {
 
   const fetchAllProjects = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/customers`, { 
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } 
+      const res = await axios.get(`${API_BASE_URL}/api/customers`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
-      
-      // Flatten all projects from all customers
+
       const allProjects = [];
-      res.data.forEach(customer => {
+      res.data.forEach((customer) => {
         if (customer.projects && customer.projects.length > 0) {
-          customer.projects.forEach(project => {
+          customer.projects.forEach((project) => {
             allProjects.push({
               ...project,
               customerName: customer.name,
-              customerId: customer._id
+              customerId: customer._id,
             });
           });
         }
       });
-      
-      // Sort by creation date (oldest to newest)
-      allProjects.sort((a, b) => {
-        const dateA = new Date(a.createdAt || 0);
-        const dateB = new Date(b.createdAt || 0);
-        return dateA - dateB;
-      });
-      
+
       setProjects(allProjects);
       setLoading(false);
     } catch (err) {
@@ -53,10 +69,23 @@ export default function Dashboard() {
     }
   };
 
+  const counts = useMemo(() => countProjectsByStatus(projects), [projects]);
+  const visibleProjects = useMemo(
+    () => filterAndSortProjects(projects, { statusFilter, search, sort }),
+    [projects, statusFilter, search, sort]
+  );
+
+  const cardClass = (filter) =>
+    `text-left w-full bg-white border rounded-lg p-4 min-h-[44px] ${
+      statusFilter === filter
+        ? 'border-gray-900 ring-2 ring-gray-900'
+        : 'border-gray-300 hover:border-gray-500'
+    }`;
+
   if (loading) {
     return (
       <div className="p-6 text-black max-w-6xl mx-auto">
-        <h1 className="text-2xl mb-4 text-black">Handyman Tracker Dashboard</h1>
+        <h1 className="text-2xl mb-4 text-black">Christian Security Services Dashboard</h1>
         <p>Loading projects...</p>
       </div>
     );
@@ -64,7 +93,6 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 md:p-6 text-black max-w-6xl mx-auto">
-      {/* Desktop buttons - hidden on mobile (mobile nav handles this) */}
       <div className="hidden lg:flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-black">Dashboard</h1>
         <div className="flex gap-3 flex-wrap">
@@ -88,63 +116,118 @@ export default function Dashboard() {
           </Link>
         </div>
       </div>
-      
-      {/* Mobile heading only */}
-      <div className="lg:hidden mb-6">
+
+      <div className="lg:hidden mb-4">
         <h1 className="text-2xl font-bold text-black">Dashboard</h1>
       </div>
 
-      {/* Project Statistics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4">
+        <button
+          type="button"
+          aria-pressed={statusFilter === STATUS_FILTERS.all}
+          onClick={() => setStatusFilter(nextStatusFilter(statusFilter, STATUS_FILTERS.all))}
+          className={cardClass(STATUS_FILTERS.all)}
+        >
           <p className="text-gray-600 text-base md:text-sm">Total Projects</p>
-          <p className="text-3xl font-bold text-black">{projects.length}</p>
-        </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+          <p className="text-3xl font-bold text-black">{counts.total}</p>
+        </button>
+        <button
+          type="button"
+          aria-pressed={statusFilter === STATUS_FILTERS.pending}
+          onClick={() => setStatusFilter(nextStatusFilter(statusFilter, STATUS_FILTERS.pending))}
+          className={cardClass(STATUS_FILTERS.pending)}
+        >
           <p className="text-gray-600 text-base md:text-sm">Pending</p>
-          <p className="text-3xl font-bold text-yellow-600">
-            {projects.filter(p => p.status === 'Pending').length}
-          </p>
-        </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+          <p className="text-3xl font-bold text-yellow-600">{counts.pending}</p>
+        </button>
+        <button
+          type="button"
+          aria-pressed={statusFilter === STATUS_FILTERS.scheduled}
+          onClick={() => setStatusFilter(nextStatusFilter(statusFilter, STATUS_FILTERS.scheduled))}
+          className={cardClass(STATUS_FILTERS.scheduled)}
+        >
           <p className="text-gray-600 text-base md:text-sm">Scheduled</p>
-          <p className="text-3xl font-bold text-blue-600">
-            {projects.filter(p => p.status === 'Scheduled').length}
-          </p>
-        </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
+          <p className="text-3xl font-bold text-blue-600">{counts.scheduled}</p>
+        </button>
+        <button
+          type="button"
+          aria-pressed={statusFilter === STATUS_FILTERS.completed}
+          onClick={() => setStatusFilter(nextStatusFilter(statusFilter, STATUS_FILTERS.completed))}
+          className={cardClass(STATUS_FILTERS.completed)}
+        >
           <p className="text-gray-600 text-base md:text-sm">Completed</p>
-          <p className="text-3xl font-bold text-green-600">
-            {projects.filter(p => p.status === 'Completed' || p.status === 'Billed').length}
-          </p>
-        </div>
+          <p className="text-3xl font-bold text-green-600">{counts.completed}</p>
+        </button>
       </div>
 
-      {/* Projects List */}
+      <div className="sticky top-[65px] z-20 lg:static bg-gray-100 lg:bg-transparent py-2 mb-4 flex flex-col md:flex-row gap-3">
+        <label className="sr-only" htmlFor="dashboard-search">
+          Search projects
+        </label>
+        <input
+          id="dashboard-search"
+          type="search"
+          role="searchbox"
+          placeholder="Search project, customer, or status"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full md:flex-1 p-3 border border-gray-300 rounded-lg bg-white text-black text-base"
+        />
+        <label className="sr-only" htmlFor="dashboard-sort">
+          Sort projects
+        </label>
+        <select
+          id="dashboard-sort"
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+          className="w-full md:w-48 p-3 border border-gray-300 rounded-lg bg-white text-black text-base"
+        >
+          <option value="newest">{SORT_LABELS.newest}</option>
+          <option value="oldest">{SORT_LABELS.oldest}</option>
+          <option value="schedule">{SORT_LABELS.schedule}</option>
+        </select>
+      </div>
+
       <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-6">
-        <h2 className="text-xl md:text-2xl font-semibold mb-4 text-black">All Projects (Oldest to Newest)</h2>
-        
+        <h2 className="text-xl md:text-2xl font-semibold mb-4 text-black">
+          {FILTER_LABELS[statusFilter]} ({SORT_LABELS[sort]})
+          {visibleProjects.length !== projects.length
+            ? ` — ${visibleProjects.length} of ${projects.length}`
+            : ''}
+        </h2>
+
         {projects.length === 0 ? (
-          <p className="text-gray-500 text-center py-8 text-base md:text-sm">No projects found. Create a customer and add projects to get started.</p>
+          <p className="text-gray-500 text-center py-8 text-base md:text-sm">
+            No projects found. Create a customer and add projects to get started.
+          </p>
+        ) : visibleProjects.length === 0 ? (
+          <p className="text-gray-500 text-center py-8 text-base md:text-sm">
+            No projects match this filter. Try another card or clear search.
+          </p>
         ) : (
           <>
-            {/* Mobile Card Layout */}
             <div className="md:hidden space-y-4">
-              {projects.map((project, index) => (
+              {visibleProjects.map((project, index) => (
                 <div key={project._id || index} className="border border-gray-200 rounded-lg p-4 bg-white">
                   <div className="flex justify-between items-start mb-3">
                     <h3 className="text-lg font-semibold text-black flex-1">{project.name}</h3>
-                    <span className={`px-3 py-1 rounded text-sm ml-2 ${
-                      project.status === 'Completed' ? 'bg-green-100 text-green-800' :
-                      project.status === 'Billed' ? 'bg-blue-100 text-blue-800' :
-                      project.status === 'Scheduled' ? 'bg-yellow-100 text-yellow-800' :
-                      project.status === 'Bidded' ? 'bg-purple-100 text-purple-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
+                    <span
+                      className={`px-3 py-1 rounded text-sm ml-2 ${
+                        project.status === 'Completed'
+                          ? 'bg-green-100 text-green-800'
+                          : project.status === 'Billed'
+                            ? 'bg-blue-100 text-blue-800'
+                            : project.status === 'Scheduled'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : project.status === 'Bidded'
+                                ? 'bg-purple-100 text-purple-800'
+                                : 'bg-gray-100 text-gray-800'
+                      }`}
+                    >
                       {project.status || 'Pending'}
                     </span>
                   </div>
-                  
+
                   <div className="space-y-2 text-base">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Customer:</span>
@@ -152,24 +235,40 @@ export default function Dashboard() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Bid Amount:</span>
-                      <span className="text-black">{project.bidAmount ? `$${project.bidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}</span>
+                      <span className="text-black">
+                        {project.bidAmount
+                          ? `$${project.bidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                          : '-'}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Bill Amount:</span>
-                      <span className="text-black">{project.billAmount ? `$${project.billAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}</span>
+                      <span className="text-black">
+                        {project.billAmount
+                          ? `$${project.billAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                          : '-'}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Schedule Date:</span>
-                      <span className="text-black">{project.scheduleDate ? format(new Date(project.scheduleDate), 'MMM d, yyyy') : '-'}</span>
+                      <span className="text-black">
+                        {project.scheduleDate
+                          ? format(new Date(project.scheduleDate), 'MMM d, yyyy')
+                          : '-'}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Created:</span>
-                      <span className="text-gray-600">{project.createdAt ? format(new Date(project.createdAt), 'MMM d, yyyy') : 'N/A'}</span>
+                      <span className="text-gray-600">
+                        {project.createdAt
+                          ? format(new Date(project.createdAt), 'MMM d, yyyy')
+                          : 'N/A'}
+                      </span>
                     </div>
                   </div>
-                  
+
                   <div className="mt-4 pt-4 border-t border-gray-200">
-                    <Link 
+                    <Link
                       to={`/projects/${project.customerId}/${project._id}`}
                       className="block w-full bg-blue-500 text-white text-center py-3 rounded hover:bg-blue-600 font-medium"
                     >
@@ -180,7 +279,6 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* Desktop Table Layout */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full border-collapse min-w-[900px]">
                 <thead>
@@ -196,35 +294,49 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {projects.map((project, index) => (
+                  {visibleProjects.map((project, index) => (
                     <tr key={project._id || index} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="p-3 text-black font-medium text-sm">{project.name}</td>
                       <td className="p-3 text-black text-sm">{project.customerName}</td>
                       <td className="p-3">
-                        <span className={`px-2 py-1 rounded text-sm ${
-                          project.status === 'Completed' ? 'bg-green-100 text-green-800' :
-                          project.status === 'Billed' ? 'bg-blue-100 text-blue-800' :
-                          project.status === 'Scheduled' ? 'bg-yellow-100 text-yellow-800' :
-                          project.status === 'Bidded' ? 'bg-purple-100 text-purple-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
+                        <span
+                          className={`px-2 py-1 rounded text-sm ${
+                            project.status === 'Completed'
+                              ? 'bg-green-100 text-green-800'
+                              : project.status === 'Billed'
+                                ? 'bg-blue-100 text-blue-800'
+                                : project.status === 'Scheduled'
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : project.status === 'Bidded'
+                                    ? 'bg-purple-100 text-purple-800'
+                                    : 'bg-gray-100 text-gray-800'
+                          }`}
+                        >
                           {project.status || 'Pending'}
                         </span>
                       </td>
                       <td className="p-3 text-black text-sm">
-                        {project.bidAmount ? `$${project.bidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}
+                        {project.bidAmount
+                          ? `$${project.bidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                          : '-'}
                       </td>
                       <td className="p-3 text-black text-sm">
-                        {project.billAmount ? `$${project.billAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}
+                        {project.billAmount
+                          ? `$${project.billAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                          : '-'}
                       </td>
                       <td className="p-3 text-black text-sm">
-                        {project.scheduleDate ? format(new Date(project.scheduleDate), 'MMM d, yyyy') : '-'}
+                        {project.scheduleDate
+                          ? format(new Date(project.scheduleDate), 'MMM d, yyyy')
+                          : '-'}
                       </td>
                       <td className="p-3 text-gray-600 text-sm">
-                        {project.createdAt ? format(new Date(project.createdAt), 'MMM d, yyyy') : 'N/A'}
+                        {project.createdAt
+                          ? format(new Date(project.createdAt), 'MMM d, yyyy')
+                          : 'N/A'}
                       </td>
                       <td className="p-3">
-                        <Link 
+                        <Link
                           to={`/projects/${project.customerId}/${project._id}`}
                           className="text-blue-500 hover:text-blue-700 text-sm font-medium"
                         >
@@ -240,11 +352,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Bottom-right page footer actions */}
-      <div
-        data-testid="page-footer"
-        className="mt-8 flex justify-end items-center"
-      >
+      <div data-testid="page-footer" className="mt-8 flex justify-end items-center">
         <button
           onClick={handleLogout}
           className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"

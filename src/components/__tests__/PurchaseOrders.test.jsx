@@ -3,6 +3,7 @@
  */
 
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import PurchaseOrders, { PODetailModal } from '../PurchaseOrders';
 import axios from 'axios';
@@ -201,21 +202,48 @@ describe('PurchaseOrders Component - Phase 2B', () => {
 
   test('should filter POs by status', async () => {
     render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
-    
+
     await waitFor(() => {
-      const statusFilter = screen.getByLabelText(/Status:/i);
-      fireEvent.change(statusFilter, { target: { value: 'Draft' } });
+      expect(screen.getAllByText('PO-2024-002').length).toBeGreaterThan(0);
     });
-    
+
+    fireEvent.change(screen.getByLabelText(/Status:/i), { target: { value: 'Draft' } });
+
     await waitFor(() => {
-      // Use getAllByText since PO numbers appear in both mobile and desktop views
       expect(screen.getAllByText('PO-2024-001').length).toBeGreaterThan(0);
-      // After filtering, only Draft POs should be shown
-      expect(axios.get).toHaveBeenCalledWith(
-        expect.stringContaining('status=Draft'),
-        expect.any(Object)
-      );
+      expect(screen.queryByText('PO-2024-002')).not.toBeInTheDocument();
     });
+  });
+
+  test('status cards filter the list; counts stay on the full set', async () => {
+    render(
+      <BrowserRouter>
+        <PurchaseOrders />
+      </BrowserRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText('PO-2024-001').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('PO-2024-002').length).toBeGreaterThan(0);
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /draft/i }));
+    expect(screen.getAllByText('PO-2024-001').length).toBeGreaterThan(0);
+    expect(screen.queryByText('PO-2024-002')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /total pos/i })).toHaveTextContent('3');
+
+    await userEvent.click(screen.getByRole('button', { name: /^sent/i }));
+    expect(screen.getAllByText('PO-2024-002').length).toBeGreaterThan(0);
+    expect(screen.queryByText('PO-2024-001')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /received/i }));
+    expect(screen.getAllByText('PO-2024-003').length).toBeGreaterThan(0);
+    expect(screen.queryByText('PO-2024-002')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /total pos/i }));
+    expect(screen.getAllByText('PO-2024-001').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('PO-2024-002').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('PO-2024-003').length).toBeGreaterThan(0);
   });
 
   test('should filter POs by status parameter', async () => {
@@ -580,7 +608,9 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
 
     await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: 'Dashboard' })).toHaveLength(1);
+      const dashboardLinks = screen.getAllByRole('link', { name: 'Dashboard' });
+      expect(dashboardLinks).toHaveLength(1);
+      expect(dashboardLinks[0]).toHaveAttribute('href', '/dashboard');
     });
   });
 

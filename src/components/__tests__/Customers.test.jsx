@@ -112,7 +112,7 @@ describe('Customers Component', () => {
       renderWithRouter(<Customers />);
 
       await waitFor(() => {
-        expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
         expect(screen.getByRole('button', { name: 'Logout' })).toBeInTheDocument();
         expect(screen.queryByTestId('page-footer')).not.toBeInTheDocument();
       });

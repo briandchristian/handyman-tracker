@@ -213,7 +213,7 @@ export default function Customers() {
         <h1 className="text-2xl md:text-2xl text-black">Customers</h1>
         <div className="flex gap-2 w-full sm:w-auto">
           <Link
-            to="/"
+            to="/dashboard"
             className="bg-blue-500 text-white px-4 py-3 md:py-2 rounded hover:bg-blue-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center"
           >
             Dashboard

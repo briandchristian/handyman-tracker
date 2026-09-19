@@ -73,7 +73,7 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
     fireEvent.click(menuButton);
     
     await waitFor(() => {
-      expect(screen.getByText('Dashboard')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Dashboard/ })).toHaveAttribute('href', '/dashboard');
       expect(screen.getByText('Customers')).toBeInTheDocument();
       expect(screen.getByText('Inventory')).toBeInTheDocument();
       expect(screen.getByText('Suppliers')).toBeInTheDocument();
@@ -199,10 +199,9 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
     });
   });
 
-  test('should highlight dashboard when on root path', async () => {
-    // Mock root route
-    window.history.pushState({}, 'Dashboard', '/');
-    
+  test('should highlight dashboard when on /dashboard', async () => {
+    window.history.pushState({}, 'Dashboard', '/dashboard');
+
     render(<BrowserRouter><MobileNav /></BrowserRouter>);
     
     // Open menu

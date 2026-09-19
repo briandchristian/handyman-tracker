@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
@@ -10,6 +10,20 @@ import {
   inquireAdiOrder,
 } from '../services/adiSupplierApi';
 import { handleApiError, formatErrorAlert } from '../utils/errorHandler';
+import {
+  DEFAULT_PO_FILTER,
+  PO_FILTERS,
+  countPurchaseOrdersByStatus,
+  filterPurchaseOrders,
+  nextPoStatusFilter,
+} from '../utils/purchaseOrders';
+
+const FILTER_LABELS = {
+  [PO_FILTERS.all]: 'All purchase orders',
+  [PO_FILTERS.draft]: 'Draft',
+  [PO_FILTERS.sent]: 'Sent',
+  [PO_FILTERS.received]: 'Received',
+};
 
 // Helper functions (outside component so modal can use them)
 const getStatusBadge = (status) => {
@@ -39,7 +53,7 @@ const getStatusIcon = (status) => {
 export default function PurchaseOrders() {
   const [pos, setPOs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(DEFAULT_PO_FILTER);
   const [selectedPO, setSelectedPO] = useState(null);
   const [showModal, setShowModal] = useState(false);
 
@@ -47,7 +61,7 @@ export default function PurchaseOrders() {
 
   useEffect(() => {
     fetchPOs();
-  }, [statusFilter]);
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -59,13 +73,9 @@ export default function PurchaseOrders() {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const params = new URLSearchParams();
-      if (statusFilter) params.append('status', statusFilter);
-
-      const res = await axios.get(
-        `${API_BASE_URL}/api/purchase-orders?${params.toString()}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await axios.get(`${API_BASE_URL}/api/purchase-orders`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       setPOs(res.data);
     } catch (err) {
@@ -82,15 +92,18 @@ export default function PurchaseOrders() {
     setShowModal(true);
   };
 
-  // Calculate stats
-  const stats = {
-    total: pos.length,
-    draft: pos.filter(p => p.status === 'Draft').length,
-    sent: pos.filter(p => p.status === 'Sent' || p.status === 'Confirmed').length,
-    received: pos.filter(p => p.status === 'Received').length,
-    paid: pos.filter(p => p.status === 'Paid').length,
-    totalValue: pos.reduce((sum, p) => sum + (p.total || 0), 0)
-  };
+  const stats = useMemo(() => countPurchaseOrdersByStatus(pos), [pos]);
+  const visiblePOs = useMemo(
+    () => filterPurchaseOrders(pos, statusFilter),
+    [pos, statusFilter]
+  );
+
+  const cardClass = (filter) =>
+    `text-left w-full bg-white border rounded-lg p-4 min-h-[44px] ${
+      statusFilter === filter
+        ? 'border-gray-900 ring-2 ring-gray-900'
+        : 'border-gray-300 hover:border-gray-500'
+    }`;
 
   if (loading) {
     return (
@@ -125,24 +138,44 @@ export default function PurchaseOrders() {
         </div>
       </div>
 
-      {/* Quick Stats */}
+      {/* Quick Stats — Total / Draft / Sent / Received filter the list like the dashboard */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
+        <button
+          type="button"
+          aria-pressed={statusFilter === PO_FILTERS.all}
+          onClick={() => setStatusFilter(nextPoStatusFilter(statusFilter, PO_FILTERS.all))}
+          className={cardClass(PO_FILTERS.all)}
+        >
           <p className="text-gray-600 text-sm">Total POs</p>
           <p className="text-3xl font-bold text-black">{stats.total}</p>
-        </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
+        </button>
+        <button
+          type="button"
+          aria-pressed={statusFilter === PO_FILTERS.draft}
+          onClick={() => setStatusFilter(nextPoStatusFilter(statusFilter, PO_FILTERS.draft))}
+          className={cardClass(PO_FILTERS.draft)}
+        >
           <p className="text-gray-600 text-sm">Draft</p>
           <p className="text-3xl font-bold text-gray-600">{stats.draft}</p>
-        </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
+        </button>
+        <button
+          type="button"
+          aria-pressed={statusFilter === PO_FILTERS.sent}
+          onClick={() => setStatusFilter(nextPoStatusFilter(statusFilter, PO_FILTERS.sent))}
+          className={cardClass(PO_FILTERS.sent)}
+        >
           <p className="text-gray-600 text-sm">Sent</p>
           <p className="text-3xl font-bold text-blue-600">{stats.sent}</p>
-        </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
+        </button>
+        <button
+          type="button"
+          aria-pressed={statusFilter === PO_FILTERS.received}
+          onClick={() => setStatusFilter(nextPoStatusFilter(statusFilter, PO_FILTERS.received))}
+          className={cardClass(PO_FILTERS.received)}
+        >
           <p className="text-gray-600 text-sm">Received</p>
           <p className="text-3xl font-bold text-green-600">{stats.received}</p>
-        </div>
+        </button>
         <div className="bg-white border border-gray-300 rounded-lg p-4">
           <p className="text-gray-600 text-sm">Paid</p>
           <p className="text-3xl font-bold text-green-700">{stats.paid}</p>
@@ -162,8 +195,8 @@ export default function PurchaseOrders() {
           <select
             id="status-filter"
             name="status-filter"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            value={statusFilter === PO_FILTERS.all ? '' : statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value || PO_FILTERS.all)}
             className="p-2 border border-gray-300 rounded text-black bg-white"
           >
             <option value="">All Status</option>
@@ -171,9 +204,9 @@ export default function PurchaseOrders() {
               <option key={status} value={status}>{status}</option>
             ))}
           </select>
-          {statusFilter && (
+          {statusFilter !== PO_FILTERS.all && (
             <button
-              onClick={() => setStatusFilter('')}
+              onClick={() => setStatusFilter(PO_FILTERS.all)}
               className="text-blue-600 hover:text-blue-800 text-sm font-medium"
             >
               Clear Filter
@@ -184,6 +217,12 @@ export default function PurchaseOrders() {
 
       {/* PO Table */}
       <div className="bg-white border border-gray-300 rounded-lg shadow-sm overflow-hidden">
+        <h2 className="text-lg md:text-xl font-semibold p-4 pb-0 text-black">
+          {FILTER_LABELS[statusFilter] || statusFilter}
+          {visiblePOs.length !== pos.length
+            ? ` — ${visiblePOs.length} of ${pos.length}`
+            : ''}
+        </h2>
         {pos.length === 0 ? (
           <div className="p-8 text-center">
             <p className="text-gray-600 mb-4">No purchase orders found.</p>
@@ -194,11 +233,17 @@ export default function PurchaseOrders() {
               Go to Suppliers → Quick Reorder to create your first PO
             </Link>
           </div>
+        ) : visiblePOs.length === 0 ? (
+          <div className="p-8 text-center">
+            <p className="text-gray-600">
+              No purchase orders match this filter. Try another card or clear the status filter.
+            </p>
+          </div>
         ) : (
           <>
             {/* Mobile Card Layout */}
             <div className="md:hidden space-y-4 p-4">
-              {pos.map(po => (
+              {visiblePOs.map(po => (
                 <div key={po._id} className="border border-gray-200 rounded-lg p-4 bg-white">
                   <div className="flex justify-between items-start mb-3">
                     <button
@@ -258,7 +303,7 @@ export default function PurchaseOrders() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pos.map(po => (
+                  {visiblePOs.map(po => (
                     <tr key={po._id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="p-4">
                         <button
@@ -319,7 +364,7 @@ export default function PurchaseOrders() {
       {/* Bottom-right page footer actions */}
       <div data-testid="page-footer" className="mt-8 flex justify-end items-center gap-3">
         <Link
-          to="/"
+          to="/dashboard"
           className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
         >
           Dashboard

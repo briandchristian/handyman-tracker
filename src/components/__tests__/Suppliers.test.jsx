@@ -904,7 +904,9 @@ describe('Suppliers Component - Phase 1 & Catalog Management (Phase 2D)', () => 
     render(<BrowserRouter><Suppliers /></BrowserRouter>);
 
     await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: 'Dashboard' })).toHaveLength(1);
+      const dashboardLinks = screen.getAllByRole('link', { name: 'Dashboard' });
+      expect(dashboardLinks).toHaveLength(1);
+      expect(dashboardLinks[0]).toHaveAttribute('href', '/dashboard');
     });
   });
 

@@ -6,7 +6,7 @@ export default function MobileNav() {
   const location = useLocation();
 
   const navigation = [
-    { name: 'Dashboard', path: '/', icon: '🏠' },
+    { name: 'Dashboard', path: '/dashboard', icon: '🏠' },
     { name: 'Customers', path: '/customers', icon: '👥' },
     { name: 'Installation History', path: '/installation-history', icon: '📜' },
     { name: 'Inventory', path: '/inventory', icon: '📦' },
@@ -16,8 +16,8 @@ export default function MobileNav() {
   ];
 
   const isActive = (path) => {
-    if (path === '/' && location.pathname === '/') return true;
-    if (path !== '/' && location.pathname.startsWith(path)) return true;
+    if (path === '/dashboard' && location.pathname === '/dashboard') return true;
+    if (path !== '/dashboard' && location.pathname.startsWith(path)) return true;
     return false;
   };
 

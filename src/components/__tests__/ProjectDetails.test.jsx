@@ -121,6 +121,19 @@ describe('ProjectDetails Component', () => {
       });
     });
 
+    test('Dashboard link goes to /dashboard, not the public home', async () => {
+      axios.get.mockResolvedValue({ data: mockCustomer });
+
+      renderWithRouter('cust123', 'proj456');
+
+      await waitFor(() => {
+        expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute(
+          'href',
+          '/dashboard'
+        );
+      });
+    });
+
     test('should show loading state', () => {
       axios.get.mockImplementation(() => new Promise(() => {})); // Never resolves
 
@@ -664,7 +677,7 @@ describe('ProjectDetails Component', () => {
       });
     });
 
-    test('should keep materials table fixed and allow expanding long item text', async () => {
+    test('should allow expanding long material item text without a horizontal scroll table', async () => {
       const longItem = 'Premium moisture resistant pressure treated lumber board for exterior framing and structural reinforcement';
       const customerWithLongMaterial = {
         ...mockCustomer,
@@ -686,8 +699,8 @@ describe('ProjectDetails Component', () => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
       });
 
-      const table = screen.getByRole('table');
-      expect(table.className).toContain('table-fixed');
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+      expect(screen.getByTestId('materials-list').className).toMatch(/min-w-0/);
 
       const showMoreBtn = await screen.findByTestId('material-expand-m-long');
       expect(showMoreBtn).toHaveTextContent(/show more/i);
@@ -696,7 +709,7 @@ describe('ProjectDetails Component', () => {
       expect(screen.getByTestId('material-expand-m-long')).toHaveTextContent(/show less/i);
     });
 
-    test('should keep project details layout compact with constrained table wrapper', async () => {
+    test('should keep project details layout compact without lateral materials scroll', async () => {
       const customerWithLongMaterial = {
         ...mockCustomer,
         projects: [
@@ -720,9 +733,11 @@ describe('ProjectDetails Component', () => {
       const root = container.firstChild;
       expect(root.className).toContain('max-w-6xl');
       expect(root.className).toContain('mx-auto');
+      expect(root.className).toMatch(/min-w-0/);
 
-      const wrapper = screen.getByTestId('materials-table-wrapper');
-      expect(wrapper.className).toContain('overflow-x-auto');
+      const list = screen.getByTestId('materials-list');
+      expect(list.className).not.toMatch(/overflow-x-auto/);
+      expect(screen.queryByTestId('materials-table-wrapper')).not.toBeInTheDocument();
     });
 
     test('should apply markup percent into total material cost', async () => {
@@ -906,7 +921,7 @@ describe('ProjectDetails Component', () => {
       expect(screen.getByTestId('materials-total-controls').className).toContain('flex-wrap');
     });
 
-    test('should render mobile material cards and keep desktop table responsive', async () => {
+    test('should render material line cards on all viewport sizes', async () => {
       const customerWithMaterials = {
         ...mockCustomer,
         projects: [
@@ -916,29 +931,16 @@ describe('ProjectDetails Component', () => {
           }
         ]
       };
-      const originalMatchMedia = window.matchMedia;
-      window.matchMedia = jest.fn().mockImplementation(() => ({
-        matches: true,
-        media: '(max-width: 639px)',
-        onchange: null,
-        addListener: jest.fn(),
-        removeListener: jest.fn(),
-        addEventListener: jest.fn(),
-        removeEventListener: jest.fn(),
-        dispatchEvent: jest.fn()
-      }));
       axios.get.mockResolvedValue({ data: customerWithMaterials });
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByTestId('materials-mobile-list')).toBeInTheDocument();
+        expect(screen.getByTestId('materials-list')).toBeInTheDocument();
       });
 
-      expect(screen.getByTestId('materials-mobile-list').className).toContain('sm:hidden');
       expect(screen.queryByTestId('materials-table-wrapper')).not.toBeInTheDocument();
       expect(screen.getByText('Panel')).toBeInTheDocument();
       expect(screen.getAllByRole('button', { name: /edit/i }).length).toBeGreaterThan(0);
-      window.matchMedia = originalMatchMedia;
     });
 
     test('should generate and open bid pdf from project information', async () => {

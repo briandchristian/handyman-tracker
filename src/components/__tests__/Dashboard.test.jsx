@@ -3,6 +3,7 @@
  */
 
 import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import axios from 'axios';
 import Dashboard from '../Dashboard';
@@ -108,6 +109,42 @@ describe('Dashboard Component', () => {
     const root = container.firstChild;
     expect(root.className).toContain('max-w-6xl');
     expect(root.className).toContain('mx-auto');
+  });
+
+  test('status cards filter the list and search narrows it', async () => {
+    axios.get.mockResolvedValue({
+      data: [
+        {
+          _id: '1',
+          name: 'Ada',
+          projects: [
+            { _id: 'p1', name: 'Alarm A', status: 'Pending', createdAt: '2024-01-01' },
+            { _id: 'p2', name: 'CCTV', status: 'Scheduled', createdAt: '2024-02-01' },
+            { _id: 'p3', name: 'Fire', status: 'Completed', createdAt: '2024-03-01' },
+          ],
+        },
+      ],
+    });
+
+    render(
+      <BrowserRouter>
+        <Dashboard />
+      </BrowserRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Alarm A').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText('CCTV')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /scheduled/i }));
+    expect(screen.getAllByText('CCTV').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Alarm A')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /total projects/i }));
+    await userEvent.type(screen.getByRole('searchbox'), 'fire');
+    expect(screen.getAllByText('Fire').length).toBeGreaterThan(0);
+    expect(screen.queryByText('CCTV')).not.toBeInTheDocument();
   });
 });
 
