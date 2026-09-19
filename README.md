@@ -4,6 +4,13 @@ Full-stack web app for **Christian Security Services** (Tennessee licensed alarm
 
 The repository name `handyman-tracker` is historical; the product serves burglar, fire, CCTV, and access control work.
 
+### GitHub repository description
+
+Edit [`.github/repo-metadata.json`](.github/repo-metadata.json) when the public GitHub blurb should change.
+
+- **One-time (local):** `gh auth login`, then `npm run sync:github-metadata`
+- **On every push (optional):** add a repo secret `REPO_METADATA_PAT` (classic PAT with `repo` scope) so [`.github/workflows/sync-repo-metadata.yml`](.github/workflows/sync-repo-metadata.yml) can run automatically
+
 ## Project Structure
 
 ```
