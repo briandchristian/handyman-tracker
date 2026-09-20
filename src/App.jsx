@@ -11,6 +11,7 @@ import Suppliers from './components/Suppliers';
 import PurchaseOrders from './components/PurchaseOrders';
 import Inventory from './components/Inventory';
 import Accounting from './components/Accounting';
+import SubcontractorJobs from './components/SubcontractorJobs';
 import MobileNav from './components/MobileNav';
 import CustomerMyInfo from './components/CustomerMyInfo';
 import InstallationHistory from './components/InstallationHistory';
@@ -162,6 +163,20 @@ function App() {
             token ? (
               !isCustomer ? (
                 <Accounting />
+              ) : (
+                <Navigate to="/customer" />
+              )
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
+        />
+        <Route
+          path="/subcontractor"
+          element={
+            token ? (
+              !isCustomer ? (
+                <SubcontractorJobs />
               ) : (
                 <Navigate to="/customer" />
               )

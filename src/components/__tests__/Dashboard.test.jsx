@@ -63,6 +63,7 @@ describe('Dashboard Component', () => {
     });
 
     expect(screen.getByText('Customers')).toBeInTheDocument();
+    expect(screen.getByText('Subcontractor')).toBeInTheDocument();
   });
 
   test('should handle empty projects', async () => {
@@ -141,7 +142,7 @@ describe('Dashboard Component', () => {
     expect(screen.getAllByText('CCTV').length).toBeGreaterThan(0);
     expect(screen.queryByText('Alarm A')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: /total projects/i }));
+    await userEvent.click(screen.getByRole('button', { name: /total jobs/i }));
     await userEvent.type(screen.getByRole('searchbox'), 'fire');
     expect(screen.getAllByText('Fire').length).toBeGreaterThan(0);
     expect(screen.queryByText('CCTV')).not.toBeInTheDocument();

@@ -11,6 +11,7 @@ import {
   filterAndSortProjects,
   nextStatusFilter,
 } from '../utils/dashboardProjects';
+import { formatCustomerLabel, formatJobLabel } from '../constants/jobIdentity';
 
 const SORT_LABELS = {
   newest: 'Newest first',
@@ -19,7 +20,7 @@ const SORT_LABELS = {
 };
 
 const FILTER_LABELS = {
-  [STATUS_FILTERS.all]: 'All projects',
+  [STATUS_FILTERS.all]: 'All jobs',
   [STATUS_FILTERS.pending]: 'Pending',
   [STATUS_FILTERS.scheduled]: 'Scheduled',
   [STATUS_FILTERS.completed]: 'Completed',
@@ -55,6 +56,7 @@ export default function Dashboard() {
             allProjects.push({
               ...project,
               customerName: customer.name,
+              accountNumber: customer.accountNumber,
               customerId: customer._id,
             });
           });
@@ -108,6 +110,9 @@ export default function Dashboard() {
           <Link to="/accounting" className="btn-staff text-sm">
             Accounting
           </Link>
+          <Link to="/subcontractor" className="btn-staff text-sm">
+            Subcontractor
+          </Link>
           <Link to="/admin/users" className="btn-staff text-sm">
             Users
           </Link>
@@ -131,7 +136,7 @@ export default function Dashboard() {
           onClick={() => setStatusFilter(nextStatusFilter(statusFilter, STATUS_FILTERS.all))}
           className={cardClass(STATUS_FILTERS.all)}
         >
-          <p className="text-gray-600 text-base md:text-sm">Total Projects</p>
+          <p className="text-gray-600 text-base md:text-sm">Total jobs</p>
           <p className="text-3xl font-bold text-black">{counts.total}</p>
         </button>
         <button
@@ -165,19 +170,19 @@ export default function Dashboard() {
 
       <div className="sticky top-[65px] z-20 lg:static bg-slate-50 lg:bg-transparent py-2 mb-4 flex flex-col md:flex-row gap-3">
         <label className="sr-only" htmlFor="dashboard-search">
-          Search projects
+          Search jobs
         </label>
         <input
           id="dashboard-search"
           type="search"
           role="searchbox"
-          placeholder="Search project, customer, or status"
+          placeholder="Search job, customer, account #, or status"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="field md:flex-1"
         />
         <label className="sr-only" htmlFor="dashboard-sort">
-          Sort projects
+          Sort jobs
         </label>
         <select
           id="dashboard-sort"
@@ -201,11 +206,11 @@ export default function Dashboard() {
 
         {projects.length === 0 ? (
           <p className="text-gray-500 text-center py-8 text-base md:text-sm">
-            No projects found. Create a customer and add projects to get started.
+            No jobs found. Create a customer and add jobs to get started.
           </p>
         ) : visibleProjects.length === 0 ? (
           <p className="text-gray-500 text-center py-8 text-base md:text-sm">
-            No projects match this filter. Try another card or clear search.
+            No jobs match this filter. Try another card or clear search.
           </p>
         ) : (
           <>
@@ -213,7 +218,9 @@ export default function Dashboard() {
               {visibleProjects.map((project, index) => (
                 <div key={project._id || index} className="border border-gray-200 rounded-lg p-4 bg-white">
                   <div className="flex justify-between items-start mb-3">
-                    <h3 className="text-lg font-semibold text-black flex-1">{project.name}</h3>
+                    <h3 className="text-lg font-semibold text-black flex-1">
+                      {formatJobLabel(project)}
+                    </h3>
                     <span
                       className={`px-3 py-1 rounded text-sm ml-2 ${
                         project.status === 'Completed'
@@ -234,7 +241,12 @@ export default function Dashboard() {
                   <div className="space-y-2 text-base">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Customer:</span>
-                      <span className="text-black font-medium">{project.customerName}</span>
+                      <span className="text-black font-medium">
+                        {formatCustomerLabel({
+                          name: project.customerName,
+                          accountNumber: project.accountNumber,
+                        })}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Bid Amount:</span>
@@ -286,7 +298,7 @@ export default function Dashboard() {
               <table className="w-full border-collapse min-w-[900px]">
                 <thead>
                   <tr className="border-b border-gray-200">
-                    <th className="text-left p-3 text-black text-sm font-semibold">Project Name</th>
+                    <th className="text-left p-3 text-black text-sm font-semibold">Job</th>
                     <th className="text-left p-3 text-black text-sm font-semibold">Customer</th>
                     <th className="text-left p-3 text-black text-sm font-semibold">Status</th>
                     <th className="text-left p-3 text-black text-sm font-semibold">Bid Amount</th>
@@ -299,8 +311,11 @@ export default function Dashboard() {
                 <tbody>
                   {visibleProjects.map((project, index) => (
                     <tr key={project._id || index} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="p-3 text-black font-medium text-sm">{project.name}</td>
-                      <td className="p-3 text-black text-sm">{project.customerName}</td>
+                      <td className="p-3 text-black font-medium text-sm">{formatJobLabel(project)}</td>
+                      <td className="p-3 text-black text-sm">{formatCustomerLabel({
+                        name: project.customerName,
+                        accountNumber: project.accountNumber,
+                      })}</td>
                       <td className="p-3">
                         <span
                           className={`px-2 py-1 rounded text-sm ${

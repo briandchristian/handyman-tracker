@@ -1079,7 +1079,7 @@ function StockAdjustModal({ item, customers = [], onClose, onSave }) {
                   value={jobQuery}
                   onChange={(e) => setJobQuery(e.target.value)}
                   className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
-                  placeholder="Search by customer or job name"
+                    placeholder="Search by customer, job, or number"
                 />
               </div>
               <div>
@@ -1095,14 +1095,14 @@ function StockAdjustModal({ item, customers = [], onClose, onSave }) {
                 >
                   <option value="">Not assigned to a job</option>
                   {usedJobs.length > 0 && (
-                    <optgroup label="Projects that used this item">
+                              <optgroup label="Jobs that used this item">
                       {usedJobs.map((job) => (
                         <option key={job.value} value={job.value}>{job.label}</option>
                       ))}
                     </optgroup>
                   )}
                   {otherJobs.length > 0 && (
-                    <optgroup label="Other projects">
+                              <optgroup label="Other jobs">
                       {otherJobs.map((job) => (
                         <option key={job.value} value={job.value}>{job.label}</option>
                       ))}
@@ -1112,7 +1112,7 @@ function StockAdjustModal({ item, customers = [], onClose, onSave }) {
                 <p className="text-xs text-gray-500 mt-1">
                   {adjustmentType === 'untracked'
                     ? 'Required. On-hand stock does not change. Use this when the item went to a job without ever being received into inventory.'
-                    : 'Optional. Projects that already used this item are listed first. Extra use is added to that job’s existing material line.'}
+                    : 'Optional. Jobs that already used this item are listed first. Extra use is added to that job’s existing material line.'}
                 </p>
               </div>
             </div>

@@ -639,8 +639,8 @@ describe('Inventory Component - Phase 2C', () => {
       expect(screen.getByRole('combobox', { name: /^Used on job$/i })).toBeInTheDocument();
     });
 
-    expect(screen.getByRole('group', { name: 'Projects that used this item' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /Alarm \(already used 2\)/i })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Jobs that used this item' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Alarm .*already used 2/i })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /Camera run/i })).toBeInTheDocument();
   });
 

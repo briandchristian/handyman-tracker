@@ -45,6 +45,8 @@ export function matchesSearch(project, query) {
   const hay = [
     project.name,
     project.customerName,
+    project.accountNumber,
+    project.jobNumber,
     projectStatus(project),
   ]
     .filter(Boolean)

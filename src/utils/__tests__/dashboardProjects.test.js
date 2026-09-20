@@ -33,11 +33,21 @@ describe('dashboardProjects', () => {
     });
   });
 
-  test('search matches project, customer, or status', () => {
+  test('search matches project, customer, status, or numbers', () => {
     expect(matchesSearch(projects[2], 'cara')).toBe(true);
     expect(matchesSearch(projects[2], 'cctv')).toBe(true);
     expect(matchesSearch(projects[2], 'scheduled')).toBe(true);
     expect(matchesSearch(projects[2], 'zzz')).toBe(false);
+    expect(matchesSearch({
+      ...projects[2],
+      accountNumber: 'A-1042',
+      jobNumber: 'J-208',
+    }, 'j-208')).toBe(true);
+    expect(matchesSearch({
+      ...projects[2],
+      accountNumber: 'A-1042',
+      jobNumber: 'J-208',
+    }, 'a-1042')).toBe(true);
   });
 
   test('defaults to pending + newest first', () => {

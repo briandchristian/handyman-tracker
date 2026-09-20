@@ -12,7 +12,12 @@ import {
   formatEquipmentCategoriesLabels,
   normalizeEquipmentCategories
 } from '../constants/equipmentCategories';
+import { COST_CENTERS } from '../constants/costCenters';
+import { JOB_LABOR_WORK_TYPES, LABOR_WORK_TYPES } from '../constants/laborWorkTypes';
+import { PROJECT_WORK_TYPES, DEFAULT_PROJECT_WORK_TYPE, normalizeProjectWorkType } from '../constants/projectWorkTypes';
 import { getLastIssuedBidQuoteNumber, getNextBidQuoteNumber } from '../utils/bidQuoteSequence';
+import { jobQuotedAmount, bidWorksheetTotal } from '../../server/lib/accountingSummary.js';
+import { formatCustomerLabel, formatJobLabel, jobLinesToDate } from '../constants/jobIdentity';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
 
 /**
@@ -141,6 +146,7 @@ export default function ProjectDetails() {
   const [paidToDateAmount, setPaidToDateAmount] = useState('');
   const [scheduleDate, setScheduleDate] = useState('');
   const [newMaterial, setNewMaterial] = useState({ item: '', quantity: 0, cost: 0, markup: 0 });
+  const [newBidMaterial, setNewBidMaterial] = useState({ item: '', quantity: '', estimate: '' });
   const [catalogItems, setCatalogItems] = useState([]);
   const [selectedCatalogItem, setSelectedCatalogItem] = useState('');
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -155,7 +161,41 @@ export default function ProjectDetails() {
   const [editProjectInfo, setEditProjectInfo] = useState({
     name: '',
     description: '',
-    equipmentCategories: emptyEquipmentCategories()
+    jobNumber: '',
+    equipmentCategories: emptyEquipmentCategories(),
+    workType: DEFAULT_PROJECT_WORK_TYPE,
+  });
+  const [jobExpenses, setJobExpenses] = useState([]);
+  const [jobLabor, setJobLabor] = useState([]);
+  const [newExpense, setNewExpense] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    amount: '',
+    payee: '',
+    costCenterCode: 'FUEL',
+    description: '',
+  });
+  const [newLabor, setNewLabor] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    hours: '',
+    hourlyCost: '',
+    workType: 'install',
+    notes: '',
+  });
+  const [editingExpenseId, setEditingExpenseId] = useState(null);
+  const [editExpense, setEditExpense] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    amount: '',
+    payee: '',
+    costCenterCode: 'FUEL',
+    description: '',
+  });
+  const [editingLaborId, setEditingLaborId] = useState(null);
+  const [editLabor, setEditLabor] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    hours: '',
+    hourlyCost: '',
+    workType: 'install',
+    notes: '',
   });
 
   const fetchProject = useCallback(async () => {
@@ -201,6 +241,13 @@ export default function ProjectDetails() {
       } else {
         setProject(proj);
         setCustomer({ name: cust.name, phone: cust.phone || '', address: cust.address || '' });
+        const headers = { Authorization: `Bearer ${token}` };
+        const [expRes, laborRes] = await Promise.all([
+          axios.get(`${API_BASE_URL}/api/expenses?customerId=${customerId}&projectId=${projectId}`, { headers }).catch(() => ({ data: [] })),
+          axios.get(`${API_BASE_URL}/api/labor-entries?customerId=${customerId}&projectId=${projectId}`, { headers }).catch(() => ({ data: [] })),
+        ]);
+        setJobExpenses(Array.isArray(expRes.data) ? expRes.data : []);
+        setJobLabor(Array.isArray(laborRes.data) ? laborRes.data : []);
       }
     } catch (err) {
       console.error('Error fetching project:', err);
@@ -367,6 +414,258 @@ export default function ProjectDetails() {
     }
   };
 
+  const addBidMaterial = async () => {
+    if (!newBidMaterial.item || !newBidMaterial.quantity) {
+      alert('Please enter a worksheet item and quantity');
+      return;
+    }
+    try {
+      await axios.post(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/bid-materials`,
+        {
+          item: newBidMaterial.item,
+          quantity: parseFloat(newBidMaterial.quantity),
+          estimate: parseFloat(newBidMaterial.estimate || 0),
+        },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      setNewBidMaterial({ item: '', quantity: '', estimate: '' });
+      fetchProject();
+    } catch (err) {
+      console.error('Error adding bid worksheet line:', err);
+      alert('Failed to add bid worksheet line: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const deleteBidMaterial = async (bidMaterialId) => {
+    if (!window.confirm('Remove this line from the bid worksheet?')) return;
+    try {
+      await axios.delete(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/bid-materials/${bidMaterialId}`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      fetchProject();
+    } catch (err) {
+      console.error('Error deleting bid worksheet line:', err);
+      alert('Failed to delete bid worksheet line: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const copyBidWorksheetToJob = async () => {
+    if (!window.confirm('Copy bid worksheet lines onto Materials used? Job Profit will then include those costs until you edit them.')) {
+      return;
+    }
+    try {
+      await axios.post(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/bid-materials/copy-to-job`,
+        {},
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      fetchProject();
+    } catch (err) {
+      console.error('Error copying bid worksheet:', err);
+      alert('Failed to copy bid worksheet: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const addJobExpense = async () => {
+    if (!newExpense.amount) {
+      alert('Please enter an expense amount');
+      return;
+    }
+    try {
+      await axios.post(
+        `${API_BASE_URL}/api/expenses`,
+        {
+          date: newExpense.date,
+          amount: parseFloat(newExpense.amount),
+          payee: newExpense.payee,
+          description: newExpense.description,
+          costCenterCode: newExpense.costCenterCode,
+          customerId,
+          projectId,
+        },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      setNewExpense({
+        date: new Date().toISOString().slice(0, 10),
+        amount: '',
+        payee: '',
+        costCenterCode: 'FUEL',
+        description: '',
+      });
+      fetchProject();
+    } catch (err) {
+      console.error('Error adding job expense:', err);
+      alert('Failed to add expense: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const addJobLabor = async () => {
+    if (!newLabor.hours) {
+      alert('Please enter hours');
+      return;
+    }
+    try {
+      const payload = {
+        date: newLabor.date,
+        hours: parseFloat(newLabor.hours),
+        workType: newLabor.workType,
+        notes: newLabor.notes,
+        customerId,
+        projectId,
+      };
+      if (newLabor.hourlyCost !== '') payload.hourlyCost = parseFloat(newLabor.hourlyCost);
+      await axios.post(`${API_BASE_URL}/api/labor-entries`, payload, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      setNewLabor({
+        date: new Date().toISOString().slice(0, 10),
+        hours: '',
+        hourlyCost: '',
+        workType: 'install',
+        notes: '',
+      });
+      fetchProject();
+    } catch (err) {
+      console.error('Error adding job hours:', err);
+      alert('Failed to add hours: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const toDateInputValue = (value) => {
+    if (!value) return new Date().toISOString().slice(0, 10);
+    const str = String(value);
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return new Date().toISOString().slice(0, 10);
+    return parsed.toISOString().slice(0, 10);
+  };
+
+  const startEditExpense = (expense) => {
+    setEditingExpenseId(expense._id);
+    setEditExpense({
+      date: toDateInputValue(expense.date),
+      amount: String(expense.amount ?? ''),
+      payee: expense.payee || '',
+      costCenterCode: expense.costCenterCode || 'FUEL',
+      description: expense.description || '',
+    });
+  };
+
+  const cancelEditExpense = () => {
+    setEditingExpenseId(null);
+    setEditExpense({
+      date: new Date().toISOString().slice(0, 10),
+      amount: '',
+      payee: '',
+      costCenterCode: 'FUEL',
+      description: '',
+    });
+  };
+
+  const updateJobExpense = async (expenseId) => {
+    const amount = parseFloat(editExpense.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert('Please enter an expense amount');
+      return;
+    }
+    try {
+      await axios.put(
+        `${API_BASE_URL}/api/expenses/${expenseId}`,
+        {
+          date: editExpense.date,
+          amount,
+          payee: editExpense.payee,
+          description: editExpense.description,
+          costCenterCode: editExpense.costCenterCode,
+        },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      cancelEditExpense();
+      fetchProject();
+    } catch (err) {
+      console.error('Error updating job expense:', err);
+      alert('Failed to update expense: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const deleteJobExpense = async (expenseId) => {
+    if (!window.confirm('Are you sure you want to delete this expense?')) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/api/expenses/${expenseId}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      if (editingExpenseId === expenseId) cancelEditExpense();
+      fetchProject();
+    } catch (err) {
+      console.error('Error deleting job expense:', err);
+      alert('Failed to delete expense: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const startEditLabor = (entry) => {
+    setEditingLaborId(entry._id);
+    setEditLabor({
+      date: toDateInputValue(entry.date),
+      hours: String(entry.hours ?? ''),
+      hourlyCost: entry.hourlyCost == null ? '' : String(entry.hourlyCost),
+      workType: entry.workType || 'install',
+      notes: entry.notes || '',
+    });
+  };
+
+  const cancelEditLabor = () => {
+    setEditingLaborId(null);
+    setEditLabor({
+      date: new Date().toISOString().slice(0, 10),
+      hours: '',
+      hourlyCost: '',
+      workType: 'install',
+      notes: '',
+    });
+  };
+
+  const updateJobLabor = async (laborId) => {
+    const hours = parseFloat(editLabor.hours);
+    if (!Number.isFinite(hours) || hours <= 0) {
+      alert('Please enter hours');
+      return;
+    }
+    try {
+      const payload = {
+        date: editLabor.date,
+        hours,
+        workType: editLabor.workType,
+        notes: editLabor.notes,
+      };
+      if (editLabor.hourlyCost !== '') payload.hourlyCost = parseFloat(editLabor.hourlyCost);
+      else payload.hourlyCost = '';
+      await axios.put(`${API_BASE_URL}/api/labor-entries/${laborId}`, payload, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      cancelEditLabor();
+      fetchProject();
+    } catch (err) {
+      console.error('Error updating job hours:', err);
+      alert('Failed to update hours: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const deleteJobLabor = async (laborId) => {
+    if (!window.confirm('Are you sure you want to delete this labor entry?')) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/api/labor-entries/${laborId}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      if (editingLaborId === laborId) cancelEditLabor();
+      fetchProject();
+    } catch (err) {
+      console.error('Error deleting job hours:', err);
+      alert('Failed to delete hours: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
   const applyCatalogItemToMaterialForm = () => {
     const picked = catalogItems.find((entry) => entry.value === selectedCatalogItem);
     if (!picked) return;
@@ -521,6 +820,7 @@ export default function ProjectDetails() {
     return parsedRate;
   })();
   const salesTaxAmount = taxableMaterialCost * (effectiveTaxRate / 100);
+  // Invoice PDF only. Job Profit materialCost uses qty × unit cost and never this sell total.
   const invoiceSubtotal = (() => {
     const parsedBillAmount = parseFloat(project?.billAmount || 0);
     return parsedBillAmount > 0 ? parsedBillAmount : totalMaterialCost;
@@ -629,7 +929,7 @@ export default function ProjectDetails() {
     y += 8;
     doc.setFontSize(10.5);
 
-    const materials = project?.materials || [];
+    const materials = project?.bidMaterials || [];
     const tableLeft = left;
     const tableRight = right;
     const tableWidth = tableRight - tableLeft;
@@ -705,7 +1005,7 @@ export default function ProjectDetails() {
     doc.setFontSize(12);
     ensurePageSpace(8);
     doc.setTextColor(38, 131, 198);
-    doc.text(`Total Material Cost: $${totalMaterialCost.toFixed(2)}`, left, y);
+    doc.text(`Bid Amount: $${jobQuotedAmount(project).toFixed(2)}`, left, y);
     doc.setTextColor(0, 0, 0);
     y += 6;
     ensurePageSpace(10);
@@ -1084,7 +1384,9 @@ export default function ProjectDetails() {
     setEditProjectInfo({
       name: project.name || '',
       description: project.description || '',
-      equipmentCategories: normalizeEquipmentCategories(project.equipmentCategories)
+      jobNumber: project.jobNumber || '',
+      equipmentCategories: normalizeEquipmentCategories(project.equipmentCategories),
+      workType: normalizeProjectWorkType(project.workType),
     });
     setEditingProjectInfo(true);
   };
@@ -1094,13 +1396,15 @@ export default function ProjectDetails() {
     setEditProjectInfo({
       name: '',
       description: '',
-      equipmentCategories: emptyEquipmentCategories()
+      jobNumber: '',
+      equipmentCategories: emptyEquipmentCategories(),
+      workType: DEFAULT_PROJECT_WORK_TYPE,
     });
   };
 
   const saveProjectInfo = async () => {
     if (!editProjectInfo.name.trim()) {
-      alert('Please enter a project name');
+      alert('Please enter a job name');
       return;
     }
     try {
@@ -1109,13 +1413,15 @@ export default function ProjectDetails() {
         {
           name: editProjectInfo.name.trim(),
           description: editProjectInfo.description.trim(),
+          jobNumber: editProjectInfo.jobNumber.trim(),
           equipmentCategories: {
             burglarAlarm: !!editProjectInfo.equipmentCategories.burglarAlarm,
             fireAlarm: !!editProjectInfo.equipmentCategories.fireAlarm,
             accessControl: !!editProjectInfo.equipmentCategories.accessControl,
             cctv: !!editProjectInfo.equipmentCategories.cctv,
             monitoring: !!editProjectInfo.equipmentCategories.monitoring
-          }
+          },
+          workType: normalizeProjectWorkType(editProjectInfo.workType),
         },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
@@ -1123,7 +1429,7 @@ export default function ProjectDetails() {
       fetchProject();
     } catch (err) {
       console.error('Error updating project:', err);
-      alert('Failed to update project: ' + (err.response?.data?.msg || err.message));
+      alert('Failed to update job: ' + (err.response?.data?.msg || err.message));
     }
   };
 
@@ -1184,13 +1490,15 @@ export default function ProjectDetails() {
         </Link>
       </div>
       <h1 className="text-2xl sm:text-3xl leading-tight break-words font-bold mb-6 text-black">
-        {editingProjectInfo ? (editProjectInfo.name.trim() || project.name) : project.name}
+        {editingProjectInfo
+          ? formatJobLabel({ name: editProjectInfo.name.trim() || project.name, jobNumber: editProjectInfo.jobNumber || project.jobNumber })
+          : formatJobLabel(project)}
       </h1>
       
       {/* Project Information */}
       <div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
         <div className="flex flex-wrap justify-between items-start gap-2 mb-4">
-          <h2 className="text-lg sm:text-xl font-semibold">Project Information</h2>
+          <h2 className="text-lg sm:text-xl font-semibold">Job information</h2>
           {!editingProjectInfo ? (
             <button
               type="button"
@@ -1226,7 +1534,7 @@ export default function ProjectDetails() {
             <>
               <div>
                 <p className="text-gray-600 mb-1">Customer Name:</p>
-                <p className="text-black font-medium">{customer.name || '—'}</p>
+                <p className="text-black font-medium">{formatCustomerLabel(customer)}</p>
               </div>
               <div>
                 <p className="text-gray-600 mb-1">Customer Phone:</p>
@@ -1241,11 +1549,20 @@ export default function ProjectDetails() {
           {editingProjectInfo ? (
             <>
               <div className="md:col-span-2">
-                <label htmlFor="edit-project-name" className="text-gray-600 mb-1 block">Project name</label>
+                <label htmlFor="edit-project-name" className="text-gray-600 mb-1 block">Job name</label>
                 <input
                   id="edit-project-name"
                   value={editProjectInfo.name}
                   onChange={(e) => setEditProjectInfo({ ...editProjectInfo, name: e.target.value })}
+                  className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                />
+              </div>
+              <div>
+                <label htmlFor="edit-job-number" className="text-gray-600 mb-1 block">Job number</label>
+                <input
+                  id="edit-job-number"
+                  value={editProjectInfo.jobNumber}
+                  onChange={(e) => setEditProjectInfo({ ...editProjectInfo, jobNumber: e.target.value })}
                   className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
                 />
               </div>
@@ -1288,9 +1605,26 @@ export default function ProjectDetails() {
                   ))}
                 </div>
               </div>
+              <div>
+                <label htmlFor="edit-project-work-type" className="text-gray-600 mb-1 block">Work type</label>
+                <select
+                  id="edit-project-work-type"
+                  value={editProjectInfo.workType || DEFAULT_PROJECT_WORK_TYPE}
+                  onChange={(e) => setEditProjectInfo({ ...editProjectInfo, workType: e.target.value })}
+                  className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                >
+                  {PROJECT_WORK_TYPES.map((type) => (
+                    <option key={type.value} value={type.value}>{type.label}</option>
+                  ))}
+                </select>
+              </div>
             </>
           ) : (
             <>
+              <div>
+                <p className="text-gray-600 mb-1">Job number:</p>
+                <p className="text-black font-medium">{project.jobNumber || '—'}</p>
+              </div>
               <div className="md:col-span-2">
                 <p className="text-gray-600 mb-1">Description:</p>
                 <p className="text-black font-medium">{project.description || 'No description'}</p>
@@ -1299,6 +1633,13 @@ export default function ProjectDetails() {
                 <p className="text-gray-600 mb-1">Equipment:</p>
                 <p className="text-black font-medium" data-testid="project-equipment-display">
                   {equipmentDisplayLabels.length > 0 ? equipmentDisplayLabels.join(', ') : 'None'}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-600 mb-1">Work type:</p>
+                <p className="text-black font-medium" data-testid="project-work-type-display">
+                  {PROJECT_WORK_TYPES.find((type) => type.value === normalizeProjectWorkType(project.workType))?.label
+                    || 'Installation'}
                 </p>
               </div>
             </>
@@ -1461,7 +1802,145 @@ export default function ProjectDetails() {
           <p className="text-black mt-1" data-testid="proposed-system-text">{proposedSystemStatement}</p>
         </div>
       )}
-      <h2 className="text-lg sm:text-xl mt-6 text-black">Materials</h2>
+      <h2 className="text-lg sm:text-xl mt-6 text-black">Bid worksheet</h2>
+      <p className="text-sm text-slate-600 mt-1 mb-2">
+        Equipment you proposed on the quote. This does not affect Job Profit. Bid Amount is still the customer quote.
+      </p>
+
+      <div data-testid="quote-document-controls" className="mt-2 mb-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => generateBidPdf({ incrementQuote: true })}
+          className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm font-medium"
+        >
+          Generate Bid
+        </button>
+        <button
+          type="button"
+          onClick={() => generateBidPdf({ incrementQuote: false })}
+          className="bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm font-medium"
+        >
+          Regenerate Bid
+        </button>
+        <button
+          type="button"
+          onClick={generateInvoicePdf}
+          className="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 text-sm font-medium"
+        >
+          Generate Invoice
+        </button>
+        <button
+          type="button"
+          onClick={copyBidWorksheetToJob}
+          className="bg-slate-800 text-white px-3 py-1 rounded hover:bg-slate-900 text-sm font-medium"
+          disabled={!(project.bidMaterials && project.bidMaterials.length)}
+        >
+          Copy bid worksheet to materials used
+        </button>
+        <label className="inline-flex items-center gap-2 text-sm text-black">
+          <input
+            type="checkbox"
+            checked={includeMonitoringAgreement}
+            onChange={(e) => setIncludeMonitoringAgreement(e.target.checked)}
+          />
+          Include Monitoring Agreement
+        </label>
+      </div>
+
+      <div data-testid="bid-worksheet-list" className="mt-2 space-y-3 max-w-full min-w-0 mb-4">
+        {(project.bidMaterials || []).length > 0 ? (
+          <>
+            {(project.bidMaterials || []).map((line) => (
+              <div key={line._id} className="bg-white border border-gray-300 rounded-lg p-3 min-w-0 flex flex-wrap justify-between gap-2">
+                <div>
+                  <p className="font-medium text-black">{line.item}</p>
+                  <p className="text-sm text-gray-600">
+                    Qty {line.quantity || 0}
+                    {line.estimate != null ? ` · Estimate $${Number(line.estimate).toFixed(2)}` : ''}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => deleteBidMaterial(line._id)}
+                  className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+            <p className="font-semibold text-black">
+              Worksheet estimate: ${bidWorksheetTotal(project).toFixed(2)}
+            </p>
+          </>
+        ) : (
+          <div className="bg-white border border-gray-300 rounded-lg p-4 text-black text-center">
+            No bid worksheet lines yet
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
+        <h3 className="text-lg font-semibold mb-3 text-black">Add to bid worksheet</h3>
+        <AlignedFormGrid testId="bid-worksheet-grid">
+          <AlignedFormField label="Worksheet item" htmlFor="bid-worksheet-item" className="col-span-12 md:col-span-6">
+            <input
+              id="bid-worksheet-item"
+              value={newBidMaterial.item}
+              onChange={(e) => setNewBidMaterial({ ...newBidMaterial, item: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            />
+          </AlignedFormField>
+          <AlignedFormField label="Worksheet quantity" htmlFor="bid-worksheet-qty" className="col-span-6 md:col-span-3">
+            <input
+              id="bid-worksheet-qty"
+              type="number"
+              step="1"
+              min="0"
+              value={newBidMaterial.quantity}
+              onChange={(e) => setNewBidMaterial({ ...newBidMaterial, quantity: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            />
+          </AlignedFormField>
+          <AlignedFormField label="Estimate ($)" htmlFor="bid-worksheet-estimate" className="col-span-6 md:col-span-3">
+            <input
+              id="bid-worksheet-estimate"
+              type="number"
+              step="0.01"
+              min="0"
+              value={newBidMaterial.estimate}
+              onChange={(e) => setNewBidMaterial({ ...newBidMaterial, estimate: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            />
+          </AlignedFormField>
+        </AlignedFormGrid>
+        <button type="button" onClick={addBidMaterial} className="mt-3 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+          Add to bid worksheet
+        </button>
+      </div>
+
+      <section data-testid="job-lines" className="mt-6">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-2">
+          <div>
+            <h2 className="text-lg sm:text-xl text-black">Job lines</h2>
+            <p className="text-sm text-slate-600">
+              Additive materials, time, and expenses on this job. The bid worksheet above is quote-only.
+            </p>
+          </div>
+          <div className="border border-slate-200 rounded p-3 min-w-[10rem]">
+            <p className="text-sm text-slate-600">Lines to date</p>
+            <p data-testid="job-lines-total" className="font-semibold">
+              {`$${jobLinesToDate({
+                materials: project.materials,
+                laborEntries: jobLabor,
+                expenses: jobExpenses,
+              }).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            </p>
+          </div>
+        </div>
+      <h2 className="text-lg sm:text-xl mt-4 text-black">Materials used</h2>
+      <p className="text-sm text-slate-600 mt-1 mb-2">
+        Actual materials on the job. Qty × cost is Job Profit material cost. Leave empty on labor-only jobs.
+      </p>
 
       <div data-testid="materials-list" className="mt-2 space-y-3 max-w-full min-w-0">
         {project.materials && project.materials.length > 0 ? (
@@ -1604,35 +2083,6 @@ export default function ProjectDetails() {
             <div className="bg-gray-100 border border-gray-300 rounded-lg p-3 min-w-0">
               <div data-testid="materials-total-controls" className="flex flex-wrap items-center gap-3 mb-2">
                 <span className="font-bold text-black">Total Material Cost:</span>
-                <button
-                  type="button"
-                  onClick={() => generateBidPdf({ incrementQuote: true })}
-                  className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm font-medium"
-                >
-                  Generate Bid
-                </button>
-                <button
-                  type="button"
-                  onClick={() => generateBidPdf({ incrementQuote: false })}
-                  className="bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm font-medium"
-                >
-                  Regenerate Bid
-                </button>
-                <button
-                  type="button"
-                  onClick={generateInvoicePdf}
-                  className="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 text-sm font-medium"
-                >
-                  Generate Invoice
-                </button>
-                <label className="inline-flex items-center gap-2 text-sm text-black">
-                  <input
-                    type="checkbox"
-                    checked={includeMonitoringAgreement}
-                    onChange={(e) => setIncludeMonitoringAgreement(e.target.checked)}
-                  />
-                  Include Monitoring Agreement
-                </label>
               </div>
               <p className="text-black text-lg font-bold">${totalMaterialCost.toFixed(2)}</p>
             </div>
@@ -1739,6 +2189,344 @@ export default function ProjectDetails() {
           </div>
         </AlignedFormGrid>
       </div>
+
+      <div className="mt-6 bg-white border border-gray-300 rounded-lg p-4">
+        <h2 className="text-lg sm:text-xl font-semibold mb-2 text-black">Job expenses</h2>
+        <p className="text-sm text-gray-600 mb-3">Direct costs on this job (fuel, permits, consumables charged here).</p>
+        {jobExpenses.length > 0 ? (
+          <div className="mb-4 space-y-3">
+            {jobExpenses.map((expense) => (
+              <div
+                key={expense._id}
+                data-testid={`job-expense-${expense._id}`}
+                className="bg-white border border-gray-300 rounded-lg p-3 min-w-0"
+              >
+                {editingExpenseId === expense._id ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="date"
+                        aria-label="Edit Date"
+                        value={editExpense.date}
+                        onChange={(e) => setEditExpense({ ...editExpense, date: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        aria-label="Edit Amount"
+                        value={editExpense.amount}
+                        onChange={(e) => setEditExpense({ ...editExpense, amount: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                      <select
+                        aria-label="Edit Cost center"
+                        value={editExpense.costCenterCode}
+                        onChange={(e) => setEditExpense({ ...editExpense, costCenterCode: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      >
+                        {COST_CENTERS.map((center) => (
+                          <option key={center.code} value={center.code}>{center.name}</option>
+                        ))}
+                      </select>
+                      <input
+                        aria-label="Edit Payee"
+                        placeholder="Payee"
+                        value={editExpense.payee}
+                        onChange={(e) => setEditExpense({ ...editExpense, payee: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                    </div>
+                    <input
+                      aria-label="Edit Description"
+                      placeholder="Description"
+                      value={editExpense.description}
+                      onChange={(e) => setEditExpense({ ...editExpense, description: e.target.value })}
+                      className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateJobExpense(expense._id)}
+                        className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditExpense}
+                        className="bg-gray-200 text-black px-3 py-1 rounded hover:bg-gray-300"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        data-testid={`delete-job-expense-${expense._id}`}
+                        onClick={() => deleteJobExpense(expense._id)}
+                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 min-w-0">
+                    <div className="min-w-0 flex-1 text-black text-sm">
+                      <p className="font-semibold">
+                        ${Number(expense.amount || 0).toFixed(2)} · {expense.costCenterCode}
+                      </p>
+                      <p className="text-gray-600 mt-1">
+                        {expense.payee || expense.description || 'Expense'}
+                        {expense.payee && expense.description ? ` · ${expense.description}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <button
+                        type="button"
+                        data-testid={`edit-job-expense-${expense._id}`}
+                        onClick={() => startEditExpense(expense)}
+                        className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        data-testid={`delete-job-expense-${expense._id}`}
+                        onClick={() => deleteJobExpense(expense._id)}
+                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-600 mb-3">No job expenses yet.</p>
+        )}
+        <AlignedFormGrid testId="add-job-expense-grid">
+          <AlignedFormField label="Date" htmlFor="job-expense-date" className="col-span-12 md:col-span-3">
+            <input
+              id="job-expense-date"
+              type="date"
+              value={newExpense.date}
+              onChange={(e) => setNewExpense({ ...newExpense, date: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            />
+          </AlignedFormField>
+          <AlignedFormField label="Amount" htmlFor="job-expense-amount" className="col-span-6 md:col-span-2">
+            <input
+              id="job-expense-amount"
+              type="number"
+              step="0.01"
+              value={newExpense.amount}
+              onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            />
+          </AlignedFormField>
+          <AlignedFormField label="Cost center" htmlFor="job-expense-center" className="col-span-6 md:col-span-3">
+            <select
+              id="job-expense-center"
+              value={newExpense.costCenterCode}
+              onChange={(e) => setNewExpense({ ...newExpense, costCenterCode: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            >
+              {COST_CENTERS.map((center) => (
+                <option key={center.code} value={center.code}>{center.name}</option>
+              ))}
+            </select>
+          </AlignedFormField>
+          <AlignedFormField label="Payee" htmlFor="job-expense-payee" className="col-span-12 md:col-span-4">
+            <input
+              id="job-expense-payee"
+              value={newExpense.payee}
+              onChange={(e) => setNewExpense({ ...newExpense, payee: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            />
+          </AlignedFormField>
+          <div className="col-span-12 md:col-span-2">
+            <button type="button" onClick={addJobExpense} className="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 font-medium">
+              Add expense
+            </button>
+          </div>
+        </AlignedFormGrid>
+      </div>
+
+      <div className="mt-6 bg-white border border-gray-300 rounded-lg p-4">
+        <h2 className="text-lg sm:text-xl font-semibold mb-2 text-black">Job hours</h2>
+        <p className="text-sm text-gray-600 mb-3">Install, service, consult, and warranty time on this job. Bidding time is recorded in Accounting.</p>
+        <p data-testid="job-hours-hourly-cost-help" className="text-sm text-gray-600 mb-3">
+          Billed labor is already on Bill Amount. This field is your internal cost for contribution, not the customer labor rate.
+        </p>
+        {jobLabor.length > 0 ? (
+          <div className="mb-4 space-y-3">
+            {jobLabor.map((entry) => (
+              <div
+                key={entry._id}
+                data-testid={`job-labor-${entry._id}`}
+                className="bg-white border border-gray-300 rounded-lg p-3 min-w-0"
+              >
+                {editingLaborId === entry._id ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="date"
+                        aria-label="Edit Date"
+                        value={editLabor.date}
+                        onChange={(e) => setEditLabor({ ...editLabor, date: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                      <input
+                        type="number"
+                        step="0.25"
+                        aria-label="Edit Hours"
+                        value={editLabor.hours}
+                        onChange={(e) => setEditLabor({ ...editLabor, hours: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        aria-label="Edit your cost per hour (not the customer labor rate)"
+                        placeholder="Staff rate if blank"
+                        value={editLabor.hourlyCost}
+                        onChange={(e) => setEditLabor({ ...editLabor, hourlyCost: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                      <select
+                        aria-label="Edit Work type"
+                        value={editLabor.workType}
+                        onChange={(e) => setEditLabor({ ...editLabor, workType: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      >
+                        {JOB_LABOR_WORK_TYPES.map((value) => (
+                          <option key={value} value={value}>
+                            {LABOR_WORK_TYPES.find((type) => type.value === value)?.label || value}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <input
+                      aria-label="Edit Notes"
+                      placeholder="Notes"
+                      value={editLabor.notes}
+                      onChange={(e) => setEditLabor({ ...editLabor, notes: e.target.value })}
+                      className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateJobLabor(entry._id)}
+                        className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditLabor}
+                        className="bg-gray-200 text-black px-3 py-1 rounded hover:bg-gray-300"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        data-testid={`delete-job-labor-${entry._id}`}
+                        onClick={() => deleteJobLabor(entry._id)}
+                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 min-w-0">
+                    <div className="min-w-0 flex-1 text-black text-sm">
+                      <p className="font-semibold">
+                        {entry.hours} hrs · {LABOR_WORK_TYPES.find((type) => type.value === entry.workType)?.label || entry.workType} · ${Number(entry.hourlyCost || 0).toFixed(2)}/hr
+                      </p>
+                      {entry.notes ? <p className="text-gray-600 mt-1">{entry.notes}</p> : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <button
+                        type="button"
+                        data-testid={`edit-job-labor-${entry._id}`}
+                        onClick={() => startEditLabor(entry)}
+                        className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        data-testid={`delete-job-labor-${entry._id}`}
+                        onClick={() => deleteJobLabor(entry._id)}
+                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-600 mb-3">No hours logged yet.</p>
+        )}
+        <AlignedFormGrid testId="add-job-labor-grid">
+          <AlignedFormField label="Date" htmlFor="job-labor-date" className="col-span-12 md:col-span-3">
+            <input
+              id="job-labor-date"
+              type="date"
+              value={newLabor.date}
+              onChange={(e) => setNewLabor({ ...newLabor, date: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            />
+          </AlignedFormField>
+          <AlignedFormField label="Hours" htmlFor="job-labor-hours" className="col-span-6 md:col-span-2">
+            <input
+              id="job-labor-hours"
+              type="number"
+              step="0.25"
+              value={newLabor.hours}
+              onChange={(e) => setNewLabor({ ...newLabor, hours: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            />
+          </AlignedFormField>
+          <AlignedFormField label="Your cost per hour (not the customer labor rate)" htmlFor="job-labor-rate" className="col-span-6 md:col-span-2">
+            <input
+              id="job-labor-rate"
+              type="number"
+              step="0.01"
+              placeholder="Staff rate if blank"
+              value={newLabor.hourlyCost}
+              onChange={(e) => setNewLabor({ ...newLabor, hourlyCost: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            />
+          </AlignedFormField>
+          <AlignedFormField label="Work type" htmlFor="job-labor-type" className="col-span-12 md:col-span-3">
+            <select
+              id="job-labor-type"
+              value={newLabor.workType}
+              onChange={(e) => setNewLabor({ ...newLabor, workType: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            >
+              {JOB_LABOR_WORK_TYPES.map((value) => (
+                <option key={value} value={value}>
+                  {LABOR_WORK_TYPES.find((type) => type.value === value)?.label || value}
+                </option>
+              ))}
+            </select>
+          </AlignedFormField>
+          <div className="col-span-12 md:col-span-2">
+            <button type="button" onClick={addJobLabor} className="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 font-medium">
+              Add hours
+            </button>
+          </div>
+        </AlignedFormGrid>
+      </div>
+      </section>
 
       {/* Notes */}
       <div className="mt-6 bg-white border border-gray-300 rounded-lg p-4">

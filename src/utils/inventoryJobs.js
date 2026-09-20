@@ -4,6 +4,7 @@
  */
 
 import { materialMatchesInventoryItem } from '../../server/lib/inventoryStock.js';
+import { formatCustomerLabel, formatJobLabel } from '../../server/lib/jobIdentity.js';
 
 export function jobsFromCustomers(customers = [], item) {
   const jobs = [];
@@ -14,20 +15,28 @@ export function jobsFromCustomers(customers = [], item) {
           ? sum + (Number(material.quantity) || 0)
           : sum
       ), 0);
-      const customerName = customer.name || 'Customer';
-      const projectName = project.name || 'Job';
+      const customerName = formatCustomerLabel({
+        name: customer.name,
+        accountNumber: customer.accountNumber,
+      });
+      const projectName = formatJobLabel({
+        name: project.name,
+        jobNumber: project.jobNumber,
+      });
       jobs.push({
         customerId: String(customer._id),
         projectId: String(project._id),
         value: `${customer._id}:${project._id}`,
         customerName,
         projectName,
+        jobNumber: project.jobNumber || '',
+        accountNumber: customer.accountNumber || '',
         status: project.status || '',
         usedThisItem: usedQuantity > 0,
         usedQuantity,
         label: usedQuantity > 0
-          ? `${customerName} — ${projectName} (already used ${usedQuantity})`
-          : `${customerName} — ${projectName}`,
+          ? `${projectName} (${customerName}, already used ${usedQuantity})`
+          : `${projectName} (${customerName})`,
       });
     }
   }
@@ -45,5 +54,7 @@ export function filterJobs(jobs = [], query) {
     String(job.label || '').toLowerCase().includes(q)
     || String(job.customerName || '').toLowerCase().includes(q)
     || String(job.projectName || '').toLowerCase().includes(q)
+    || String(job.jobNumber || '').toLowerCase().includes(q)
+    || String(job.accountNumber || '').toLowerCase().includes(q)
   );
 }

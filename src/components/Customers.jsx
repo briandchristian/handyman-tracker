@@ -6,19 +6,23 @@ import {
   EQUIPMENT_CATEGORY_OPTIONS,
   emptyEquipmentCategories
 } from '../constants/equipmentCategories';
+import { PROJECT_WORK_TYPES, DEFAULT_PROJECT_WORK_TYPE } from '../constants/projectWorkTypes';
+import { formatCustomerLabel, formatJobLabel } from '../constants/jobIdentity';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
-  const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '', address: '' });
+  const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '', address: '', accountNumber: '' });
   const [newProject, setNewProject] = useState({
     customerId: '',
     name: '',
     description: '',
-    equipmentCategories: emptyEquipmentCategories()
+    jobNumber: '',
+    equipmentCategories: emptyEquipmentCategories(),
+    workType: DEFAULT_PROJECT_WORK_TYPE,
   });
   const [editingCustomerId, setEditingCustomerId] = useState(null);
-  const [editCustomer, setEditCustomer] = useState({ name: '', email: '', phone: '', address: '' });
+  const [editCustomer, setEditCustomer] = useState({ name: '', email: '', phone: '', address: '', accountNumber: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   // Mobile UX: collapsible sections reduce scrolling fatigue on small screens.
@@ -45,7 +49,7 @@ export default function Customers() {
     try {
       await axios.post(`${API_BASE_URL}/api/customers`, newCustomer, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       // Clear the form fields after successful addition
-      setNewCustomer({ name: '', email: '', phone: '', address: '' });
+      setNewCustomer({ name: '', email: '', phone: '', address: '', accountNumber: '' });
       fetchCustomers();
     } catch (err) {
       console.error('Error adding customer:', err);
@@ -61,7 +65,7 @@ export default function Customers() {
   const addProject = async () => {
     try {
       if (!newProject.customerId || !newProject.name) {
-        alert('Please provide customer and project name');
+        alert('Please provide customer and job name');
         return;
       }
       
@@ -69,6 +73,7 @@ export default function Customers() {
         {
           name: newProject.name,
           description: newProject.description,
+          jobNumber: newProject.jobNumber,
           status: 'Pending',
           equipmentCategories: {
             burglarAlarm: !!newProject.equipmentCategories.burglarAlarm,
@@ -76,7 +81,8 @@ export default function Customers() {
             accessControl: !!newProject.equipmentCategories.accessControl,
             cctv: !!newProject.equipmentCategories.cctv,
             monitoring: !!newProject.equipmentCategories.monitoring
-          }
+          },
+          workType: newProject.workType || DEFAULT_PROJECT_WORK_TYPE,
         },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
@@ -86,7 +92,9 @@ export default function Customers() {
         customerId: '',
         name: '',
         description: '',
-        equipmentCategories: emptyEquipmentCategories()
+        jobNumber: '',
+        equipmentCategories: emptyEquipmentCategories(),
+        workType: DEFAULT_PROJECT_WORK_TYPE,
       });
       
       // Refresh customers and update the selected customer
@@ -105,13 +113,15 @@ export default function Customers() {
             customerId: updatedCustomer._id,
             name: '',
             description: '',
-            equipmentCategories: emptyEquipmentCategories()
+            jobNumber: '',
+            equipmentCategories: emptyEquipmentCategories(),
+            workType: DEFAULT_PROJECT_WORK_TYPE,
           });
         }
       }
     } catch (err) {
       console.error('Error adding project:', err);
-      alert('Failed to add project: ' + (err.response?.data?.msg || err.message));
+      alert('Failed to add job: ' + (err.response?.data?.msg || err.message));
     }
   };
 
@@ -150,13 +160,14 @@ export default function Customers() {
       name: customer.name,
       email: customer.email,
       phone: customer.phone,
-      address: customer.address
+      address: customer.address,
+      accountNumber: customer.accountNumber || '',
     });
   };
 
   const cancelEditing = () => {
     setEditingCustomerId(null);
-    setEditCustomer({ name: '', email: '', phone: '', address: '' });
+    setEditCustomer({ name: '', email: '', phone: '', address: '', accountNumber: '' });
   };
 
   const saveCustomer = async (customerId) => {
@@ -165,7 +176,7 @@ export default function Customers() {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } 
       });
       setEditingCustomerId(null);
-      setEditCustomer({ name: '', email: '', phone: '', address: '' });
+      setEditCustomer({ name: '', email: '', phone: '', address: '', accountNumber: '' });
       fetchCustomers();
     } catch (err) {
       console.error('Error updating customer:', err);
@@ -183,8 +194,9 @@ export default function Customers() {
     }
     
     // Search for customer by name (case-insensitive)
-    const found = customers.find(c => 
+    const found = customers.find(c =>
       c.name.toLowerCase().includes(query.toLowerCase())
+      || String(c.accountNumber || '').toLowerCase().includes(query.toLowerCase())
     );
     
     if (found) {
@@ -291,6 +303,15 @@ export default function Customers() {
                       className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
                     />
                   </AlignedFormField>
+                  <AlignedFormField label="Account number" htmlFor="new-customer-account" className="col-span-12 sm:col-span-6 md:col-span-2">
+                    <input
+                      id="new-customer-account"
+                      placeholder="Auto or CS number"
+                      value={newCustomer.accountNumber}
+                      onChange={e => setNewCustomer({ ...newCustomer, accountNumber: e.target.value })}
+                      className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
+                    />
+                  </AlignedFormField>
                   <div className="col-span-12 md:col-span-2">
                     <button onClick={addCustomer} className="w-full bg-green-500 text-white px-4 py-3 md:py-2 rounded hover:bg-green-600 text-base md:text-sm font-medium">
                       Add Customer
@@ -351,6 +372,15 @@ export default function Customers() {
                             className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
                           />
                         </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor={`edit-account-${cust._id}`}>Account number</label>
+                          <input
+                            id={`edit-account-${cust._id}`}
+                            value={editCustomer.accountNumber}
+                            onChange={e => setEditCustomer({ ...editCustomer, accountNumber: e.target.value })}
+                            className="w-full p-3 border border-gray-300 rounded bg-gray-100 text-black text-base"
+                          />
+                        </div>
                         <div className="flex gap-2 pt-2">
                           <button onClick={() => saveCustomer(cust._id)} className="flex-1 bg-green-500 text-white px-4 py-3 rounded text-base hover:bg-green-600 font-medium">
                             Save
@@ -363,7 +393,7 @@ export default function Customers() {
                     ) : (
                       <>
                         <div className="mb-3">
-                          <h3 className="text-lg font-semibold text-black">{cust.name}</h3>
+                          <h3 className="text-lg font-semibold text-black">{formatCustomerLabel(cust)}</h3>
                         </div>
                         <div className="space-y-2 text-base">
                           <div>
@@ -379,17 +409,17 @@ export default function Customers() {
                             <span className="text-black">{cust.address || '-'}</span>
                           </div>
                           <div>
-                            <span className="text-gray-600">Projects: </span>
+                            <span className="text-gray-600">Jobs: </span>
                             {cust.projects && cust.projects.length > 0 ? (
                               <div className="mt-1 space-y-1">
                                 {cust.projects.map(proj => (
                                   <div key={proj._id}>
-                                    <Link to={`/projects/${cust._id}/${proj._id}`} className="text-blue-500 hover:underline">{proj.name}</Link>
+                                    <Link to={`/projects/${cust._id}/${proj._id}`} className="text-blue-500 hover:underline">{formatJobLabel(proj)}</Link>
                                   </div>
                                 ))}
                               </div>
                             ) : (
-                              <span className="text-gray-500">No projects</span>
+                              <span className="text-gray-500">No jobs</span>
                             )}
                           </div>
                         </div>
@@ -413,10 +443,11 @@ export default function Customers() {
                   <thead>
                     <tr className="text-black bg-gray-50">
                       <th className="text-black text-left p-3 border-b text-sm font-semibold">Name</th>
+                      <th className="text-black text-left p-3 border-b text-sm font-semibold">Account #</th>
                       <th className="text-black text-left p-3 border-b text-sm font-semibold">Email</th>
                       <th className="text-black text-left p-3 border-b text-sm font-semibold">Phone</th>
                       <th className="text-black text-left p-3 border-b text-sm font-semibold">Address</th>
-                      <th className="text-black text-left p-3 border-b text-sm font-semibold">Projects</th>
+                      <th className="text-black text-left p-3 border-b text-sm font-semibold">Jobs</th>
                       <th className="text-black text-left p-3 border-b text-sm font-semibold">Actions</th>
                     </tr>
                   </thead>
@@ -429,6 +460,14 @@ export default function Customers() {
                               <input 
                                 value={editCustomer.name} 
                                 onChange={e => setEditCustomer({ ...editCustomer, name: e.target.value })} 
+                                className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input
+                                aria-label="Account number"
+                                value={editCustomer.accountNumber}
+                                onChange={e => setEditCustomer({ ...editCustomer, accountNumber: e.target.value })}
                                 className="w-full p-1 border border-gray-300 rounded bg-gray-100 text-black text-sm"
                               />
                             </td>
@@ -471,6 +510,7 @@ export default function Customers() {
                         ) : (
                           <>
                             <td className="text-black p-2 text-sm">{cust.name}</td>
+                            <td className="text-black p-2 text-sm">{cust.accountNumber || '—'}</td>
                             <td className="text-black p-2 text-sm">{cust.email}</td>
                             <td className="text-black p-2 text-sm">{cust.phone}</td>
                             <td className="text-black p-2 text-sm">{cust.address}</td>
@@ -478,11 +518,11 @@ export default function Customers() {
                               {cust.projects && cust.projects.length > 0 ? (
                                 cust.projects.map(proj => (
                                   <div key={proj._id} className="mb-1">
-                                    <Link to={`/projects/${cust._id}/${proj._id}`} className="text-blue-500 text-sm hover:underline">{proj.name}</Link>
+                                    <Link to={`/projects/${cust._id}/${proj._id}`} className="text-blue-500 text-sm hover:underline">{formatJobLabel(proj)}</Link>
                                   </div>
                                 ))
                               ) : (
-                                <span className="text-gray-500 text-sm">No projects</span>
+                                <span className="text-gray-500 text-sm">No jobs</span>
                               )}
                             </td>
                             <td className="p-2">
@@ -510,14 +550,14 @@ export default function Customers() {
       {/* BOTTOM HALF - Add Projects with Search */}
       <div className="flex-1 overflow-auto">
         <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <h2 className="text-xl font-semibold mb-4 text-black hidden md:block">Add Project to Customer</h2>
+          <h2 className="text-xl font-semibold mb-4 text-black hidden md:block">Add Job to Customer</h2>
           <button
             type="button"
             aria-expanded={mobileSections.addProject}
             onClick={() => toggleMobileSection('addProject')}
             className="md:hidden w-full text-left bg-gray-100 border border-gray-300 rounded-lg px-4 py-3 mb-3 font-semibold text-black"
           >
-            Add Project to Customer
+            Add Job to Customer
           </button>
 
           <div className={`${mobileSections.addProject ? 'block' : 'hidden'} md:block`}>
@@ -560,7 +600,7 @@ export default function Customers() {
                   {/* Existing Projects for this Customer */}
                   {selectedCustomer.projects && selectedCustomer.projects.length > 0 && (
                     <div className="mt-3 pt-3 border-t border-blue-200">
-                      <p className="text-gray-700 font-medium mb-2">Existing Projects:</p>
+                      <p className="text-gray-700 font-medium mb-2">Existing jobs:</p>
                       <div className="flex flex-wrap gap-2">
                         {selectedCustomer.projects.map(proj => (
                           <Link 
@@ -568,7 +608,7 @@ export default function Customers() {
                             to={`/projects/${selectedCustomer._id}/${proj._id}`}
                             className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200"
                           >
-                            {proj.name}
+                            {formatJobLabel(proj)}
                           </Link>
                         ))}
                       </div>
@@ -578,18 +618,27 @@ export default function Customers() {
                 
                 {/* Add New Project Form */}
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <h3 className="text-lg md:text-lg font-semibold text-black mb-3">Add New Project</h3>
+                  <h3 className="text-lg md:text-lg font-semibold text-black mb-3">Add New Job</h3>
                   <AlignedFormGrid testId="add-project-grid">
-                    <AlignedFormField label="Project Name" htmlFor="new-project-name" className="col-span-12 md:col-span-4">
+                    <AlignedFormField label="Job name" htmlFor="new-project-name" className="col-span-12 md:col-span-4">
                       <input
                         id="new-project-name"
-                        placeholder="Project Name"
+                        placeholder="Job name"
                         value={newProject.name}
                         onChange={e => setNewProject({ ...newProject, name: e.target.value })}
                         className="w-full p-4 md:p-2 border border-gray-300 rounded bg-white text-black text-base md:text-sm"
                       />
                     </AlignedFormField>
-                    <AlignedFormField label="Description" htmlFor="new-project-description" className="col-span-12 md:col-span-6">
+                    <AlignedFormField label="Job number" htmlFor="new-project-job-number" className="col-span-12 md:col-span-3">
+                      <input
+                        id="new-project-job-number"
+                        placeholder="Auto"
+                        value={newProject.jobNumber}
+                        onChange={e => setNewProject({ ...newProject, jobNumber: e.target.value })}
+                        className="w-full p-4 md:p-2 border border-gray-300 rounded bg-white text-black text-base md:text-sm"
+                      />
+                    </AlignedFormField>
+                    <AlignedFormField label="Description" htmlFor="new-project-description" className="col-span-12 md:col-span-5">
                       <input
                         id="new-project-description"
                         placeholder="Description"
@@ -597,6 +646,18 @@ export default function Customers() {
                         onChange={e => setNewProject({ ...newProject, description: e.target.value })}
                         className="w-full p-4 md:p-2 border border-gray-300 rounded bg-white text-black text-base md:text-sm"
                       />
+                    </AlignedFormField>
+                    <AlignedFormField label="Work type" htmlFor="new-project-work-type" className="col-span-12 md:col-span-4">
+                      <select
+                        id="new-project-work-type"
+                        value={newProject.workType || DEFAULT_PROJECT_WORK_TYPE}
+                        onChange={(e) => setNewProject({ ...newProject, workType: e.target.value })}
+                        className="w-full p-4 md:p-2 border border-gray-300 rounded bg-white text-black text-base md:text-sm"
+                      >
+                        {PROJECT_WORK_TYPES.map((type) => (
+                          <option key={type.value} value={type.value}>{type.label}</option>
+                        ))}
+                      </select>
                     </AlignedFormField>
                     <div className="col-span-12">
                       <p className="block text-sm font-medium text-gray-700 mb-2">Equipment categories</p>
@@ -632,7 +693,7 @@ export default function Customers() {
                         onClick={addProject}
                         className="w-full bg-green-500 text-white px-6 py-4 md:py-2 rounded hover:bg-green-600 font-medium text-base md:text-sm"
                       >
-                        Add Project
+                        Add Job
                       </button>
                     </div>
                   </AlignedFormGrid>
@@ -641,7 +702,7 @@ export default function Customers() {
             ) : (
               <div className="text-center py-12">
                 <p className="text-gray-500 text-lg">
-                  {searchQuery ? 'No customer found matching your search' : 'Search for a customer to add a project'}
+                  {searchQuery ? 'No customer found matching your search' : 'Search for a customer to add a job'}
                 </p>
               </div>
             )}

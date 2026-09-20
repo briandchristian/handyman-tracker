@@ -79,6 +79,7 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
       expect(screen.getByText('Suppliers')).toBeInTheDocument();
       expect(screen.getByText('Purchase Orders')).toBeInTheDocument();
       expect(screen.getByText('Accounting')).toBeInTheDocument();
+      expect(screen.getByText('Subcontractor')).toBeInTheDocument();
       expect(screen.getByText('Users')).toBeInTheDocument();
     });
   });

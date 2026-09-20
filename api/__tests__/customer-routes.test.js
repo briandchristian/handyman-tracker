@@ -1118,3 +1118,123 @@ describe('POST /api/customers/:customerId/projects/:projectId/notes', () => {
   });
 });
 
+describe('Bid worksheet vs materials used', () => {
+  let customerId;
+  let projectId;
+
+  beforeEach(async () => {
+    const Customer = mongoose.model('Customer');
+    const customer = await Customer.create({
+      name: 'Bid Split Co',
+      email: 'bid@test.com',
+      phone: '555',
+      projects: [{ name: 'Alarm', materials: [], bidMaterials: [] }],
+    });
+    customerId = customer._id.toString();
+    projectId = customer.projects[0]._id.toString();
+  });
+
+  test('POST bid-materials does not add job materials', async () => {
+    await ensureTestUser();
+    const response = await request(app)
+      .post(`/api/customers/${customerId}/projects/${projectId}/bid-materials`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ item: 'Camera', quantity: 3, estimate: 200 });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0]).toMatchObject({ item: 'Camera', quantity: 3, estimate: 200 });
+
+    const Customer = mongoose.model('Customer');
+    const saved = await Customer.findById(customerId);
+    expect(saved.projects[0].materials).toHaveLength(0);
+    expect(saved.projects[0].bidMaterials).toHaveLength(1);
+  });
+
+  test('copy-to-job copies worksheet lines onto materials used', async () => {
+    await ensureTestUser();
+    await request(app)
+      .post(`/api/customers/${customerId}/projects/${projectId}/bid-materials`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ item: 'Camera', quantity: 2, estimate: 150 });
+
+    const response = await request(app)
+      .post(`/api/customers/${customerId}/projects/${projectId}/bid-materials/copy-to-job`)
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.materials).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ item: 'Camera', quantity: 2, cost: 150, markup: 0 }),
+      ])
+    );
+    expect(response.body.bidMaterials).toHaveLength(1);
+  });
+});
+
+describe('Customer account numbers and job numbers', () => {
+  test('assigns A-1001 / J-1001 when creating a customer and job', async () => {
+    await ensureTestUser();
+    const created = await request(app)
+      .post('/api/customers')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'Animal Rescue', email: 'ar@test.com', phone: '555' });
+    expect(created.status).toBe(200);
+    expect(created.body.accountNumber).toBe('A-1001');
+
+    const job = await request(app)
+      .post(`/api/customers/${created.body._id}/projects`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'Warehouse cameras', status: 'Pending' });
+    expect(job.status).toBe(200);
+    expect(job.body.jobNumber).toBe('J-1001');
+    expect(job.body.name).toBe('Warehouse cameras');
+  });
+
+  test('accepts an edited central-station account number and rejects duplicates', async () => {
+    await ensureTestUser();
+    const first = await request(app)
+      .post('/api/customers')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'Ada', accountNumber: 'CS-12' });
+    expect(first.body.accountNumber).toBe('CS-12');
+
+    const second = await request(app)
+      .post('/api/customers')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'Bea' });
+    expect(second.body.accountNumber).toBe('A-1001');
+
+    const duplicate = await request(app)
+      .put(`/api/customers/${second.body._id}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ accountNumber: 'CS-12' });
+    expect(duplicate.status).toBe(400);
+    expect(duplicate.body.msg).toMatch(/account number/i);
+
+    const updated = await request(app)
+      .put(`/api/customers/${second.body._id}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ accountNumber: 'CS-99' });
+    expect(updated.status).toBe(200);
+    expect(updated.body.accountNumber).toBe('CS-99');
+  });
+
+  test('GET backfills missing account and job numbers', async () => {
+    await ensureTestUser();
+    const Customer = mongoose.model('Customer');
+    await Customer.create({
+      name: 'Legacy',
+      email: 'legacy@test.com',
+      projects: [{ name: 'Old alarm' }],
+    });
+
+    const list = await request(app)
+      .get('/api/customers')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(list.status).toBe(200);
+    expect(list.body[0].accountNumber).toBe('A-1001');
+    expect(list.body[0].projects[0].jobNumber).toBe('J-1001');
+  });
+});
+

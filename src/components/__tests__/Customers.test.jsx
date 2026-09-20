@@ -142,7 +142,7 @@ describe('Customers Component', () => {
       });
 
       const customerManagementToggle = screen.getByRole('button', { name: /Customer Management/i });
-      const addProjectToggle = screen.getByRole('button', { name: /Add Project to Customer/i });
+      const addProjectToggle = screen.getByRole('button', { name: /Add Job to Customer/i });
       const addCustomerToggle = screen.getByRole('button', { name: /Add New Customer/i });
       const customerListToggle = screen.getByRole('button', { name: /Customer List/i });
 
@@ -158,7 +158,7 @@ describe('Customers Component', () => {
       axios.get.mockResolvedValue({ data: [] });
       renderWithRouter(<Customers />);
 
-      const addProjectToggle = await screen.findByRole('button', { name: /Add Project to Customer/i });
+      const addProjectToggle = await screen.findByRole('button', { name: /Add Job to Customer/i });
       expect(addProjectToggle).toHaveAttribute('aria-expanded', 'false');
 
       await userEvent.click(addProjectToggle);
@@ -294,10 +294,10 @@ describe('Customers Component', () => {
       await userEvent.type(searchInput, 'John');
 
       await waitFor(() => {
-        expect(screen.getByText('Add New Project')).toBeInTheDocument();
+        expect(screen.getByText('Add New Job')).toBeInTheDocument();
       });
 
-      expect(screen.getByLabelText('Project Name')).toBeInTheDocument();
+      expect(screen.getByLabelText('Job name')).toBeInTheDocument();
       expect(screen.getByLabelText('Description')).toBeInTheDocument();
       expect(screen.getByTestId('new-project-equipment-categories')).toBeInTheDocument();
       expect(screen.getByRole('checkbox', { name: /Burglar Alarm/i })).toBeInTheDocument();
@@ -321,15 +321,15 @@ describe('Customers Component', () => {
       await userEvent.type(searchInput, 'John');
 
       await waitFor(() => {
-        expect(screen.getByText('Add New Project')).toBeInTheDocument();
+        expect(screen.getByText('Add New Job')).toBeInTheDocument();
       });
 
-      await userEvent.type(screen.getByLabelText('Project Name'), 'Alarm install');
+      await userEvent.type(screen.getByLabelText('Job name'), 'Alarm install');
       await userEvent.click(screen.getByRole('checkbox', { name: /Fire Alarm/i }));
       await userEvent.click(screen.getByRole('checkbox', { name: /CCTV/i }));
 
       axios.get.mockResolvedValue({ data: mockCustomers });
-      await userEvent.click(screen.getByRole('button', { name: 'Add Project' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Add Job' }));
 
       await waitFor(() => {
         expect(axios.post).toHaveBeenCalledWith(
@@ -385,7 +385,7 @@ describe('Customers Component', () => {
 
       // Validation testing would require actual form interaction
       // Component structure changed - skip detailed validation test
-      expect(screen.getAllByText('Add Project to Customer').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Add Job to Customer').length).toBeGreaterThan(0);
     });
   });
 

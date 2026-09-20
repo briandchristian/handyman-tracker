@@ -267,7 +267,7 @@ describe('ProjectDetails Component', () => {
       await userEvent.click(screen.getByTestId('edit-project-info'));
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/project name/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/job name/i)).toBeInTheDocument();
       });
 
       const desc = screen.getByLabelText(/^Description$/i);
@@ -588,9 +588,18 @@ describe('ProjectDetails Component', () => {
         ]
       };
 
-      axios.get.mockResolvedValueOnce({ data: customerWithMaterials });
-      axios.put.mockResolvedValueOnce({ data: { msg: 'Material updated' } });
-      axios.get.mockResolvedValueOnce({ data: customerWithMaterialsUpdated });
+      let afterSave = false;
+      axios.get.mockImplementation((url) => {
+        const path = String(url);
+        if (path.includes('/expenses') || path.includes('/labor-entries')) {
+          return Promise.resolve({ data: [] });
+        }
+        return Promise.resolve({ data: afterSave ? customerWithMaterialsUpdated : customerWithMaterials });
+      });
+      axios.put.mockImplementation(async () => {
+        afterSave = true;
+        return { data: { msg: 'Material updated' } };
+      });
 
       renderWithRouter();
 
@@ -763,6 +772,131 @@ describe('ProjectDetails Component', () => {
 
       expect(screen.getAllByText('$220.00').length).toBeGreaterThan(0);
       expect(screen.getByText('10%')).toBeInTheDocument();
+    });
+
+    test('separates bid worksheet from materials used', async () => {
+      const customerWithBoth = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidAmount: 2500,
+            bidMaterials: [{ _id: 'b1', item: 'Quoted camera', quantity: 3, estimate: 200 }],
+            materials: [{ _id: 'm1', item: 'Cable used', quantity: 1, cost: 40, markup: 0 }],
+          },
+        ],
+      };
+      axios.get.mockResolvedValue({ data: customerWithBoth });
+      axios.post.mockResolvedValue({ data: [] });
+
+      renderWithRouter();
+
+      expect(await screen.findByRole('heading', { name: 'Bid worksheet' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Materials used' })).toBeInTheDocument();
+      expect(screen.getByText('Quoted camera')).toBeInTheDocument();
+      expect(screen.getByText('Cable used')).toBeInTheDocument();
+      expect(screen.getByText(/does not affect Job Profit/i)).toBeInTheDocument();
+
+      window.confirm = jest.fn(() => true);
+
+      await userEvent.type(screen.getByLabelText('Worksheet item'), 'Panel');
+      await userEvent.type(screen.getByLabelText('Worksheet quantity'), '1');
+      await userEvent.type(screen.getByLabelText('Estimate ($)'), '80');
+      await userEvent.click(screen.getByRole('button', { name: /add to bid worksheet/i }));
+
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenCalledWith(
+          expect.stringContaining('/bid-materials'),
+          expect.objectContaining({ item: 'Panel', quantity: 1, estimate: 80 }),
+          expect.any(Object)
+        );
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: /copy bid worksheet to materials used/i }));
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenCalledWith(
+          expect.stringContaining('/bid-materials/copy-to-job'),
+          expect.any(Object),
+          expect.any(Object)
+        );
+      });
+    });
+
+    test('bid pdf lists worksheet items, not job materials used', async () => {
+      const customerWithBoth = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidAmount: 2500,
+            bidMaterials: [{ _id: 'b1', item: 'Quoted camera', quantity: 3, estimate: 200 }],
+            materials: [{ _id: 'm1', item: 'Cable used on site', quantity: 1, cost: 40, markup: 0 }],
+          },
+        ],
+      };
+      axios.get.mockResolvedValue({ data: customerWithBoth });
+      renderWithRouter();
+
+      await userEvent.click(await screen.findByRole('button', { name: /^generate bid$/i }));
+      await waitFor(() => expect(jsPDF).toHaveBeenCalled());
+
+      expect(
+        mockPdfDoc.text.mock.calls.some(
+          ([line]) => typeof line === 'string' && line.includes('Quoted camera')
+        )
+      ).toBe(true);
+      expect(
+        mockPdfDoc.text.mock.calls.some(
+          ([line]) => typeof line === 'string' && line.includes('Cable used on site')
+        )
+      ).toBe(false);
+    });
+
+    test('should show generate bid for labor-only jobs with no materials', async () => {
+      axios.get.mockResolvedValue({ data: mockCustomer });
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
+      });
+      expect(screen.getByRole('button', { name: /generate invoice/i })).toBeInTheDocument();
+    });
+
+    test('bid pdf uses bid amount as the quote, not material cost', async () => {
+      const laborOnlyBid = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidAmount: 2500,
+            billAmount: 7400,
+            materials: [{ _id: 'm1', item: 'Panel', quantity: 1, cost: 220, markup: 0 }],
+          },
+        ],
+      };
+
+      axios.get.mockResolvedValue({ data: laborOnlyBid });
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: /^generate bid$/i }));
+      await waitFor(() => {
+        expect(jsPDF).toHaveBeenCalled();
+      });
+
+      expect(
+        mockPdfDoc.text.mock.calls.some(
+          ([line]) => typeof line === 'string' && line.includes('Bid Amount: $2500.00')
+        )
+      ).toBe(true);
+      expect(
+        mockPdfDoc.text.mock.calls.some(
+          ([line]) => typeof line === 'string' && line.includes('Total Material Cost:')
+        )
+      ).toBe(false);
     });
 
     test('should show generate bid button near total material cost', async () => {
@@ -1046,13 +1180,12 @@ describe('ProjectDetails Component', () => {
         projects: [
           {
             ...mockCustomer.projects[0],
-            materials: [
+            bidMaterials: [
               {
-                _id: 'm1',
+                _id: 'b1',
                 item: 'Very long camera and wiring package description for rear parking lot and side doors',
                 quantity: 12,
-                cost: 35,
-                markup: 0
+                estimate: 35,
               }
             ]
           }
@@ -1680,6 +1813,240 @@ describe('ProjectDetails Component', () => {
       await waitFor(() => {
         expect(screen.getByText(/no projects/i)).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('Light ledger on the job', () => {
+    test('shows work type and posts job hours', async () => {
+      axios.get.mockResolvedValue({ data: mockCustomer });
+      axios.post.mockResolvedValue({ data: { _id: 'lab1' } });
+
+      renderWithRouter();
+
+      expect(await screen.findByTestId('project-work-type-display')).toHaveTextContent('Installation');
+      expect(screen.getByRole('heading', { name: 'Job lines' })).toBeInTheDocument();
+      expect(screen.getByTestId('job-lines-total')).toHaveTextContent('$0.00');
+      expect(screen.getByText('Job hours')).toBeInTheDocument();
+      expect(screen.getByText('Job expenses')).toBeInTheDocument();
+
+      await userEvent.type(screen.getByLabelText('Hours'), '2');
+      await userEvent.type(screen.getByLabelText(/your cost per hour/i), '50');
+      await userEvent.click(screen.getByRole('button', { name: 'Add hours' }));
+
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenCalledWith(
+          expect.stringContaining('/api/labor-entries'),
+          expect.objectContaining({
+            hours: 2,
+            hourlyCost: 50,
+            workType: 'install',
+            customerId: 'cust123',
+            projectId: 'proj456',
+          }),
+          expect.any(Object)
+        );
+      });
+    });
+
+    test('posts a direct job expense', async () => {
+      axios.get.mockResolvedValue({ data: mockCustomer });
+      axios.post.mockResolvedValue({ data: { _id: 'exp1' } });
+
+      renderWithRouter();
+
+      expect(await screen.findByText('Job expenses')).toBeInTheDocument();
+      await userEvent.type(screen.getByLabelText('Amount'), '35');
+      await userEvent.click(screen.getByRole('button', { name: 'Add expense' }));
+
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenCalledWith(
+          expect.stringContaining('/api/expenses'),
+          expect.objectContaining({
+            amount: 35,
+            costCenterCode: 'FUEL',
+            customerId: 'cust123',
+            projectId: 'proj456',
+          }),
+          expect.any(Object)
+        );
+      });
+    });
+
+    test('explains hourly cost is internal, not the customer labor rate', async () => {
+      axios.get.mockResolvedValue({ data: mockCustomer });
+      renderWithRouter();
+
+      expect(await screen.findByLabelText(/your cost per hour \(not the customer labor rate\)/i)).toBeInTheDocument();
+      expect(screen.getByTestId('job-hours-hourly-cost-help')).toHaveTextContent(
+        /billed labor is already on bill amount/i
+      );
+      expect(screen.getByTestId('job-hours-hourly-cost-help')).toHaveTextContent(
+        /internal cost for contribution/i
+      );
+      expect(screen.getByLabelText(/your cost per hour/i)).toHaveAttribute(
+        'placeholder',
+        expect.stringMatching(/staff rate/i)
+      );
+    });
+
+    test('edits a job expense and reloads the list', async () => {
+      const original = {
+        _id: 'exp1',
+        amount: 35,
+        costCenterCode: 'FUEL',
+        payee: 'Shell',
+        description: 'Gas',
+        date: '2026-09-11',
+      };
+      let expenses = [original];
+      axios.get.mockImplementation((url) => {
+        const path = String(url);
+        if (path.includes('/expenses')) return Promise.resolve({ data: expenses });
+        if (path.includes('/labor-entries')) return Promise.resolve({ data: [] });
+        return Promise.resolve({ data: mockCustomer });
+      });
+      axios.put.mockImplementation(async (_url, body) => {
+        expenses = [{ ...original, ...body, amount: body.amount, payee: body.payee }];
+        return { data: expenses[0] };
+      });
+
+      renderWithRouter();
+
+      expect((await screen.findAllByText(/\$35\.00/)).length).toBeGreaterThan(0);
+      await userEvent.click(screen.getByTestId('edit-job-expense-exp1'));
+
+      const amountInput = screen.getByLabelText(/edit amount/i);
+      await userEvent.clear(amountInput);
+      await userEvent.type(amountInput, '42');
+      const payeeInput = screen.getByLabelText(/edit payee/i);
+      await userEvent.clear(payeeInput);
+      await userEvent.type(payeeInput, 'BP');
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() => {
+        expect(axios.put).toHaveBeenCalledWith(
+          expect.stringContaining('/api/expenses/exp1'),
+          expect.objectContaining({ amount: 42, payee: 'BP' }),
+          expect.any(Object)
+        );
+      });
+      expect((await screen.findAllByText(/\$42\.00/)).length).toBeGreaterThan(0);
+      expect(screen.getByText(/BP/)).toBeInTheDocument();
+    });
+
+    test('confirms and deletes a job expense then reloads the list', async () => {
+      window.confirm = jest.fn(() => true);
+      let expenses = [{
+        _id: 'exp1',
+        amount: 35,
+        costCenterCode: 'FUEL',
+        payee: 'Shell',
+        date: '2026-09-11',
+      }];
+      axios.get.mockImplementation((url) => {
+        const path = String(url);
+        if (path.includes('/expenses')) return Promise.resolve({ data: expenses });
+        if (path.includes('/labor-entries')) return Promise.resolve({ data: [] });
+        return Promise.resolve({ data: mockCustomer });
+      });
+      axios.delete.mockImplementation(async () => {
+        expenses = [];
+        return { data: { msg: 'Expense deleted' } };
+      });
+
+      renderWithRouter();
+
+      expect(await screen.findByText(/Shell/)).toBeInTheDocument();
+      await userEvent.click(screen.getByTestId('delete-job-expense-exp1'));
+
+      expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/delete this expense/i));
+      await waitFor(() => {
+        expect(axios.delete).toHaveBeenCalledWith(
+          expect.stringContaining('/api/expenses/exp1'),
+          expect.any(Object)
+        );
+      });
+      expect(await screen.findByText(/no job expenses yet/i)).toBeInTheDocument();
+    });
+
+    test('edits job hours and reloads the list', async () => {
+      const original = {
+        _id: 'lab1',
+        hours: 2,
+        hourlyCost: 50,
+        workType: 'install',
+        notes: 'Panel',
+        date: '2026-09-12',
+      };
+      let labor = [original];
+      axios.get.mockImplementation((url) => {
+        const path = String(url);
+        if (path.includes('/expenses')) return Promise.resolve({ data: [] });
+        if (path.includes('/labor-entries')) return Promise.resolve({ data: labor });
+        return Promise.resolve({ data: mockCustomer });
+      });
+      axios.put.mockImplementation(async (_url, body) => {
+        labor = [{ ...original, ...body }];
+        return { data: labor[0] };
+      });
+
+      renderWithRouter();
+
+      expect(await screen.findByText(/2 hrs/)).toBeInTheDocument();
+      await userEvent.click(screen.getByTestId('edit-job-labor-lab1'));
+
+      const hoursInput = screen.getByLabelText(/edit hours/i);
+      await userEvent.clear(hoursInput);
+      await userEvent.type(hoursInput, '3.5');
+      const costInput = screen.getByLabelText(/edit .*cost per hour/i);
+      await userEvent.clear(costInput);
+      await userEvent.type(costInput, '40');
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() => {
+        expect(axios.put).toHaveBeenCalledWith(
+          expect.stringContaining('/api/labor-entries/lab1'),
+          expect.objectContaining({ hours: 3.5, hourlyCost: 40 }),
+          expect.any(Object)
+        );
+      });
+      expect(await screen.findByText(/3\.5 hrs/)).toBeInTheDocument();
+      expect(screen.getByText(/\$40\.00\/hr/)).toBeInTheDocument();
+    });
+
+    test('confirms and deletes job hours then reloads the list', async () => {
+      window.confirm = jest.fn(() => true);
+      let labor = [{
+        _id: 'lab1',
+        hours: 2,
+        hourlyCost: 50,
+        workType: 'install',
+        date: '2026-09-12',
+      }];
+      axios.get.mockImplementation((url) => {
+        const path = String(url);
+        if (path.includes('/expenses')) return Promise.resolve({ data: [] });
+        if (path.includes('/labor-entries')) return Promise.resolve({ data: labor });
+        return Promise.resolve({ data: mockCustomer });
+      });
+      axios.delete.mockImplementation(async () => {
+        labor = [];
+        return { data: { msg: 'Labor entry deleted' } };
+      });
+
+      renderWithRouter();
+
+      expect(await screen.findByText(/2 hrs/)).toBeInTheDocument();
+      await userEvent.click(screen.getByTestId('delete-job-labor-lab1'));
+
+      expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/delete this (hours|hour|labor)/i));
+      await waitFor(() => {
+        expect(axios.delete).toHaveBeenCalledWith(
+          expect.stringContaining('/api/labor-entries/lab1'),
+          expect.any(Object)
+        );
+      });
+      expect(await screen.findByText(/no hours logged yet/i)).toBeInTheDocument();
     });
   });
 });

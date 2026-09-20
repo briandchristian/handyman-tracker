@@ -13,6 +13,7 @@ export default function MobileNav() {
     { name: 'Suppliers', path: '/suppliers', icon: '🏪' },
     { name: 'Purchase Orders', path: '/purchase-orders', icon: '📋' },
     { name: 'Accounting', path: '/accounting', icon: '💵' },
+    { name: 'Subcontractor', path: '/subcontractor', icon: '🛠️' },
     { name: 'Users', path: '/admin/users', icon: '👤' },
   ];
 
