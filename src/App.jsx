@@ -10,6 +10,7 @@ import UserManagement from './components/UserManagement';
 import Suppliers from './components/Suppliers';
 import PurchaseOrders from './components/PurchaseOrders';
 import Inventory from './components/Inventory';
+import Accounting from './components/Accounting';
 import MobileNav from './components/MobileNav';
 import CustomerMyInfo from './components/CustomerMyInfo';
 import InstallationHistory from './components/InstallationHistory';
@@ -23,7 +24,7 @@ function App() {
   const showMobileNav = token && !isPublicPath(location.pathname) && !isCustomer;
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-slate-50">
       {showMobileNav && <MobileNav />}
       <Routes>
         <Route path="/" element={<MarketingHome />} />
@@ -147,6 +148,20 @@ function App() {
             token ? (
               !isCustomer ? (
                 <Inventory />
+              ) : (
+                <Navigate to="/customer" />
+              )
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
+        />
+        <Route
+          path="/accounting"
+          element={
+            token ? (
+              !isCustomer ? (
+                <Accounting />
               ) : (
                 <Navigate to="/customer" />
               )

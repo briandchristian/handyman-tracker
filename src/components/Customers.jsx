@@ -214,13 +214,13 @@ export default function Customers() {
         <div className="flex gap-2 w-full sm:w-auto">
           <Link
             to="/dashboard"
-            className="bg-blue-500 text-white px-4 py-3 md:py-2 rounded hover:bg-blue-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center"
+            className="btn-staff flex-1 sm:flex-none"
           >
             Dashboard
           </Link>
           <button
             onClick={handleLogout}
-            className="bg-red-500 text-white px-4 py-3 md:py-2 rounded hover:bg-red-600 text-base md:text-sm font-medium flex-1 sm:flex-none"
+            className="btn-danger flex-1 sm:flex-none"
           >
             Logout
           </button>

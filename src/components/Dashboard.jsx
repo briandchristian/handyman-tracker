@@ -76,49 +76,52 @@ export default function Dashboard() {
   );
 
   const cardClass = (filter) =>
-    `text-left w-full bg-white border rounded-lg p-4 min-h-[44px] ${
+    `text-left w-full card-surface p-4 min-h-[44px] ${
       statusFilter === filter
-        ? 'border-gray-900 ring-2 ring-gray-900'
-        : 'border-gray-300 hover:border-gray-500'
+        ? 'border-emerald-600 ring-2 ring-emerald-600'
+        : 'hover:border-emerald-300'
     }`;
 
   if (loading) {
     return (
-      <div className="p-6 text-black max-w-6xl mx-auto">
-        <h1 className="text-2xl mb-4 text-black">Christian Security Services Dashboard</h1>
+      <div className="p-6 text-slate-900 max-w-6xl mx-auto">
+        <h1 className="text-2xl mb-4 font-bold">Christian Security Services Dashboard</h1>
         <p>Loading projects...</p>
       </div>
     );
   }
 
   return (
-    <div className="p-4 md:p-6 text-black max-w-6xl mx-auto">
+    <div className="p-4 md:p-6 text-slate-900 max-w-6xl mx-auto">
       <div className="hidden lg:flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-black">Dashboard</h1>
-        <div className="flex gap-3 flex-wrap">
-          <Link to="/inventory" className="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600">
-            📦 Inventory
+        <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
+        <div className="flex gap-2 flex-wrap">
+          <Link to="/inventory" className="btn-staff text-sm">
+            Inventory
           </Link>
-          <Link to="/purchase-orders" className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">
-            📋 Orders
+          <Link to="/purchase-orders" className="btn-staff text-sm">
+            Orders
           </Link>
-          <Link to="/suppliers" className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
-            🏪 Suppliers
+          <Link to="/suppliers" className="btn-staff text-sm">
+            Suppliers
           </Link>
-          <Link to="/admin/users" className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600">
-            👥 Users
+          <Link to="/accounting" className="btn-staff text-sm">
+            Accounting
           </Link>
-          <Link to="/customers" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+          <Link to="/admin/users" className="btn-staff text-sm">
+            Users
+          </Link>
+          <Link to="/customers" className="btn-staff text-sm">
             Customers
           </Link>
-          <Link to="/installation-history" className="bg-slate-600 text-white px-4 py-2 rounded hover:bg-slate-700">
-            📜 History
+          <Link to="/installation-history" className="btn-staff text-sm">
+            History
           </Link>
         </div>
       </div>
 
       <div className="lg:hidden mb-4">
-        <h1 className="text-2xl font-bold text-black">Dashboard</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4">
@@ -160,7 +163,7 @@ export default function Dashboard() {
         </button>
       </div>
 
-      <div className="sticky top-[65px] z-20 lg:static bg-gray-100 lg:bg-transparent py-2 mb-4 flex flex-col md:flex-row gap-3">
+      <div className="sticky top-[65px] z-20 lg:static bg-slate-50 lg:bg-transparent py-2 mb-4 flex flex-col md:flex-row gap-3">
         <label className="sr-only" htmlFor="dashboard-search">
           Search projects
         </label>
@@ -171,7 +174,7 @@ export default function Dashboard() {
           placeholder="Search project, customer, or status"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full md:flex-1 p-3 border border-gray-300 rounded-lg bg-white text-black text-base"
+          className="field md:flex-1"
         />
         <label className="sr-only" htmlFor="dashboard-sort">
           Sort projects
@@ -180,7 +183,7 @@ export default function Dashboard() {
           id="dashboard-sort"
           value={sort}
           onChange={(e) => setSort(e.target.value)}
-          className="w-full md:w-48 p-3 border border-gray-300 rounded-lg bg-white text-black text-base"
+          className="field md:w-48"
         >
           <option value="newest">{SORT_LABELS.newest}</option>
           <option value="oldest">{SORT_LABELS.oldest}</option>
@@ -188,8 +191,8 @@ export default function Dashboard() {
         </select>
       </div>
 
-      <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-6">
-        <h2 className="text-xl md:text-2xl font-semibold mb-4 text-black">
+      <div className="card-surface p-4 md:p-6">
+        <h2 className="text-xl md:text-2xl font-semibold mb-4 text-slate-900">
           {FILTER_LABELS[statusFilter]} ({SORT_LABELS[sort]})
           {visibleProjects.length !== projects.length
             ? ` — ${visibleProjects.length} of ${projects.length}`
@@ -355,7 +358,7 @@ export default function Dashboard() {
       <div data-testid="page-footer" className="mt-8 flex justify-end items-center">
         <button
           onClick={handleLogout}
-          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+          className="btn-danger"
         >
           Logout
         </button>

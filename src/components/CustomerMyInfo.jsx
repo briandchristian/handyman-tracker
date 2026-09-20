@@ -116,17 +116,22 @@ export default function CustomerMyInfo() {
   if (!customer) return null;
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4 md:p-8">
-      <div className="max-w-2xl mx-auto bg-white rounded-lg shadow p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-800">My Information</h1>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="text-sm text-gray-600 hover:text-gray-800 underline"
-          >
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-md">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <img src="/logo.png" alt="" className="h-10 w-10 object-contain" />
+            <p className="text-sm font-bold uppercase truncate">My account</p>
+          </div>
+          <button type="button" onClick={handleLogout} className="btn-link text-sm">
             Sign out
           </button>
+        </div>
+      </header>
+      <div className="max-w-2xl mx-auto p-4 md:p-8">
+        <div className="card-surface p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold text-slate-900">My Information</h1>
         </div>
         <p className="text-gray-600 text-sm mb-4">
           Your account details below. You can only edit your preferred contact phone and address (these do not change what admins see in Customer Management).
@@ -151,20 +156,20 @@ export default function CustomerMyInfo() {
                 placeholder="Preferred phone"
                 value={editProfile.phone}
                 onChange={e => setEditProfile(p => ({ ...p, phone: e.target.value }))}
-                className="block w-full p-2 border rounded text-black"
+                className="field"
               />
               <input
                 type="text"
                 placeholder="Preferred address"
                 value={editProfile.address}
                 onChange={e => setEditProfile(p => ({ ...p, address: e.target.value }))}
-                className="block w-full p-2 border rounded text-black"
+                className="field"
               />
               <div className="flex gap-2">
-                <button onClick={handleSaveProfile} disabled={saving} className="bg-teal-500 text-white px-4 py-2 rounded hover:bg-teal-600 disabled:opacity-50">
+                <button onClick={handleSaveProfile} disabled={saving} className="btn-primary disabled:opacity-50">
                   {saving ? 'Saving...' : 'Save'}
                 </button>
-                <button type="button" onClick={() => { setEditing(false); setEditProfile(profile); }} className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300">
+                <button type="button" onClick={() => { setEditing(false); setEditProfile(profile); }} className="btn-secondary">
                   Cancel
                 </button>
               </div>
@@ -175,7 +180,7 @@ export default function CustomerMyInfo() {
                 <div><dt className="text-gray-500">Preferred phone</dt><dd className="font-medium">{profile.phone || '—'}</dd></div>
                 <div><dt className="text-gray-500">Preferred address</dt><dd className="font-medium">{profile.address || '—'}</dd></div>
               </dl>
-              <button type="button" onClick={() => setEditing(true)} className="text-teal-600 hover:text-teal-800 text-sm underline">
+              <button type="button" onClick={() => setEditing(true)} className="btn-link text-sm">
                 Edit preferred contact
               </button>
             </>
@@ -205,7 +210,7 @@ export default function CustomerMyInfo() {
                 placeholder="Phone"
                 value={newBidPhone}
                 onChange={e => setNewBidPhone(e.target.value)}
-                className="block w-full p-2 border rounded text-black"
+                className="field"
               />
             </div>
             <div>
@@ -215,7 +220,7 @@ export default function CustomerMyInfo() {
                 placeholder="Address"
                 value={newBidAddress}
                 onChange={e => setNewBidAddress(e.target.value)}
-                className="block w-full p-2 border rounded text-black"
+                className="field"
               />
             </div>
             <div>
@@ -225,7 +230,7 @@ export default function CustomerMyInfo() {
                 placeholder="Project name"
                 value={newBidProjectName}
                 onChange={e => setNewBidProjectName(e.target.value)}
-                className="block w-full p-2 border rounded text-black"
+                className="field"
               />
             </div>
             <div>
@@ -242,7 +247,7 @@ export default function CustomerMyInfo() {
               type="button"
               onClick={handleNewBid}
               disabled={submittingBid}
-              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50 font-medium"
+              className="btn-primary disabled:opacity-50 font-medium"
             >
               {submittingBid ? 'Submitting...' : 'New Service / New Bid'}
             </button>
@@ -264,6 +269,7 @@ export default function CustomerMyInfo() {
             </ul>
           </section>
         )}
+      </div>
       </div>
     </div>
   );

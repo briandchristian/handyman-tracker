@@ -78,6 +78,7 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
       expect(screen.getByText('Inventory')).toBeInTheDocument();
       expect(screen.getByText('Suppliers')).toBeInTheDocument();
       expect(screen.getByText('Purchase Orders')).toBeInTheDocument();
+      expect(screen.getByText('Accounting')).toBeInTheDocument();
       expect(screen.getByText('Users')).toBeInTheDocument();
     });
   });
@@ -195,7 +196,7 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
       const customersLink = links.find(link => link.textContent.includes('Customers'));
       
       // Should have active styling (bg-blue-500)
-      expect(customersLink).toHaveClass('bg-blue-500');
+      expect(customersLink).toHaveClass('bg-slate-900');
     });
   });
 
@@ -213,7 +214,7 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
       const dashboardLink = links.find(link => link.textContent.includes('Dashboard'));
       
       // Should have active styling
-      expect(dashboardLink).toHaveClass('bg-blue-500');
+      expect(dashboardLink).toHaveClass('bg-slate-900');
     });
   });
 
@@ -262,7 +263,7 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
   test('should apply shadow to navigation bar', () => {
     render(<BrowserRouter><MobileNav /></BrowserRouter>);
     
-    const navBar = document.querySelector('.shadow-md');
+    const navBar = document.querySelector('.shadow-sm');
     expect(navBar).toBeInTheDocument();
   });
 
@@ -314,6 +315,21 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
       const menuPanel = document.querySelector('.top-\\[65px\\]');
       expect(menuPanel).toBeInTheDocument();
     });
+  });
+
+  test('drawer and overlay render outside the blurred header so they are not clipped', async () => {
+    render(<BrowserRouter><MobileNav /></BrowserRouter>);
+
+    fireEvent.click(screen.getByLabelText(/Toggle menu/i));
+
+    const overlay = await screen.findByTestId('mobile-nav-overlay');
+    const drawer = screen.getByTestId('mobile-nav-drawer');
+    const header = screen.getByTestId('mobile-nav-bar');
+
+    expect(header.contains(overlay)).toBe(false);
+    expect(header.contains(drawer)).toBe(false);
+    expect(overlay.className).toMatch(/z-\[6/);
+    expect(drawer.className).toMatch(/z-\[7/);
   });
 
   test('should have scrollable menu for long content', async () => {

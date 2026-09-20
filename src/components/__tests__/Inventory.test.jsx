@@ -73,6 +73,30 @@ describe('Inventory Component - Phase 2C', () => {
           } 
         });
       }
+      if (url.includes('/customers')) {
+        return Promise.resolve({
+          data: [
+            {
+              _id: 'cust1',
+              name: 'Job Co',
+              projects: [
+                {
+                  _id: 'proj1',
+                  name: 'Alarm',
+                  status: 'Scheduled',
+                  materials: [{ sku: 'LUM-2X4', item: '2x4 Lumber', quantity: 2 }],
+                },
+                {
+                  _id: 'proj2',
+                  name: 'Camera run',
+                  status: 'Pending',
+                  materials: [],
+                },
+              ],
+            },
+          ],
+        });
+      }
       // Default: return inventory data
       return Promise.resolve({ data: mockInventoryData });
     });
@@ -181,9 +205,11 @@ describe('Inventory Component - Phase 2C', () => {
     });
     
     await waitFor(() => {
-      if (axios.put.mock.calls.length > 0) {
-        expect(axios.put).toHaveBeenCalled();
-      }
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/inventory/item1/stock'),
+        expect.objectContaining({ type: 'add', quantity: 10 }),
+        expect.any(Object)
+      );
     }, { timeout: 2000 });
   });
 
@@ -527,6 +553,139 @@ describe('Inventory Component - Phase 2C', () => {
     const footer = screen.getByTestId('page-footer');
     expect(within(footer).getByText('Logout')).toBeInTheDocument();
     expect(within(footer).getByText('Dashboard')).toBeInTheDocument();
+  });
+
+  test('should offer a count-on-hand option and preview the shortage', async () => {
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.queryAllByText('2x4 Lumber').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByTitle('Adjust stock')[0]);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Count on hand/i)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText(/Count on hand/i));
+    fireEvent.change(screen.getByLabelText(/Quantity on hand/i), { target: { value: '42' } });
+
+    expect(document.body.textContent).toMatch(/Missing 8/);
+    expect(screen.getByRole('combobox', { name: /^Used on job$/i })).toBeInTheDocument();
+  });
+
+  test('should post a physical count as type set', async () => {
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.queryAllByText('2x4 Lumber').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByTitle('Adjust stock')[0]);
+    fireEvent.click(await screen.findByLabelText(/Count on hand/i));
+    fireEvent.change(screen.getByLabelText(/Quantity on hand/i), { target: { value: '42' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save count/i }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/inventory/item1/stock'),
+        expect.objectContaining({ type: 'set', quantity: 42 }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('should send the selected job when removing used stock', async () => {
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.queryAllByText('2x4 Lumber').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByTitle('Adjust stock')[0]);
+    fireEvent.click(await screen.findByLabelText(/Remove Stock/i));
+    fireEvent.change(screen.getByPlaceholderText(/Enter quantity/i), { target: { value: '5' } });
+    fireEvent.change(screen.getByRole('combobox', { name: /^Used on job$/i }), {
+      target: { value: 'cust1:proj1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Remove Stock/i }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/inventory/item1/stock'),
+        expect.objectContaining({
+          type: 'remove',
+          quantity: 5,
+          customerId: 'cust1',
+          projectId: 'proj1',
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('should list projects that already used this item first', async () => {
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.queryAllByText('2x4 Lumber').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByTitle('Adjust stock')[0]);
+    fireEvent.click(await screen.findByLabelText(/Remove Stock/i));
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: /^Used on job$/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('group', { name: 'Projects that used this item' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Alarm \(already used 2\)/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Camera run/i })).toBeInTheDocument();
+  });
+
+  test('should charge a job for stock never received into inventory', async () => {
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.queryAllByText('2x4 Lumber').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByTitle('Adjust stock')[0]);
+    fireEvent.click(await screen.findByLabelText(/Used on job, never in stock/i));
+    fireEvent.change(screen.getByPlaceholderText(/Enter quantity/i), { target: { value: '3' } });
+    fireEvent.change(screen.getByRole('combobox', { name: /^Used on job$/i }), {
+      target: { value: 'cust1:proj1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Charge job/i }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/inventory/item1/stock'),
+        expect.objectContaining({
+          type: 'untracked',
+          quantity: 3,
+          customerId: 'cust1',
+          projectId: 'proj1',
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('should filter the job list by project name', async () => {
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.queryAllByText('2x4 Lumber').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByTitle('Adjust stock')[0]);
+    fireEvent.click(await screen.findByLabelText(/Remove Stock/i));
+    fireEvent.change(await screen.findByLabelText(/Find project/i), { target: { value: 'camera' } });
+
+    expect(screen.queryByRole('option', { name: /Alarm/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Camera run/i })).toBeInTheDocument();
   });
 
   test('should only render one dashboard button', async () => {

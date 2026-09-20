@@ -16,6 +16,15 @@ import { fetchAdiPriceAndInventoryDetails } from './lib/suppliers/adiPriceInvent
 import { fetchAdiOrderGeneration } from './lib/suppliers/adiOrderGeneration.js';
 import { fetchAdiOrderInquiry } from './lib/suppliers/adiOrderInquiry.js';
 import { sendMetaLeadEvent } from './lib/metaCapi.js';
+import {
+  applyJobUsageToProject,
+  applyStockChange,
+  isDuplicateKeyError,
+  jobAssignmentError,
+  normalizeSku,
+  reconcileCount,
+} from './lib/inventoryStock.js';
+import { buildAccountingSummary } from './lib/accountingSummary.js';
 
 const app = express();
 
@@ -282,7 +291,22 @@ const customerSchema = new mongoose.Schema({
     status: { type: String, enum: ['Pending', 'Bidded', 'Scheduled', 'Completed', 'Billed'] },
     scheduleDate: Date,
     completedAt: Date,
-    materials: [{ item: String, quantity: Number, cost: Number, markup: Number, taxable: { type: Boolean, default: true } }],
+    materials: [{
+      item: String,
+      sku: String,
+      inventoryItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryItem' },
+      quantity: Number,
+      cost: Number,
+      markup: Number,
+      taxable: { type: Boolean, default: true },
+      chargedFromStock: { type: Boolean, default: true },
+    }],
+    payments: [{
+      amount: Number,
+      note: { type: String, default: '' },
+      paidAt: { type: Date, default: Date.now },
+      createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    }],
     notes: [{ text: String, addedAt: { type: Date, default: Date.now } }],
     createdAt: { type: Date, default: Date.now }
   }]
@@ -401,13 +425,24 @@ const purchaseOrderSchema = new mongoose.Schema({
 });
 const PurchaseOrder = mongoose.model('PurchaseOrder', purchaseOrderSchema);
 
+const supplierPaymentSchema = new mongoose.Schema({
+  supplierId: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', required: true },
+  purchaseOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder', required: true },
+  amount: { type: Number, required: true },
+  note: { type: String, default: '' },
+  paidAt: { type: Date, default: Date.now },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdAt: { type: Date, default: Date.now },
+});
+const SupplierPayment = mongoose.model('SupplierPayment', supplierPaymentSchema);
+
 // Inventory Item Schema (for par levels and auto-reorder)
 const inventoryItemSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  sku: String,
+  sku: { type: String, unique: true, sparse: true },
   description: String,
   category: String,
-  currentStock: { type: Number, default: 0 },
+  currentStock: { type: Number, default: 0, min: 0 },
   unit: String,
   parLevel: { type: Number, default: 0 }, // Minimum stock level
   /** Per-unit cost/price for estimating on-hand value (Est. Value = sum of stock × lastPrice). */
@@ -418,6 +453,29 @@ const inventoryItemSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 const InventoryItem = mongoose.model('InventoryItem', inventoryItemSchema);
+
+/** Ledger of inventory qty changes (manual adjust, PO receive, job usage). */
+const inventoryMovementSchema = new mongoose.Schema({
+  itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryItem', required: true },
+  sku: String,
+  type: {
+    type: String,
+    enum: ['add', 'remove', 'set', 'receive', 'use', 'untracked'],
+    required: true,
+  },
+  quantity: { type: Number, required: true },
+  previousStock: Number,
+  newStock: Number,
+  unitCost: Number,
+  reason: { type: String, default: '' },
+  source: {
+    kind: { type: String, default: 'manual' },
+    id: String,
+  },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdAt: { type: Date, default: Date.now },
+});
+const InventoryMovement = mongoose.model('InventoryMovement', inventoryMovementSchema);
 
 // Installation and Service History (Phase 1): log when projects are completed; editable with audit trail
 const serviceHistorySchema = new mongoose.Schema({
@@ -1566,11 +1624,37 @@ app.post('/api/customers/:customerId/projects/:projectId/materials', authMiddlew
       return res.status(404).json({ msg: 'Project not found' });
     }
     
-    const { item, quantity, cost, markup, taxable } = req.body || {};
+    const { item, quantity, cost, markup, taxable, sku } = req.body || {};
+    const qty = Number(quantity);
+    let skuValue = normalizeSku(sku);
+    let inventoryItemId;
+    let unitCost = cost === undefined || cost === null || cost === '' ? undefined : Number(cost);
+
+    if (skuValue) {
+      const stockItem = await InventoryItem.findOne({ sku: skuValue });
+      if (!stockItem) {
+        return res.status(404).json({ msg: 'Inventory SKU not found' });
+      }
+      await applyAndRecordStockMovement({
+        item: stockItem,
+        type: 'use',
+        quantity: qty,
+        reason: `Used on ${project.name}`,
+        source: { kind: 'job', id: `${customer._id}:${project._id}` },
+        userId: req.user.id,
+      });
+      inventoryItemId = stockItem._id;
+      if (unitCost === undefined || Number.isNaN(unitCost)) {
+        unitCost = Number(stockItem.lastPrice) || 0;
+      }
+    }
+
     project.materials.push({
       item,
-      quantity: Number(quantity),
-      cost: Number(cost),
+      sku: skuValue || undefined,
+      inventoryItemId,
+      quantity: qty,
+      cost: Number(unitCost || 0),
       markup: Number(markup || 0),
       taxable: taxable === undefined ? true : Boolean(taxable),
     });
@@ -1579,6 +1663,9 @@ app.post('/api/customers/:customerId/projects/:projectId/materials', authMiddlew
     console.log('Material added to project:', project.name);
     res.json(project.materials);
   } catch (err) {
+    if (err.statusCode === 400) {
+      return res.status(400).json({ msg: err.message });
+    }
     console.error('Error adding material:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
@@ -1628,15 +1715,67 @@ app.delete('/api/customers/:customerId/projects/:projectId/materials/:materialId
     if (!project) {
       return res.status(404).json({ msg: 'Project not found' });
     }
+
+    const material = project.materials.id(req.params.materialId);
+    if ((material?.sku || material?.inventoryItemId) && material.chargedFromStock !== false) {
+      const stockItem = material.inventoryItemId
+        ? await InventoryItem.findById(material.inventoryItemId)
+        : await InventoryItem.findOne({ sku: normalizeSku(material.sku) });
+      if (stockItem) {
+        await applyAndRecordStockMovement({
+          item: stockItem,
+          type: 'add',
+          quantity: Number(material.quantity) || 0,
+          reason: `Removed from ${project.name}`,
+          source: { kind: 'job', id: `${customer._id}:${project._id}` },
+          userId: req.user.id,
+        });
+      }
+    }
     
-    // Use pull instead of remove
     project.materials.pull(req.params.materialId);
     await customer.save();
     
     console.log('Material deleted:', req.params.materialId);
     res.json({ msg: 'Material deleted', materials: project.materials });
   } catch (err) {
+    if (err.statusCode === 400) {
+      return res.status(400).json({ msg: err.message });
+    }
     console.error('Error deleting material:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.post('/api/customers/:customerId/projects/:projectId/payments', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.customerId);
+    if (!customer) {
+      return res.status(404).json({ msg: 'Customer not found' });
+    }
+    const project = customer.projects.id(req.params.projectId);
+    if (!project) {
+      return res.status(404).json({ msg: 'Project not found' });
+    }
+    const amount = Number(req.body?.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ msg: 'Payment amount must be greater than zero' });
+    }
+    if (!project.payments) project.payments = [];
+    project.payments.push({
+      amount,
+      note: req.body?.note ? String(req.body.note) : '',
+      paidAt: new Date(),
+      createdBy: req.user.id,
+    });
+    project.paidToDate = project.payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    await customer.save();
+    res.status(201).json({
+      paidToDate: project.paidToDate,
+      payments: project.payments,
+    });
+  } catch (err) {
+    console.error('Error recording project payment:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });
@@ -2129,6 +2268,95 @@ app.put('/api/purchase-orders/:id', authMiddleware, async (req, res) => {
   }
 });
 
+app.post('/api/purchase-orders/:id/receive', authMiddleware, async (req, res) => {
+  try {
+    const po = await PurchaseOrder.findById(req.params.id);
+    if (!po) {
+      return res.status(404).json({ msg: 'Purchase order not found' });
+    }
+    if (po.status === 'Received' || po.status === 'Paid') {
+      return res.status(400).json({ msg: 'Purchase order already received or paid' });
+    }
+    if (po.status === 'Cancelled') {
+      return res.status(400).json({ msg: 'Cannot receive a cancelled purchase order' });
+    }
+
+    for (const line of po.items || []) {
+      const sku = normalizeSku(line.sku);
+      if (!sku) continue;
+      const quantity = Number(line.quantity) || 0;
+      if (quantity <= 0) continue;
+
+      let item = await InventoryItem.findOne({ sku });
+      if (!item) {
+        item = await InventoryItem.create({
+          name: line.description || sku,
+          sku,
+          currentStock: 0,
+          lastPrice: Number(line.unitPrice) || 0,
+          unit: line.unit || 'each',
+        });
+      }
+
+      await applyAndRecordStockMovement({
+        item,
+        type: 'receive',
+        quantity,
+        unitCost: Number(line.unitPrice) || 0,
+        reason: `Received ${po.poNumber}`,
+        source: { kind: 'purchase-order', id: po._id.toString() },
+        userId: req.user.id,
+      });
+    }
+
+    po.status = 'Received';
+    po.receivedDate = new Date();
+    await po.save();
+    const populated = await PurchaseOrder.findById(po._id).populate('supplier', 'name');
+    res.json(populated);
+  } catch (err) {
+    if (err.statusCode === 400) {
+      return res.status(400).json({ msg: err.message });
+    }
+    console.error('Error receiving purchase order:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.post('/api/purchase-orders/:id/pay', authMiddleware, async (req, res) => {
+  try {
+    const po = await PurchaseOrder.findById(req.params.id);
+    if (!po) {
+      return res.status(404).json({ msg: 'Purchase order not found' });
+    }
+    if (po.status === 'Paid') {
+      return res.status(400).json({ msg: 'Purchase order already paid' });
+    }
+    if (po.status !== 'Received') {
+      return res.status(400).json({ msg: 'Receive the purchase order before recording payment' });
+    }
+
+    po.status = 'Paid';
+    po.paidDate = new Date();
+    await po.save();
+
+    const payment = await SupplierPayment.create({
+      supplierId: po.supplier,
+      purchaseOrderId: po._id,
+      amount: Number(po.total) || 0,
+      note: req.body?.note ? String(req.body.note) : '',
+      paidAt: po.paidDate,
+      createdBy: req.user.id,
+    });
+
+    const populated = await PurchaseOrder.findById(po._id).populate('supplier', 'name');
+    res.json({ po: populated, payment });
+  } catch (err) {
+    console.error('Error paying purchase order:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
 // ===== INVENTORY ROUTES =====
 
 /** Normalize client body so ObjectId fields don’t use "" (cast error aborts the whole update). */
@@ -2137,18 +2365,90 @@ function inventoryPayloadFromBody(body) {
   const preferredSupplier =
     supplierRaw != null && String(supplierRaw).trim() !== '' ? supplierRaw : null;
 
+  const stockRaw = body.currentStock;
+  const currentStock =
+    stockRaw === undefined || stockRaw === null || stockRaw === ''
+      ? 0
+      : Number(stockRaw);
+
   return {
     name: String(body.name ?? '').trim(),
-    sku: body.sku != null ? String(body.sku) : '',
+    sku: normalizeSku(body.sku),
     description: body.description != null ? String(body.description) : '',
     category: body.category != null ? String(body.category) : '',
-    currentStock: Math.max(0, Number(body.currentStock) || 0),
+    currentStock,
     unit: body.unit != null ? String(body.unit) : 'each',
     parLevel: Math.max(0, Number(body.parLevel) || 0),
     lastPrice: Math.max(0, Number(body.lastPrice) || 0),
     autoReorder: Boolean(body.autoReorder),
     preferredSupplier,
   };
+}
+
+async function ensureUniqueInventorySku(sku, excludeId) {
+  if (!sku) return;
+  const query = { sku };
+  if (excludeId) query._id = { $ne: excludeId };
+  const existing = await InventoryItem.findOne(query);
+  if (existing) {
+    const err = new Error('SKU already exists');
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
+async function applyAndRecordStockMovement({
+  item,
+  type,
+  quantity,
+  reason = '',
+  unitCost,
+  source,
+  userId,
+}) {
+  const result = applyStockChange(item.currentStock, { type, quantity });
+  if (result.error) {
+    const err = new Error(result.error);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  item.currentStock = result.newStock;
+  if (result.delta > 0) item.lastRestocked = new Date();
+  if (
+    type === 'receive' &&
+    unitCost != null &&
+    Number.isFinite(Number(unitCost)) &&
+    Number(unitCost) >= 0
+  ) {
+    item.lastPrice = Number(unitCost);
+  }
+  await item.save();
+
+  const movement = await InventoryMovement.create({
+    itemId: item._id,
+    sku: item.sku,
+    type,
+    quantity: Number(quantity),
+    previousStock: result.previousStock,
+    newStock: result.newStock,
+    unitCost: unitCost != null ? Number(unitCost) : item.lastPrice,
+    reason: reason ? String(reason) : '',
+    source: source || { kind: 'manual' },
+    createdBy: userId,
+  });
+
+  return { item, movement };
+}
+
+function inventoryConflictResponse(res, err) {
+  if (err.statusCode === 409 || isDuplicateKeyError(err)) {
+    return res.status(409).json({ msg: 'SKU already exists' });
+  }
+  if (err.statusCode === 400) {
+    return res.status(400).json({ msg: err.message });
+  }
+  return null;
 }
 
 // Get inventory items (with low stock alert)
@@ -2177,18 +2477,24 @@ app.get('/api/inventory', authMiddleware, async (req, res) => {
   }
 });
 
-// Create/Update inventory item
+// Create inventory item
 app.post('/api/inventory', authMiddleware, async (req, res) => {
   try {
     const data = inventoryPayloadFromBody(req.body);
     if (!data.name) {
       return res.status(400).json({ msg: 'Item name is required' });
     }
+    if (!Number.isFinite(data.currentStock) || data.currentStock < 0) {
+      return res.status(400).json({ msg: 'Stock cannot be negative' });
+    }
+    await ensureUniqueInventorySku(data.sku);
+    if (data.sku == null) delete data.sku;
     const item = new InventoryItem(data);
     await item.save();
     await item.populate('preferredSupplier', 'name');
     res.status(201).json(item);
   } catch (err) {
+    if (inventoryConflictResponse(res, err)) return;
     console.error('Error creating inventory item:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
@@ -2200,18 +2506,159 @@ app.put('/api/inventory/:id', authMiddleware, async (req, res) => {
     if (!data.name) {
       return res.status(400).json({ msg: 'Item name is required' });
     }
-    const item = await InventoryItem.findByIdAndUpdate(
-      req.params.id,
-      { $set: data },
-      { new: true, runValidators: true }
-    ).populate('preferredSupplier', 'name');
-    
+    if (!Number.isFinite(data.currentStock) || data.currentStock < 0) {
+      return res.status(400).json({ msg: 'Stock cannot be negative' });
+    }
+    await ensureUniqueInventorySku(data.sku, req.params.id);
+
+    const existing = await InventoryItem.findById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ msg: 'Inventory item not found' });
+    }
+
+    existing.name = data.name;
+    if (data.sku == null) {
+      existing.sku = undefined;
+      existing.$unset('sku');
+    } else {
+      existing.sku = data.sku;
+    }
+    existing.description = data.description;
+    existing.category = data.category;
+    existing.unit = data.unit;
+    existing.parLevel = data.parLevel;
+    existing.lastPrice = data.lastPrice;
+    existing.autoReorder = data.autoReorder;
+    existing.preferredSupplier = data.preferredSupplier;
+    existing.currentStock = data.currentStock;
+    await existing.save();
+    await existing.populate('preferredSupplier', 'name');
+    res.json(existing);
+  } catch (err) {
+    if (inventoryConflictResponse(res, err)) return;
+    console.error('Error updating inventory item:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.post('/api/inventory/:id/stock', authMiddleware, async (req, res) => {
+  try {
+    const item = await InventoryItem.findById(req.params.id);
     if (!item) {
       return res.status(404).json({ msg: 'Inventory item not found' });
     }
-    res.json(item);
+    const { type, quantity, reason, unitCost, source, customerId, projectId } = req.body || {};
+    const preview = applyStockChange(item.currentStock, { type, quantity });
+    if (preview.error) {
+      return res.status(400).json({ msg: preview.error });
+    }
+
+    const assignmentError = jobAssignmentError(preview.delta, { customerId, projectId, type });
+    if (assignmentError) {
+      return res.status(400).json({ msg: assignmentError });
+    }
+
+    let customer = null;
+    let project = null;
+    if (customerId && projectId) {
+      customer = await Customer.findById(customerId);
+      if (!customer) {
+        return res.status(404).json({ msg: 'Customer not found' });
+      }
+      project = customer.projects.id(projectId);
+      if (!project) {
+        return res.status(404).json({ msg: 'Project not found' });
+      }
+    }
+
+    const usedQty = type === 'untracked'
+      ? Number(quantity)
+      : (preview.delta < 0 ? -preview.delta : 0);
+    const jobLabel = project ? `${customer.name} — ${project.name}` : '';
+    let movementReason = reason != null ? String(reason) : '';
+    if (!movementReason) {
+      if (type === 'untracked' && jobLabel) movementReason = `Used on ${jobLabel}, never received into inventory`;
+      else if (jobLabel && usedQty) movementReason = `Used on ${jobLabel}`;
+      else if (type === 'set') movementReason = 'Physical count';
+    }
+
+    const result = await applyAndRecordStockMovement({
+      item,
+      type,
+      quantity,
+      reason: movementReason,
+      unitCost,
+      source: project
+        ? { kind: 'job', id: `${customer._id}:${project._id}` }
+        : (source || { kind: type === 'set' ? 'count' : 'manual' }),
+      userId: req.user.id,
+    });
+
+    let jobMaterial = null;
+    if (project && usedQty > 0) {
+      jobMaterial = applyJobUsageToProject(project, item, usedQty, {
+        chargedFromStock: type !== 'untracked',
+      });
+      await customer.save();
+    }
+
+    await result.item.populate('preferredSupplier', 'name');
+    const payload = { item: result.item, movement: result.movement };
+    if (type === 'set') {
+      const counted = reconcileCount(preview.previousStock, quantity);
+      if (!counted.error) payload.reconcile = counted;
+    }
+    if (jobMaterial) payload.jobMaterial = jobMaterial;
+    res.json(payload);
   } catch (err) {
-    console.error('Error updating inventory item:', err);
+    if (inventoryConflictResponse(res, err)) return;
+    console.error('Error adjusting inventory stock:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.get('/api/inventory/:id/movements', authMiddleware, async (req, res) => {
+  try {
+    const item = await InventoryItem.findById(req.params.id);
+    if (!item) {
+      return res.status(404).json({ msg: 'Inventory item not found' });
+    }
+    const movements = await InventoryMovement.find({ itemId: item._id }).sort({ createdAt: -1 });
+    res.json(movements);
+  } catch (err) {
+    console.error('Error fetching inventory movements:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.delete('/api/inventory/:id', authMiddleware, async (req, res) => {
+  try {
+    const item = await InventoryItem.findByIdAndDelete(req.params.id);
+    if (!item) {
+      return res.status(404).json({ msg: 'Inventory item not found' });
+    }
+    await InventoryMovement.deleteMany({ itemId: item._id });
+    res.json({ msg: 'Inventory item deleted' });
+  } catch (err) {
+    console.error('Error deleting inventory item:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.get('/api/accounting/summary', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const customers = await Customer.find({}).lean();
+    const projects = customers.flatMap((customer) =>
+      (customer.projects || []).map((project) => ({
+        ...project,
+        customerName: customer.name,
+      }))
+    );
+    const purchaseOrders = await PurchaseOrder.find({}).lean();
+    const supplierPayments = await SupplierPayment.find({}).lean();
+    res.json(buildAccountingSummary({ projects, purchaseOrders, supplierPayments }));
+  } catch (err) {
+    console.error('Error building accounting summary:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });

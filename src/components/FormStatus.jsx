@@ -6,14 +6,14 @@ export default function FormStatus({ message, tone = 'error' }) {
 
   const styles =
     tone === 'success'
-      ? 'bg-green-50 border-green-300 text-green-800'
+      ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
       : 'bg-red-50 border-red-300 text-red-800';
 
   return (
     <div
       data-testid="form-status"
       role="alert"
-      className={`mb-4 p-3 border rounded text-sm ${styles}`}
+      className={`mb-4 p-3 border rounded-lg text-sm ${styles}`}
     >
       {message}
     </div>

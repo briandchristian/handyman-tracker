@@ -67,6 +67,12 @@ jest.mock('../components/Inventory', () => {
   };
 });
 
+jest.mock('../components/Accounting', () => {
+  return function MockAccounting() {
+    return <div data-testid="accounting-component">Accounting Component</div>;
+  };
+});
+
 describe('App Component', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -184,6 +190,7 @@ describe('App Component', () => {
         '/suppliers',
         '/purchase-orders',
         '/inventory',
+        '/accounting',
       ];
 
       protectedRoutes.forEach((route) => {
@@ -209,6 +216,7 @@ describe('App Component', () => {
         { path: '/suppliers', testId: 'suppliers-component' },
         { path: '/purchase-orders', testId: 'purchase-orders-component' },
         { path: '/inventory', testId: 'inventory-component' },
+        { path: '/accounting', testId: 'accounting-component' },
       ];
 
       authenticatedRoutes.forEach(({ path, testId }) => {

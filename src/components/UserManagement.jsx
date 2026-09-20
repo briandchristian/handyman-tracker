@@ -226,7 +226,7 @@ export default function UserManagement() {
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
           {error}
         </div>
-        <Link to="/dashboard" className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 inline-block">
+        <Link to="/dashboard" className="btn-staff inline-block">
           Dashboard
         </Link>
       </div>
@@ -437,13 +437,13 @@ export default function UserManagement() {
       >
         <Link
           to="/dashboard"
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          className="btn-staff"
         >
           Dashboard
         </Link>
         <button
           onClick={handleLogout}
-          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+          className="btn-danger"
         >
           Logout
         </button>

@@ -40,24 +40,27 @@ describe('Login Component', () => {
     test('should hide staff login until Staff sign in is opened', async () => {
       renderLogin(<Login setToken={mockSetToken} />);
 
-      expect(screen.queryByText('Admin Login')).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /staff sign in/i })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: /staff sign in/i })).toBeInTheDocument();
 
       await revealStaffSignIn();
 
-      expect(screen.getByText('Admin Login')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /staff sign in/i })).toBeInTheDocument();
       expect(screen.getByTestId('admin-login-username')).toBeInTheDocument();
       expect(screen.getByTestId('admin-login-password')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^login$/i })).toBeInTheDocument();
     });
 
-    test('should center the sign-in column on desktop', () => {
+    test('uses the home-page brand shell and a left-aligned form card', () => {
       renderLogin(<Login setToken={mockSetToken} />);
 
+      expect(screen.getByTestId('auth-shell')).toBeInTheDocument();
+      expect(screen.getByTestId('auth-hero')).toHaveClass('from-slate-950');
       const main = screen.getByTestId('login-page-main');
       expect(main).toHaveClass('mx-auto');
       expect(main.className).not.toMatch(/md:mx-0/);
-      expect(screen.getByTestId('login-customer-card')).toHaveClass('md:text-center');
+      expect(screen.getByTestId('login-customer-card')).toHaveClass('card-surface');
+      expect(screen.getByTestId('customer-sign-in')).toHaveClass('btn-primary');
     });
 
     test('should not render the bid form (bid lives at /bid)', () => {
@@ -500,7 +503,8 @@ describe('Login Component', () => {
   describe('Customer section (Phase 1)', () => {
     test('should render Customer section with Sign in and Create account', () => {
       renderLogin(<Login setToken={mockSetToken} />);
-      expect(screen.getByText('Customer')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+      expect(screen.getByText('Customer portal')).toBeInTheDocument();
       expect(screen.getByTestId('customer-login-email')).toBeInTheDocument();
       expect(screen.getByTestId('customer-sign-in')).toBeInTheDocument();
       expect(screen.getByText('New Customer? Create account')).toBeInTheDocument();

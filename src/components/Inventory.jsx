@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
 import { INVENTORY_CATEGORIES } from '../constants/inventoryCategories';
 import { findItemBySku, normalizeSkuCode } from '../utils/inventorySkuMatch';
+import { filterJobs, jobsFromCustomers } from '../utils/inventoryJobs';
 import BarcodeScanner from './BarcodeScanner';
 
 export default function Inventory() {
@@ -18,12 +19,14 @@ export default function Inventory() {
   const [showModal, setShowModal] = useState(false);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [customers, setCustomers] = useState([]);
 
   const categories = INVENTORY_CATEGORIES;
 
   useEffect(() => {
     fetchInventory();
     fetchSuppliers();
+    fetchCustomers();
   }, []);
 
   const handleLogout = () => {
@@ -41,6 +44,18 @@ export default function Inventory() {
       setSuppliers(res.data.suppliers || []);
     } catch (err) {
       console.error('Error fetching suppliers:', err);
+    }
+  };
+
+  const fetchCustomers = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_BASE_URL}/api/customers`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCustomers(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Error fetching jobs for inventory adjust:', err);
     }
   };
 
@@ -179,20 +194,20 @@ export default function Inventory() {
       <div className="mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
           <div className="flex gap-2 flex-wrap w-full sm:w-auto">
-            <Link to="/suppliers" className="bg-green-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-green-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
+            <Link to="/suppliers" className="btn-staff flex-1 sm:flex-none text-sm">
               Suppliers
             </Link>
-            <Link to="/suppliers" className="bg-indigo-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-indigo-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
+            <Link to="/suppliers" className="btn-staff flex-1 sm:flex-none text-sm">
               Create PO
             </Link>
-            <Link to="/purchase-orders" className="bg-orange-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-orange-600 text-base md:text-sm font-medium flex-1 sm:flex-none text-center">
+            <Link to="/purchase-orders" className="btn-staff flex-1 sm:flex-none text-sm">
               View POs
             </Link>
             <button
               onClick={() => setShowScanner(true)}
-              className="bg-purple-500 text-white px-4 py-3 md:px-3 md:py-2 rounded hover:bg-purple-600 text-base md:text-sm font-medium flex-1 sm:flex-none"
+              className="btn-staff flex-1 sm:flex-none text-sm"
             >
-              📱 Scan Barcode
+              Scan Barcode
             </button>
           </div>
           <button
@@ -210,7 +225,7 @@ export default function Inventory() {
               });
               setShowModal(true);
             }}
-            className="bg-blue-500 text-white px-4 py-3 md:py-2 rounded hover:bg-blue-600 text-base md:text-sm font-medium w-full sm:w-auto"
+            className="btn-primary w-full sm:w-auto text-sm"
           >
             + Add Item
           </button>
@@ -543,6 +558,7 @@ export default function Inventory() {
       {showAdjustModal && selectedItem && (
         <StockAdjustModal
           item={selectedItem}
+          customers={customers}
           onClose={() => {
             setShowAdjustModal(false);
             setSelectedItem(null);
@@ -571,13 +587,13 @@ export default function Inventory() {
       >
         <Link
           to="/dashboard"
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          className="btn-staff"
         >
           Dashboard
         </Link>
         <button
           onClick={handleLogout}
-          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+          className="btn-danger"
         >
           Logout
         </button>
@@ -866,53 +882,91 @@ function ItemModal({ item, suppliers, categories, onClose, onSave }) {
   );
 }
 
-// Stock Adjustment Modal
-function StockAdjustModal({ item, onClose, onSave }) {
+// Stock Adjustment Modal — add/remove units, or reconcile a physical count.
+// A shortage (or a remove) can optionally be charged to a job so inventory
+// and job cost stay in sync; restocks cannot be assigned to a job.
+function StockAdjustModal({ item, customers = [], onClose, onSave }) {
   const [adjustment, setAdjustment] = useState(0);
+  const [countedQty, setCountedQty] = useState(Number(item.currentStock) || 0);
   const [reason, setReason] = useState('');
-  const [adjustmentType, setAdjustmentType] = useState('add'); // 'add' or 'remove'
+  const [adjustmentType, setAdjustmentType] = useState('add'); // 'add' | 'remove' | 'count' | 'untracked'
+  const [jobKey, setJobKey] = useState('');
+  const [jobQuery, setJobQuery] = useState('');
 
-  const newStock = adjustmentType === 'add' 
-    ? item.currentStock + adjustment 
-    : Math.max(0, item.currentStock - adjustment);
+  const book = Number(item.currentStock) || 0;
+  const counted = Number(countedQty);
+  const countedValue = Number.isFinite(counted) ? counted : 0;
+  const missing = Math.max(0, book - countedValue);
+  const found = Math.max(0, countedValue - book);
+  const jobs = filterJobs(jobsFromCustomers(customers, item), jobQuery);
+  const usedJobs = jobs.filter((job) => job.usedThisItem);
+  const otherJobs = jobs.filter((job) => !job.usedThisItem);
+  const showJobPicker = adjustmentType === 'remove' || adjustmentType === 'count' || adjustmentType === 'untracked';
+
+  const newStock = adjustmentType === 'add'
+    ? book + adjustment
+    : adjustmentType === 'remove'
+      ? Math.max(0, book - adjustment)
+      : adjustmentType === 'untracked'
+        ? book
+        : countedValue;
+
+  const reducesStock = adjustmentType === 'remove'
+    ? adjustment > 0
+    : adjustmentType === 'count'
+      ? countedValue < book
+      : false;
 
   const handleSave = async () => {
-    if (adjustment === 0) {
+    if (adjustmentType !== 'count' && (!adjustment || adjustment <= 0)) {
       alert('Please enter an adjustment amount');
       return;
+    }
+    if (adjustmentType === 'count' && (!Number.isFinite(counted) || counted < 0)) {
+      alert('Enter the quantity on the shelf');
+      return;
+    }
+
+    if (adjustmentType === 'untracked' && !jobKey.includes(':')) {
+      alert('Select the job this item was used on');
+      return;
+    }
+
+    const payload = {
+      type: adjustmentType === 'count' ? 'set' : adjustmentType,
+      quantity: adjustmentType === 'count' ? countedValue : adjustment,
+      reason,
+    };
+    if ((reducesStock || adjustmentType === 'untracked') && jobKey.includes(':')) {
+      const [customerId, projectId] = jobKey.split(':');
+      payload.customerId = customerId;
+      payload.projectId = projectId;
     }
 
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`${API_BASE_URL}/api/inventory/${item._id}`, {
-        // Send full item payload so server-side validators/sanitizers have required fields.
-        name: item.name || '',
-        sku: item.sku || '',
-        description: item.description || '',
-        category: item.category || '',
-        unit: item.unit || 'each',
-        parLevel: Number(item.parLevel) || 0,
-        autoReorder: Boolean(item.autoReorder),
-        preferredSupplier: item.preferredSupplier?._id || item.preferredSupplier || '',
-        lastPrice: Number(item.lastPrice) || 0,
-        currentStock: newStock,
-        lastRestocked: adjustmentType === 'add' ? new Date().toISOString() : item.lastRestocked
-      }, {
+      await axios.post(`${API_BASE_URL}/api/inventory/${item._id}/stock`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      alert(`✅ Stock ${adjustmentType === 'add' ? 'added' : 'removed'} successfully!`);
+      const actionLabel = adjustmentType === 'add'
+        ? 'added'
+        : adjustmentType === 'remove'
+          ? 'removed'
+          : adjustmentType === 'untracked'
+            ? 'charged to the job'
+            : 'counted';
+      alert(`✅ Stock ${actionLabel} successfully!`);
       onSave();
     } catch (err) {
       console.error('Error adjusting stock:', err);
-      alert('❌ Failed to adjust stock');
+      alert(`❌ ${err.response?.data?.msg || 'Failed to adjust stock'}`);
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto overscroll-contain bg-black/50 p-2 sm:p-4 py-4">
       <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[min(100dvh,100svh)] sm:max-h-[90vh] flex flex-col overflow-hidden my-auto">
-        {/* Modal Header */}
         <div className="bg-white border-b border-gray-300 p-4 md:p-6 flex justify-between items-center shrink-0">
           <h2 className="text-xl md:text-xl font-bold text-black">Adjust Stock</h2>
           <button
@@ -924,7 +978,6 @@ function StockAdjustModal({ item, onClose, onSave }) {
           </button>
         </div>
 
-        {/* Modal Content */}
         <div className="p-4 md:p-6 space-y-4 overflow-y-auto overscroll-y-contain flex-1 min-h-0">
           <div>
             <p className="font-semibold text-black text-lg md:text-lg">{item.name}</p>
@@ -933,7 +986,7 @@ function StockAdjustModal({ item, onClose, onSave }) {
 
           <div>
             <label className="block text-base md:text-sm font-medium text-black mb-3">Adjustment Type</label>
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col gap-3">
               <label className="flex items-center cursor-pointer">
                 <input
                   type="radio"
@@ -954,24 +1007,116 @@ function StockAdjustModal({ item, onClose, onSave }) {
                 />
                 <span className="text-black text-base md:text-sm">➖ Remove Stock (Used)</span>
               </label>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="radio"
+                  name="adjustment-type"
+                  checked={adjustmentType === 'count'}
+                  onChange={() => setAdjustmentType('count')}
+                  className="mr-3 w-5 h-5 md:w-4 md:h-4"
+                />
+                <span className="text-black text-base md:text-sm">Count on hand</span>
+              </label>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="radio"
+                  name="adjustment-type"
+                  checked={adjustmentType === 'untracked'}
+                  onChange={() => setAdjustmentType('untracked')}
+                  className="mr-3 w-5 h-5 md:w-4 md:h-4"
+                />
+                <span className="text-black text-base md:text-sm">Used on job, never in stock</span>
+              </label>
             </div>
           </div>
 
-          <div>
-            <label htmlFor="adjustment-amount" className="block text-base md:text-sm font-medium text-black mb-2">
-              Amount to {adjustmentType === 'add' ? 'Add' : 'Remove'}
-            </label>
-            <input
-              id="adjustment-amount"
-              name="adjustment-amount"
-              type="number"
-              value={adjustment}
-              onChange={(e) => setAdjustment(parseInt(e.target.value) || 0)}
-              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
-              min="0"
-              placeholder="Enter quantity"
-            />
-          </div>
+          {adjustmentType === 'count' ? (
+            <div>
+              <label htmlFor="quantity-on-hand" className="block text-base md:text-sm font-medium text-black mb-2">
+                Quantity on hand
+              </label>
+              <input
+                id="quantity-on-hand"
+                name="quantity-on-hand"
+                type="number"
+                value={countedQty}
+                onChange={(e) => setCountedQty(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+                min="0"
+                placeholder="Quantity on the shelf"
+              />
+            </div>
+          ) : (
+            <div>
+              <label htmlFor="adjustment-amount" className="block text-base md:text-sm font-medium text-black mb-2">
+                {adjustmentType === 'untracked'
+                  ? 'Quantity used'
+                  : `Amount to ${adjustmentType === 'add' ? 'Add' : 'Remove'}`}
+              </label>
+              <input
+                id="adjustment-amount"
+                name="adjustment-amount"
+                type="number"
+                value={adjustment}
+                onChange={(e) => setAdjustment(parseInt(e.target.value, 10) || 0)}
+                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+                min="0"
+                placeholder="Enter quantity"
+              />
+            </div>
+          )}
+
+          {showJobPicker && (
+            <div className="space-y-3">
+              <div>
+                <label htmlFor="find-project" className="block text-base md:text-sm font-medium text-black mb-2">
+                  Find project
+                </label>
+                <input
+                  id="find-project"
+                  name="find-project"
+                  type="search"
+                  value={jobQuery}
+                  onChange={(e) => setJobQuery(e.target.value)}
+                  className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+                  placeholder="Search by customer or job name"
+                />
+              </div>
+              <div>
+                <label htmlFor="used-on-job" className="block text-base md:text-sm font-medium text-black mb-2">
+                  Used on job
+                </label>
+                <select
+                  id="used-on-job"
+                  name="used-on-job"
+                  value={jobKey}
+                  onChange={(e) => setJobKey(e.target.value)}
+                  className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+                >
+                  <option value="">Not assigned to a job</option>
+                  {usedJobs.length > 0 && (
+                    <optgroup label="Projects that used this item">
+                      {usedJobs.map((job) => (
+                        <option key={job.value} value={job.value}>{job.label}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {otherJobs.length > 0 && (
+                    <optgroup label="Other projects">
+                      {otherJobs.map((job) => (
+                        <option key={job.value} value={job.value}>{job.label}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {adjustmentType === 'untracked'
+                    ? 'Required. On-hand stock does not change. Use this when the item went to a job without ever being received into inventory.'
+                    : 'Optional. Projects that already used this item are listed first. Extra use is added to that job’s existing material line.'}
+                </p>
+              </div>
+            </div>
+          )}
 
           <div>
             <label htmlFor="adjustment-reason" className="block text-base md:text-sm font-medium text-black mb-2">
@@ -984,33 +1129,47 @@ function StockAdjustModal({ item, onClose, onSave }) {
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
-              placeholder="e.g., Restock from supplier, Used on job"
+              placeholder="e.g., Shelf count, Used on job"
             />
           </div>
 
-          {/* Preview */}
           <div className={`p-4 rounded-lg border-2 ${
-            adjustmentType === 'add' ? 'bg-green-50 border-green-300' : 'bg-orange-50 border-orange-300'
+            adjustmentType === 'add' || (adjustmentType === 'count' && found > 0)
+              ? 'bg-green-50 border-green-300'
+              : 'bg-orange-50 border-orange-300'
           }`}>
             <p className="text-sm font-medium text-black mb-2">Preview:</p>
             <div className="flex justify-between items-center">
               <span className="text-black">
-                {item.currentStock} {item.unit} 
+                {item.currentStock} {item.unit}
                 <span className="mx-2 text-gray-600">→</span>
-                <strong className={adjustmentType === 'add' ? 'text-green-600' : 'text-orange-600'}>
+                <strong className={
+                  adjustmentType === 'add' || (adjustmentType === 'count' && found > 0)
+                    ? 'text-green-600'
+                    : 'text-orange-600'
+                }>
                   {newStock} {item.unit}
                 </strong>
               </span>
-              <span className={`text-sm font-bold ${
-                adjustmentType === 'add' ? 'text-green-600' : 'text-orange-600'
-              }`}>
-                {adjustmentType === 'add' ? '+' : '-'}{adjustment}
-              </span>
+              {adjustmentType === 'count' ? (
+                <span className={`text-sm font-bold ${missing > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                  {missing > 0 ? `Missing ${missing}` : found > 0 ? `Found ${found}` : 'No change'}
+                </span>
+              ) : adjustmentType === 'untracked' ? (
+                <span className="text-sm font-bold text-orange-600">
+                  On-hand unchanged · Charge job {adjustment || 0}
+                </span>
+              ) : (
+                <span className={`text-sm font-bold ${
+                  adjustmentType === 'add' ? 'text-green-600' : 'text-orange-600'
+                }`}>
+                  {adjustmentType === 'add' ? '+' : '-'}{adjustment}
+                </span>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Modal Footer */}
         <div className="sticky bottom-0 bg-gray-50 border-t border-gray-300 p-4 md:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col sm:flex-row justify-end gap-3 shrink-0">
           <button
             onClick={onClose}
@@ -1021,12 +1180,12 @@ function StockAdjustModal({ item, onClose, onSave }) {
           <button
             onClick={handleSave}
             className={`px-6 py-3 md:px-4 md:py-2 text-white rounded font-medium text-base md:text-sm w-full sm:w-auto ${
-              adjustmentType === 'add' 
-                ? 'bg-green-500 hover:bg-green-600' 
+              adjustmentType === 'add'
+                ? 'bg-green-500 hover:bg-green-600'
                 : 'bg-orange-500 hover:bg-orange-600'
             }`}
           >
-            {adjustmentType === 'add' ? '➕ Add Stock' : '➖ Remove Stock'}
+            {adjustmentType === 'add' ? '➕ Add Stock' : adjustmentType === 'remove' ? '➖ Remove Stock' : adjustmentType === 'untracked' ? 'Charge job' : 'Save count'}
           </button>
         </div>
       </div>

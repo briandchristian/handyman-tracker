@@ -445,13 +445,13 @@ export default function Suppliers() {
       >
         <Link
           to="/dashboard"
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          className="btn-staff"
         >
           Dashboard
         </Link>
         <button
           onClick={handleLogout}
-          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+          className="btn-danger"
         >
           Logout
         </button>

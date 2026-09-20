@@ -28,22 +28,23 @@ describe('RequestBid', () => {
     expect(screen.getByRole('link', { name: /^home$/i })).toHaveAttribute('href', '/');
   });
 
-  test('centers the bid column on desktop while phone layout stays unchanged', () => {
+  test('centers the bid column and matches the home-page brand shell', () => {
     render(
       <MemoryRouter>
         <RequestBid />
       </MemoryRouter>
     );
 
+    expect(screen.getByTestId('auth-shell')).toBeInTheDocument();
+    expect(screen.getByTestId('auth-hero')).toHaveClass('from-slate-950');
     const main = screen.getByTestId('bid-page-main');
     expect(main).toHaveClass('mx-auto');
     expect(main.className).not.toMatch(/md:mx-0/);
-    expect(screen.getByTestId('bid-form-card')).toHaveClass('md:text-center');
-
+    expect(screen.getByTestId('bid-form-card')).toHaveClass('card-surface');
     expect(screen.getByTestId('bid-submit-bar')).toHaveClass('sticky');
   });
 
-  test('keeps submit sticky and hides the large header on phones', () => {
+  test('keeps submit sticky and does not duplicate the giant company header', () => {
     render(
       <MemoryRouter>
         <RequestBid />
@@ -51,8 +52,8 @@ describe('RequestBid', () => {
     );
 
     expect(screen.getByTestId('bid-submit-bar')).toHaveClass('sticky');
-    expect(screen.getByTestId('bid-company-header')).toHaveClass('hidden');
-    expect(screen.getByTestId('bid-company-header')).toHaveClass('md:block');
+    expect(screen.queryByTestId('bid-company-header')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /submit bid request/i })).toHaveClass('btn-primary');
   });
 
   test('submits bid and fires Meta Lead on success without alert()', async () => {

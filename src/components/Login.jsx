@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
 import { formatPhoneNumber } from '../utils/phoneFormat';
-import PublicNav from './PublicNav';
+import AuthShell from './AuthShell';
 import FormStatus from './FormStatus';
 
 /**
@@ -180,239 +180,249 @@ export default function Login({ setToken }) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 text-black">
-      <PublicNav />
-      <div
-        data-testid="login-page-main"
-        className="p-4 md:p-8 max-w-[500px] mx-auto w-full"
-      >
-        <FormStatus message={status.message} tone={status.tone} />
+    <AuthShell
+      eyebrow="Customer portal"
+      title={showStaff ? 'Staff sign in' : showCustomerRegister ? 'Create account' : 'Sign in'}
+      subtitle={
+        showStaff
+          ? 'For company staff only.'
+          : 'Have an account? Sign in. New? Create an account.'
+      }
+      contentTestId="login-page-main"
+    >
+      <FormStatus message={status.message} tone={status.tone} />
 
-        {!showStaff && (
-          <div
-            data-testid="login-customer-card"
-            className="p-4 md:p-6 bg-white rounded-lg shadow text-black text-left md:text-center"
-          >
-            <h2 className="text-xl md:text-2xl font-bold mb-2 text-gray-800">Customer</h2>
-            <p className="text-gray-600 mb-4 text-base md:text-sm">
-              Have an account? Sign in. New? Create an account.
-            </p>
-            {!showCustomerRegister ? (
-              <div className="text-left">
+      {!showStaff && (
+        <div data-testid="login-customer-card" className="card-surface p-5 md:p-6 text-left text-slate-900">
+          {!showCustomerRegister ? (
+            <div className="space-y-3">
+              <div>
+                <label className="field-label" htmlFor="customer-login-email">
+                  Email
+                </label>
                 <input
+                  id="customer-login-email"
                   type="email"
+                  autoComplete="email"
                   placeholder="Your email"
                   value={customerLoginEmail}
                   onChange={(e) => setCustomerLoginEmail(e.target.value)}
-                  className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
+                  className="field"
                   data-testid="customer-login-email"
                 />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="customer-login-password">
+                  Password
+                </label>
                 <input
+                  id="customer-login-password"
                   type="password"
+                  autoComplete="current-password"
                   placeholder="Password"
                   value={customerLoginPassword}
                   onChange={(e) => setCustomerLoginPassword(e.target.value)}
-                  className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
+                  className="field"
                   data-testid="customer-login-password"
                 />
-                <button
-                  type="button"
-                  onClick={handleCustomerLogin}
-                  data-testid="customer-sign-in"
-                  className="bg-teal-500 text-white p-4 md:p-2 rounded w-full hover:bg-teal-600 font-medium text-base md:text-sm min-h-[48px]"
-                >
-                  Sign in
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCustomerRegister(true)}
-                  className="text-teal-600 hover:text-teal-800 mt-2 text-base md:text-sm underline py-2"
-                >
-                  New Customer? Create account
-                </button>
               </div>
-            ) : (
-              <div className="text-left">
-                <input
-                  placeholder="Your Name *"
-                  value={custRegName}
-                  onChange={(e) => setCustRegName(e.target.value)}
-                  className="block mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
-                />
-                <input
-                  type="email"
-                  placeholder="Email *"
-                  value={custRegEmail}
-                  onChange={(e) => setCustRegEmail(e.target.value)}
-                  className="block mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
-                />
-                <input
-                  type="tel"
-                  placeholder="Phone *"
-                  value={custRegPhone}
-                  onChange={(e) => setCustRegPhone(formatPhoneNumber(e.target.value))}
-                  maxLength={12}
-                  className="block mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
-                />
-                <input
-                  placeholder="Address (optional)"
-                  value={custRegAddress}
-                  onChange={(e) => setCustRegAddress(e.target.value)}
-                  className="block mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
-                />
-                <input
-                  placeholder="Project Name (optional)"
-                  value={custRegProjectName}
-                  onChange={(e) => setCustRegProjectName(e.target.value)}
-                  className="block mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
-                />
-                <textarea
-                  placeholder="Project Description (optional)"
-                  value={custRegProjectDesc}
-                  onChange={(e) => setCustRegProjectDesc(e.target.value)}
-                  className="block mb-2 p-4 md:p-2 border bg-white text-black w-full rounded h-20 resize-none text-base md:text-sm"
-                />
-                <input
-                  type="password"
-                  placeholder="Password (min 6) *"
-                  value={custRegPassword}
-                  onChange={(e) => setCustRegPassword(e.target.value)}
-                  className="block mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
-                />
-                <button
-                  type="button"
-                  onClick={handleCustomerRegister}
-                  className="bg-teal-500 text-white p-4 md:p-2 rounded w-full hover:bg-teal-600 font-medium text-base md:text-sm min-h-[48px]"
-                >
-                  Create account
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCustomerRegister(false)}
-                  className="text-teal-600 hover:text-teal-800 mt-2 text-sm underline py-2"
-                >
-                  Back to Sign in
-                </button>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setShowStaff(true);
-                setStatus({ message: '', tone: 'error' });
-              }}
-              className="mt-6 text-gray-600 hover:text-gray-900 text-sm underline py-2"
-            >
-              Staff sign in
-            </button>
-          </div>
-        )}
-
-        {showStaff && (
-          <div className="p-4 md:p-6 bg-white rounded-lg shadow text-black text-left md:text-center">
-            <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-800">Admin Login</h2>
-            {showSessionExpired && (
-              <div
-                className="mb-4 p-3 bg-amber-100 border border-amber-400 text-amber-800 rounded text-sm"
-                role="alert"
-              >
-                Your session expired or you were signed out. Please log in again.
-              </div>
-            )}
-            <div className="text-left">
-              <input
-                type="text"
-                placeholder="Username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
-                data-testid="admin-login-username"
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="block mb-3 md:mb-2 p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
-                data-testid="admin-login-password"
-              />
               <button
                 type="button"
-                onClick={handleLogin}
-                className="bg-blue-500 text-white p-4 md:p-2 rounded w-full hover:bg-blue-600 font-medium text-base md:text-sm min-h-[48px]"
+                onClick={handleCustomerLogin}
+                data-testid="customer-sign-in"
+                className="btn-primary w-full"
               >
-                Login
+                Sign in
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCustomerRegister(true)}
+                className="btn-link w-full text-center"
+              >
+                New Customer? Create account
               </button>
             </div>
-            <p className="text-gray-700 mt-4 text-base md:text-sm">For admin access only.</p>
-            <button
-              type="button"
-              onClick={() => setShowRegister(!showRegister)}
-              className="text-blue-600 hover:text-blue-800 mt-2 text-base md:text-sm underline py-2"
-            >
-              {showRegister ? 'Cancel Registration' : 'New Admin? Request Access'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowStaff(false);
-                setShowRegister(false);
-                setStatus({ message: '', tone: 'error' });
-              }}
-              className="block mt-3 text-gray-600 hover:text-gray-900 text-sm underline py-2 md:mx-auto"
-            >
-              Back to customer sign in
-            </button>
-          </div>
-        )}
-
-        {showStaff && showRegister && (
-          <div className="mt-6 p-4 md:p-6 bg-white rounded-lg shadow text-black text-left md:text-center">
-            <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-800">Request Admin Access</h2>
-            <p className="text-gray-600 mb-4 text-base md:text-sm">
-              Your account will need to be approved by an existing administrator.
-            </p>
-
-            <div className="space-y-3 text-left">
+          ) : (
+            <div className="space-y-3">
               <input
-                type="text"
-                placeholder="Username *"
-                value={regUsername}
-                onChange={(e) => setRegUsername(e.target.value)}
-                className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
+                placeholder="Your Name *"
+                value={custRegName}
+                onChange={(e) => setCustRegName(e.target.value)}
+                className="field"
               />
               <input
                 type="email"
                 placeholder="Email *"
-                value={regEmail}
-                onChange={(e) => setRegEmail(e.target.value)}
-                className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
+                value={custRegEmail}
+                onChange={(e) => setCustRegEmail(e.target.value)}
+                className="field"
+              />
+              <input
+                type="tel"
+                placeholder="Phone *"
+                value={custRegPhone}
+                onChange={(e) => setCustRegPhone(formatPhoneNumber(e.target.value))}
+                maxLength={12}
+                className="field"
+              />
+              <input
+                placeholder="Address (optional)"
+                value={custRegAddress}
+                onChange={(e) => setCustRegAddress(e.target.value)}
+                className="field"
+              />
+              <input
+                placeholder="Project Name (optional)"
+                value={custRegProjectName}
+                onChange={(e) => setCustRegProjectName(e.target.value)}
+                className="field"
+              />
+              <textarea
+                placeholder="Project Description (optional)"
+                value={custRegProjectDesc}
+                onChange={(e) => setCustRegProjectDesc(e.target.value)}
+                className="field h-20 resize-none"
               />
               <input
                 type="password"
-                placeholder="Password (min 6 characters) *"
-                value={regPassword}
-                onChange={(e) => setRegPassword(e.target.value)}
-                className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
+                placeholder="Password (min 6) *"
+                value={custRegPassword}
+                onChange={(e) => setCustRegPassword(e.target.value)}
+                className="field"
               />
-              <input
-                type="password"
-                placeholder="Confirm Password *"
-                value={regConfirmPassword}
-                onChange={(e) => setRegConfirmPassword(e.target.value)}
-                className="block p-4 md:p-2 border bg-white text-black w-full rounded text-base md:text-sm"
-              />
+              <button type="button" onClick={handleCustomerRegister} className="btn-primary w-full">
+                Create account
+              </button>
               <button
                 type="button"
-                onClick={handleRegister}
-                className="bg-purple-500 text-white p-4 md:p-2 rounded w-full hover:bg-purple-600 font-medium text-base md:text-sm min-h-[48px]"
+                onClick={() => setShowCustomerRegister(false)}
+                className="btn-link w-full text-center"
               >
-                Request Access
+                Back to Sign in
               </button>
             </div>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setShowStaff(true);
+              setStatus({ message: '', tone: 'error' });
+            }}
+            className="mt-6 w-full text-center text-sm text-slate-500 hover:text-slate-800 py-2"
+          >
+            Staff sign in
+          </button>
+        </div>
+      )}
+
+      {showStaff && (
+        <div className="card-surface p-5 md:p-6 text-left text-slate-900">
+          {showSessionExpired && (
+            <div
+              className="mb-4 p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-sm"
+              role="alert"
+            >
+              Your session expired or you were signed out. Please log in again.
+            </div>
+          )}
+          <div className="space-y-3">
+            <div>
+              <label className="field-label" htmlFor="admin-login-username">
+                Username
+              </label>
+              <input
+                id="admin-login-username"
+                type="text"
+                autoComplete="username"
+                placeholder="Username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="field"
+                data-testid="admin-login-username"
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="admin-login-password">
+                Password
+              </label>
+              <input
+                id="admin-login-password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="field"
+                data-testid="admin-login-password"
+              />
+            </div>
+            <button type="button" onClick={handleLogin} className="btn-primary w-full">
+              Login
+            </button>
           </div>
-        )}
-      </div>
-    </div>
+          <p className="text-slate-600 mt-4 text-sm">For admin access only.</p>
+          <button
+            type="button"
+            onClick={() => setShowRegister(!showRegister)}
+            className="btn-link"
+          >
+            {showRegister ? 'Cancel Registration' : 'New Admin? Request Access'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowStaff(false);
+              setShowRegister(false);
+              setStatus({ message: '', tone: 'error' });
+            }}
+            className="block mt-2 text-sm text-slate-500 hover:text-slate-800 py-2"
+          >
+            Back to customer sign in
+          </button>
+        </div>
+      )}
+
+      {showStaff && showRegister && (
+        <div className="mt-4 card-surface p-5 md:p-6 text-left text-slate-900">
+          <h2 className="text-lg font-bold mb-2 text-slate-900">Request Admin Access</h2>
+          <p className="text-slate-600 mb-4 text-sm">
+            Your account will need to be approved by an existing administrator.
+          </p>
+          <div className="space-y-3">
+            <input
+              type="text"
+              placeholder="Username *"
+              value={regUsername}
+              onChange={(e) => setRegUsername(e.target.value)}
+              className="field"
+            />
+            <input
+              type="email"
+              placeholder="Email *"
+              value={regEmail}
+              onChange={(e) => setRegEmail(e.target.value)}
+              className="field"
+            />
+            <input
+              type="password"
+              placeholder="Password (min 6 characters) *"
+              value={regPassword}
+              onChange={(e) => setRegPassword(e.target.value)}
+              className="field"
+            />
+            <input
+              type="password"
+              placeholder="Confirm Password *"
+              value={regConfirmPassword}
+              onChange={(e) => setRegConfirmPassword(e.target.value)}
+              className="field"
+            />
+            <button type="button" onClick={handleRegister} className="btn-primary w-full">
+              Request Access
+            </button>
+          </div>
+        </div>
+      )}
+    </AuthShell>
   );
 }

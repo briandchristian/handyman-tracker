@@ -120,13 +120,13 @@ export default function PurchaseOrders() {
       <div className="mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
           <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-            <Link to="/suppliers" className="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 text-sm md:text-base">
+            <Link to="/suppliers" className="btn-staff text-sm">
               Back to Suppliers
             </Link>
-            <Link to="/suppliers?openQuickReorder=1" className="bg-green-500 text-white px-3 py-2 rounded hover:bg-green-600 text-sm md:text-base">
+            <Link to="/suppliers?openQuickReorder=1" className="btn-primary w-auto text-sm">
               + Create New PO
             </Link>
-            <Link to="/inventory" className="bg-purple-500 text-white px-3 py-2 rounded hover:bg-purple-600 text-sm md:text-base">
+            <Link to="/inventory" className="btn-staff text-sm">
               Order from Inventory
             </Link>
           </div>
@@ -365,13 +365,13 @@ export default function PurchaseOrders() {
       <div data-testid="page-footer" className="mt-8 flex justify-end items-center gap-3">
         <Link
           to="/dashboard"
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          className="btn-staff"
         >
           Dashboard
         </Link>
         <button
           onClick={handleLogout}
-          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+          className="btn-danger"
         >
           Logout
         </button>
