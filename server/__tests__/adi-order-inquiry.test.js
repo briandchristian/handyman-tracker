@@ -91,5 +91,24 @@ describe('ADI Order Inquiry client', () => {
 
     expect(normalized.OrderLineHead.OrderLineShipmentUnitHeadList).toEqual([]);
     expect(normalized.OrderLineHead.CartShipUnitList).toEqual([]);
+    expect(normalized.OrderStatus).toBe('');
+  });
+
+  test('keeps order status from the header when the top level omits it', () => {
+    const normalized = normalizeAdiOrderInquiryResponse({
+      ReturnCode: '00',
+      ReturnMessage: '',
+      OrderLineHead: {
+        Status: 'Shipped',
+        OrderLineShipmentUnitHeadList: [{ TrackingNumber: '1Z999' }],
+        CartShipUnitList: [{ CartNumber: 'CART1' }],
+      },
+    });
+
+    expect(normalized.OrderStatus).toBe('Shipped');
+    expect(normalized.OrderLineHead.OrderLineShipmentUnitHeadList).toEqual([
+      { TrackingNumber: '1Z999' },
+    ]);
+    expect(normalized.OrderLineHead.CartShipUnitList).toEqual([{ CartNumber: 'CART1' }]);
   });
 });

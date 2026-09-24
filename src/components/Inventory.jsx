@@ -6,6 +6,19 @@ import API_BASE_URL from '../config/api';
 import { INVENTORY_CATEGORIES } from '../constants/inventoryCategories';
 import { findItemBySku, normalizeSkuCode } from '../utils/inventorySkuMatch';
 import { filterJobs, jobsFromCustomers } from '../utils/inventoryJobs';
+import { fetchAdiPriceInventory } from '../services/adiSupplierApi';
+import {
+  adiAllowedLabel,
+  adiItemNumberFromSku,
+  inventoryUpdateFromAdiQuote,
+  plainAdiItemMessage,
+  priceChangeForUpdate,
+  formatPriceChangeAmount,
+  formatPriceChangePercent,
+  keepLatestPriceHistory,
+  removePriceHistoryAt,
+  supplierPriceLookupAccount,
+} from '../utils/adiIntegration';
 import BarcodeScanner from './BarcodeScanner';
 
 export default function Inventory() {
@@ -608,6 +621,35 @@ function unitPriceTextFromItem(invItem) {
   return String(n);
 }
 
+function priceInfoFromQuote(item, quote) {
+  if (!quote) return null;
+  const update = inventoryUpdateFromAdiQuote(item, quote);
+  return {
+    itemNumber: update.adiQuote.itemNumber,
+    price: update.adiQuote.itemPrice ? `$${update.adiQuote.itemPrice}` : '',
+    stock: update.adiQuote.nationalInventory,
+    allowed: adiAllowedLabel(update.adiQuote.allowedToBuy),
+    message: plainAdiItemMessage(update.adiQuote.returnMessage, update.adiQuote.itemNumber),
+    adiQuote: update.adiQuote,
+    lastPrice: update.lastPrice,
+  };
+}
+
+function priceInfoFromSaved(item) {
+  const saved = item?.adiQuote;
+  if (!saved?.itemNumber && !saved?.returnMessage && !saved?.nationalInventory) return null;
+  const priceNumber = Number(saved.itemPrice);
+  return {
+    itemNumber: saved.itemNumber || adiItemNumberFromSku(item.sku),
+    price: Number.isFinite(priceNumber) && priceNumber > 0 ? `$${priceNumber.toFixed(2)}` : '',
+    stock: saved.nationalInventory || '',
+    allowed: adiAllowedLabel(saved.allowedToBuy),
+    message: plainAdiItemMessage(saved.returnMessage, saved.itemNumber || item.sku),
+    adiQuote: saved,
+    lastPrice: Number(item.lastPrice) || 0,
+  };
+}
+
 // Item Edit Modal
 function ItemModal({ item, suppliers, categories, onClose, onSave }) {
   const [showSkuScanner, setShowSkuScanner] = useState(false);
@@ -623,6 +665,13 @@ function ItemModal({ item, suppliers, categories, onClose, onSave }) {
     preferredSupplier: item.preferredSupplier?._id || ''
   });
   const [unitPriceText, setUnitPriceText] = useState(() => unitPriceTextFromItem(item));
+  const [priceInfo, setPriceInfo] = useState(() => priceInfoFromSaved(item));
+  const [priceHistory, setPriceHistory] = useState(() => (Array.isArray(item.priceHistory) ? item.priceHistory : []));
+  const [trackedPrice, setTrackedPrice] = useState(() => Math.max(0, Number(item.lastPrice) || 0));
+  const [priceNotice, setPriceNotice] = useState('');
+  const [priceLoading, setPriceLoading] = useState(false);
+  const selectedSupplier = suppliers.find((supplier) => supplier._id === formData.preferredSupplier);
+  const priceAccount = !item.isNew ? supplierPriceLookupAccount(selectedSupplier) : null;
 
   useEffect(() => {
     setUnitPriceText(unitPriceTextFromItem(item));
@@ -641,7 +690,8 @@ function ItemModal({ item, suppliers, categories, onClose, onSave }) {
       const lastPrice = Math.max(0, parseFloat(String(unitPriceText).replace(/,/g, '')) || 0);
       const payload = {
         ...formData,
-        lastPrice
+        lastPrice,
+        ...(priceInfo?.adiQuote ? { adiQuote: priceInfo.adiQuote } : {}),
       };
       if (item.isNew) {
         await axios.post(`${API_BASE_URL}/api/inventory`, payload, {
@@ -659,6 +709,93 @@ function ItemModal({ item, suppliers, categories, onClose, onSave }) {
       console.error('Error saving inventory item:', err);
       alert('❌ Failed to save item');
     }
+  };
+
+  const updateSupplierPrice = async () => {
+    const itemNumber = adiItemNumberFromSku(formData.sku);
+    if (!priceAccount) return;
+    if (!itemNumber) {
+      setPriceNotice('Enter a part number.');
+      return;
+    }
+
+    try {
+      setPriceLoading(true);
+      setPriceNotice('');
+      const response = await fetchAdiPriceInventory({
+        customerNumber: priceAccount.customerNumber,
+        customerSuffix: priceAccount.customerSuffix,
+        itemList: [{ ItemNumber: itemNumber, Quantity: 1 }],
+      });
+      const line = Array.isArray(response?.ItemList) ? response.ItemList[0] || {} : {};
+      const info = priceInfoFromQuote(
+        { ...item, sku: formData.sku, description: formData.description, lastPrice: trackedPrice },
+        line
+      );
+      const updatedAt = new Date().toISOString();
+      const priceChange = priceChangeForUpdate(trackedPrice, info, updatedAt);
+      if (info.adiQuote.itemPrice) setUnitPriceText(info.adiQuote.itemPrice);
+      setPriceInfo(info);
+      if (priceChange) {
+        setPriceHistory((history) => [priceChange, ...history]);
+        setTrackedPrice(info.lastPrice);
+      }
+
+      const token = localStorage.getItem('token');
+      await axios.put(
+        `${API_BASE_URL}/api/inventory/${item._id}`,
+        {
+          ...formData,
+          lastPrice: info.lastPrice,
+          adiQuote: info.adiQuote,
+          ...(priceChange ? { priceChange } : {}),
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (err) {
+      console.error('Error updating supplier price:', err);
+      setPriceNotice('Price update failed. The saved price was not cleared.');
+    } finally {
+      setPriceLoading(false);
+    }
+  };
+
+  const savePriceHistory = async (nextHistory) => {
+    setPriceHistory(nextHistory);
+    if (item.isNew) return;
+    try {
+      const token = localStorage.getItem('token');
+      const lastPrice = Math.max(0, parseFloat(String(unitPriceText).replace(/,/g, '')) || trackedPrice || 0);
+      await axios.put(
+        `${API_BASE_URL}/api/inventory/${item._id}`,
+        {
+          ...formData,
+          lastPrice,
+          replacePriceHistory: true,
+          priceHistory: nextHistory,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (err) {
+      console.error('Error deleting price history:', err);
+      setPriceNotice('Could not delete that price history.');
+    }
+  };
+
+  const deletePriceHistoryAt = (index) => {
+    savePriceHistory(removePriceHistoryAt(priceHistory, index));
+  };
+
+  const deleteOlderPriceHistory = () => {
+    if (priceHistory.length < 2) return;
+    if (!window.confirm('Delete every price update except the latest?')) return;
+    savePriceHistory(keepLatestPriceHistory(priceHistory, 1));
+  };
+
+  const keepLatestTenPriceHistory = () => {
+    if (priceHistory.length <= 10) return;
+    if (!window.confirm('Keep the latest 10 price updates and delete the rest?')) return;
+    savePriceHistory(keepLatestPriceHistory(priceHistory, 10));
   };
 
   return (
@@ -803,17 +940,100 @@ function ItemModal({ item, suppliers, categories, onClose, onSave }) {
                 Unit price
                 <span className="text-gray-500 text-sm md:text-xs ml-1">(per unit, Est. Value)</span>
               </label>
-              <input
-                id="item-unit-price"
-                name="item-unit-price"
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                value={unitPriceText}
-                onChange={(e) => setUnitPriceText(e.target.value)}
-                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
-                placeholder="0.00"
-              />
+              <div className="flex gap-2 items-center">
+                <input
+                  id="item-unit-price"
+                  name="item-unit-price"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={unitPriceText}
+                  onChange={(e) => setUnitPriceText(e.target.value)}
+                  className="min-w-0 flex-1 p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+                  placeholder="0.00"
+                />
+                {priceAccount && (
+                  <button
+                    type="button"
+                    onClick={updateSupplierPrice}
+                    disabled={priceLoading}
+                    className="shrink-0 bg-indigo-600 text-white px-3 py-2 rounded hover:bg-indigo-700 disabled:opacity-60 text-sm"
+                  >
+                    {priceLoading ? 'Updating price...' : 'Update price'}
+                  </button>
+                )}
+              </div>
+              {priceNotice && <p className="text-sm text-red-700 mt-2">{priceNotice}</p>}
+              {priceInfo && (
+                <div role="status" aria-label="Supplier price" className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <p className="text-gray-600">ADI item</p>
+                    <p className="text-black">{priceInfo.itemNumber}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600">Price</p>
+                    <p className="text-black">{priceInfo.price || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600">ADI stock</p>
+                    <p className="text-black">{priceInfo.stock || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600">Can buy</p>
+                    <p className="text-black">{priceInfo.allowed || '—'}</p>
+                  </div>
+                  {priceInfo.message && <p className="col-span-2 text-gray-700">{priceInfo.message}</p>}
+                </div>
+              )}
+              {priceHistory.length > 0 && (
+                <div role="region" aria-label="Price history" className="mt-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <p className="text-sm font-medium text-black">Price history</p>
+                    <div className="flex flex-wrap gap-2">
+                      {priceHistory.length > 10 && (
+                        <button
+                          type="button"
+                          onClick={keepLatestTenPriceHistory}
+                          className="text-sm text-indigo-700 underline"
+                        >
+                          Keep latest 10
+                        </button>
+                      )}
+                      {priceHistory.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={deleteOlderPriceHistory}
+                          className="text-sm text-red-700 underline"
+                        >
+                          Delete older
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <ul className="space-y-2">
+                    {priceHistory.map((record, index) => (
+                      <li key={`${record.updatedAt}-${index}`} className="text-sm text-black border border-gray-200 rounded p-2">
+                        <div className="flex justify-between gap-2">
+                          <p>{format(new Date(record.updatedAt), 'MMM d, yyyy h:mm a')}</p>
+                          <button
+                            type="button"
+                            onClick={() => deletePriceHistoryAt(index)}
+                            className="text-red-700 underline shrink-0"
+                            aria-label={`Delete price update ${format(new Date(record.updatedAt), 'MMM d, yyyy h:mm a')}`}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                        <p>
+                          ${Number(record.previousPrice).toFixed(2)} to ${Number(record.newPrice).toFixed(2)}
+                        </p>
+                        <p>{formatPriceChangeAmount(record.changeAmount)}</p>
+                        <p>{formatPriceChangePercent(record.changePercent)}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
 

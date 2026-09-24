@@ -394,6 +394,10 @@ const supplierSchema = new mongoose.Schema({
   shippingMethod: String,
   website: String,
   notes: String,
+  adiAccount: {
+    customerNumber: String,
+    customerSuffix: String,
+  },
   isFavorite: { type: Boolean, default: false },
   isActive: { type: Boolean, default: true },
   catalog: [{
@@ -446,6 +450,48 @@ const purchaseOrderSchema = new mongoose.Schema({
     lastInquiryStatus: String,
     lastInquiryMessage: String,
     lastInquiryAt: Date,
+    shipmentPickupIndicator: String,
+    referenceNumber: String,
+    shipmentComplete: String,
+    shipmentCarrier: String,
+    shipmentMethod: String,
+    pickupDC: String,
+    promoCode: String,
+    promoCodeType: String,
+    emailAddress: String,
+    dropShipmentName: String,
+    dropShipmentAddress1: String,
+    dropShipmentAddress2: String,
+    dropShipmentAddress3: String,
+    dropShipmentCity: String,
+    dropShipmentStateProvince: String,
+    dropShipmentZipcode: String,
+    dropShipmentCountryCode: String,
+    priceLines: [{
+      itemNumber: String,
+      quantity: Number,
+      itemPrice: String,
+      allowedToBuy: String,
+      saleStartDate: String,
+      saleEndDate: String,
+      nationalInventory: String,
+      returnCode: String,
+      returnMessage: String,
+    }],
+    shipments: [{
+      trackingNumber: String,
+      carrier: String,
+      status: String,
+      shipDate: String,
+      itemNumber: String,
+      quantity: String,
+    }],
+    carts: [{
+      cartNumber: String,
+      status: String,
+      carrier: String,
+      trackingNumber: String,
+    }],
   },
   attachments: [{
     name: String,
@@ -486,6 +532,23 @@ const inventoryItemSchema = new mongoose.Schema({
   lastPrice: { type: Number, min: 0 },
   autoReorder: { type: Boolean, default: false },
   preferredSupplier: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier' },
+  adiQuote: {
+    itemNumber: String,
+    itemPrice: String,
+    allowedToBuy: String,
+    nationalInventory: String,
+    saleStartDate: String,
+    saleEndDate: String,
+    returnMessage: String,
+    checkedAt: Date,
+  },
+  priceHistory: [{
+    previousPrice: Number,
+    newPrice: Number,
+    changeAmount: Number,
+    changePercent: Number,
+    updatedAt: Date,
+  }],
   lastRestocked: Date,
   createdAt: { type: Date, default: Date.now }
 });
@@ -2507,7 +2570,7 @@ app.get('/api/purchase-orders', authMiddleware, async (req, res) => {
     if (supplierId) query.supplier = supplierId;
     
     const pos = await PurchaseOrder.find(query)
-      .populate('supplier', 'name')
+      .populate('supplier', 'name adiAccount')
       .populate('createdBy', 'username')
       .sort({ orderDate: -1 });
     res.json(pos);
@@ -2693,6 +2756,43 @@ function inventoryPayloadFromBody(body) {
   };
 }
 
+function priceChangeFromBody(change) {
+  if (!change || typeof change !== 'object') return null;
+  const previousPrice = Number(change.previousPrice);
+  const newPrice = Number(change.newPrice);
+  if (!Number.isFinite(previousPrice) || previousPrice < 0) return null;
+  if (!Number.isFinite(newPrice) || newPrice < 0) return null;
+  const updatedAt = change.updatedAt ? new Date(change.updatedAt) : new Date();
+  if (Number.isNaN(updatedAt.getTime())) return null;
+  const roundedPrevious = Math.round(previousPrice * 100) / 100;
+  const roundedNext = Math.round(newPrice * 100) / 100;
+  const changeAmount = Math.round((roundedNext - roundedPrevious) * 100) / 100;
+  const changePercent = roundedPrevious > 0
+    ? Math.round(((changeAmount / roundedPrevious) * 100) * 100) / 100
+    : null;
+  return {
+    previousPrice: roundedPrevious,
+    newPrice: roundedNext,
+    changeAmount,
+    changePercent,
+    updatedAt,
+  };
+}
+
+function adiQuoteFromBody(quote) {
+  if (!quote || typeof quote !== 'object') return null;
+  return {
+    itemNumber: String(quote.itemNumber || ''),
+    itemPrice: String(quote.itemPrice || ''),
+    allowedToBuy: String(quote.allowedToBuy || ''),
+    nationalInventory: String(quote.nationalInventory || ''),
+    saleStartDate: String(quote.saleStartDate || ''),
+    saleEndDate: String(quote.saleEndDate || ''),
+    returnMessage: String(quote.returnMessage || ''),
+    checkedAt: quote.checkedAt ? new Date(quote.checkedAt) : new Date(),
+  };
+}
+
 async function ensureUniqueInventorySku(sku, excludeId) {
   if (!sku) return;
   const query = { sku };
@@ -2769,14 +2869,14 @@ app.get('/api/inventory', authMiddleware, async (req, res) => {
       // Find items where currentStock < parLevel
       const items = await InventoryItem.find({
         parLevel: { $gt: 0 }
-      }).populate('preferredSupplier', 'name');
+      }).populate('preferredSupplier', 'name adiAccount');
       
       const lowStockItems = items.filter(item => item.currentStock < item.parLevel);
       return res.json(lowStockItems);
     }
     
     const items = await InventoryItem.find(query)
-      .populate('preferredSupplier', 'name')
+      .populate('preferredSupplier', 'name adiAccount')
       .sort({ name: 1 });
     res.json(items);
   } catch (err) {
@@ -2799,7 +2899,7 @@ app.post('/api/inventory', authMiddleware, async (req, res) => {
     if (data.sku == null) delete data.sku;
     const item = new InventoryItem(data);
     await item.save();
-    await item.populate('preferredSupplier', 'name');
+    await item.populate('preferredSupplier', 'name adiAccount');
     res.status(201).json(item);
   } catch (err) {
     if (inventoryConflictResponse(res, err)) return;
@@ -2839,8 +2939,20 @@ app.put('/api/inventory/:id', authMiddleware, async (req, res) => {
     existing.autoReorder = data.autoReorder;
     existing.preferredSupplier = data.preferredSupplier;
     existing.currentStock = data.currentStock;
+    if (req.body.adiQuote) {
+      existing.adiQuote = adiQuoteFromBody(req.body.adiQuote);
+    }
+    if (req.body.replacePriceHistory === true) {
+      const replacement = Array.isArray(req.body.priceHistory) ? req.body.priceHistory : [];
+      existing.priceHistory = replacement.map(priceChangeFromBody).filter(Boolean);
+    } else {
+      const priceChange = priceChangeFromBody(req.body.priceChange);
+      if (priceChange) {
+        existing.priceHistory = [priceChange, ...(existing.priceHistory || [])];
+      }
+    }
     await existing.save();
-    await existing.populate('preferredSupplier', 'name');
+    await existing.populate('preferredSupplier', 'name adiAccount');
     res.json(existing);
   } catch (err) {
     if (inventoryConflictResponse(res, err)) return;
@@ -2910,7 +3022,7 @@ app.post('/api/inventory/:id/stock', authMiddleware, async (req, res) => {
       await customer.save();
     }
 
-    await result.item.populate('preferredSupplier', 'name');
+    await result.item.populate('preferredSupplier', 'name adiAccount');
     const payload = { item: result.item, movement: result.movement };
     if (type === 'set') {
       const counted = reconcileCount(preview.previousStock, quantity);

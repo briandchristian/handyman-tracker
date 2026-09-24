@@ -63,6 +63,21 @@ describe('ADI Order Generation client', () => {
     expect(result).toEqual({
       ReturnCode: '00',
       ReturnMessage: 'Order 1234567890 created successfully',
+      ADIOrderNumber: '',
+    });
+  });
+
+  test('keeps a dedicated order number when ADI returns one', () => {
+    expect(
+      normalizeAdiOrderGenerationResponse({
+        ReturnCode: '00',
+        ReturnMessage: 'Order created successfully',
+        OrderNumber: '1234567890',
+      })
+    ).toEqual({
+      ReturnCode: '00',
+      ReturnMessage: 'Order created successfully',
+      ADIOrderNumber: '1234567890',
     });
   });
 
@@ -99,6 +114,7 @@ describe('ADI Order Generation client', () => {
     expect(normalizeAdiOrderGenerationResponse({})).toEqual({
       ReturnCode: '',
       ReturnMessage: '',
+      ADIOrderNumber: '',
     });
   });
 });

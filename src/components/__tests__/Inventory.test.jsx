@@ -709,4 +709,187 @@ describe('Inventory Component - Phase 2C', () => {
     expect(root.className).toContain('max-w-6xl');
     expect(root.className).toContain('mx-auto');
   });
+
+  test('updates ADI inventory prices without creating an order', async () => {
+    const adiItem = {
+      _id: 'adi-item',
+      name: 'DSC glassbreak',
+      sku: 'MX922 | 3W-MX922',
+      description: 'DSC glassbreak detector',
+      category: 'Intrusion',
+      currentStock: 4,
+      unit: 'each',
+      parLevel: 2,
+      autoReorder: false,
+      lastPrice: 30.99,
+      preferredSupplier: { _id: 'adi', name: 'ADI' },
+    };
+
+    axios.get.mockImplementation((url) => {
+      if (url.includes('/suppliers')) {
+        return Promise.resolve({
+          data: {
+            suppliers: [
+              { _id: 'adi', name: 'ADI', adiAccount: { customerNumber: '451278', customerSuffix: '000' } },
+            ],
+            stats: {},
+          },
+        });
+      }
+      if (url.includes('/customers')) return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: [adiItem] });
+    });
+    axios.post.mockImplementation((url) => {
+      if (String(url).includes('/price-inventory')) {
+        return Promise.resolve({
+          data: {
+            ItemList: [{
+              ItemNumber: '3W-MX922',
+              Quantity: 1,
+              ItemPrice: '28.00',
+              AllowedToBuy: 'Y',
+              NationalInventory: '12',
+              ReturnMessage: '',
+            }],
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    axios.put.mockResolvedValue({ data: { ...adiItem, lastPrice: 28 } });
+
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('DSC glassbreak').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('region', { name: 'ADI inventory' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Update price' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByText('Edit')[0]);
+    expect(await screen.findByRole('heading', { name: 'Edit Inventory Item' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Update price' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Preferred Supplier'), { target: { value: '' } });
+    expect(screen.queryByRole('button', { name: 'Update price' })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Preferred Supplier'), { target: { value: 'adi' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update price' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/suppliers/adi/price-inventory'),
+        expect.objectContaining({
+          customerNumber: '451278',
+          customerSuffix: '000',
+          itemList: [{ ItemNumber: '3W-MX922', Quantity: 1 }],
+        }),
+        expect.any(Object)
+      );
+    });
+
+    expect(axios.post).not.toHaveBeenCalledWith(
+      expect.stringContaining('/order-generation'),
+      expect.anything(),
+      expect.anything()
+    );
+    expect(await screen.findByText('$28.00')).toBeInTheDocument();
+    expect(screen.getByText('Yes')).toBeInTheDocument();
+    expect(axios.put).toHaveBeenCalledWith(
+      expect.stringContaining('/api/inventory/adi-item'),
+      expect.objectContaining({
+        name: 'DSC glassbreak',
+        description: 'DSC glassbreak detector',
+        lastPrice: 28,
+        adiQuote: expect.objectContaining({
+          itemNumber: '3W-MX922',
+          itemPrice: '28.00',
+          nationalInventory: '12',
+          allowedToBuy: 'Y',
+        }),
+        priceChange: expect.objectContaining({
+          previousPrice: 30.99,
+          newPrice: 28,
+          changeAmount: -2.99,
+          changePercent: -9.65,
+          updatedAt: expect.any(String),
+        }),
+      }),
+      expect.any(Object)
+    );
+    expect(await screen.findByRole('region', { name: 'Price history' })).toBeInTheDocument();
+    expect(screen.getByText('-$2.99')).toBeInTheDocument();
+    expect(screen.getByText('-9.65%')).toBeInTheDocument();
+  });
+
+  test('deletes older price history and a single price update', async () => {
+    const pricedItem = {
+      _id: 'item-priced',
+      name: 'Priced contact',
+      sku: '958',
+      description: 'Resideo contact',
+      category: 'Intrusion',
+      currentStock: 2,
+      unit: 'each',
+      parLevel: 0,
+      autoReorder: false,
+      lastPrice: 30,
+      preferredSupplier: { _id: 'sup1', name: 'Home Depot' },
+      priceHistory: [
+        { previousPrice: 28, newPrice: 30, changeAmount: 2, changePercent: 7.14, updatedAt: '2026-09-24T20:00:00.000Z' },
+        { previousPrice: 20, newPrice: 28, changeAmount: 8, changePercent: 40, updatedAt: '2026-06-01T12:00:00.000Z' },
+        { previousPrice: 10, newPrice: 20, changeAmount: 10, changePercent: 100, updatedAt: '2026-01-01T12:00:00.000Z' },
+      ],
+    };
+
+    axios.get.mockImplementation((url) => {
+      if (url.includes('/suppliers')) {
+        return Promise.resolve({ data: { suppliers: [{ _id: 'sup1', name: 'Home Depot' }], stats: {} } });
+      }
+      if (url.includes('/customers')) return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: [pricedItem] });
+    });
+    axios.put.mockResolvedValue({ data: pricedItem });
+
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+    await waitFor(() => {
+      expect(screen.getAllByText('Priced contact').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByText('Edit')[0]);
+    expect(await screen.findByRole('region', { name: 'Price history' })).toBeInTheDocument();
+    expect(screen.getByText('+$2.00')).toBeInTheDocument();
+    expect(screen.getByText('+$10.00')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete older' }));
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('/api/inventory/item-priced'),
+        expect.objectContaining({
+          replacePriceHistory: true,
+          priceHistory: [
+            expect.objectContaining({ updatedAt: '2026-09-24T20:00:00.000Z', changeAmount: 2 }),
+          ],
+        }),
+        expect.any(Object)
+      );
+    });
+    expect(screen.queryByText('+$10.00')).not.toBeInTheDocument();
+    expect(screen.getByText('+$2.00')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete price update/i }));
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenLastCalledWith(
+        expect.stringContaining('/api/inventory/item-priced'),
+        expect.objectContaining({
+          replacePriceHistory: true,
+          priceHistory: [],
+        }),
+        expect.any(Object)
+      );
+    });
+    expect(screen.queryByRole('region', { name: 'Price history' })).not.toBeInTheDocument();
+  });
 });

@@ -4,11 +4,26 @@ import axios from 'axios';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
 import CameraCapture from './CameraCapture';
+import AdiPartPriceCheck from './AdiPartPriceCheck';
 import {
   fetchAdiPriceInventory,
   generateAdiOrder,
   inquireAdiOrder,
 } from '../services/adiSupplierApi';
+import {
+  adiAllowedLabel,
+  adiItemNumberFromSku,
+  adiSupportCode,
+  applyAdiPriceInventory,
+  buildAdiGenerateOrderPayload,
+  collectAdiCarts,
+  collectAdiShipments,
+  deriveAdiInquiryStatus,
+  extractAdiOrderNumber,
+  plainAdiItemMessage,
+  splitCatalogSku,
+  validateAdiGenerateOrder,
+} from '../utils/adiIntegration';
 import { handleApiError, formatErrorAlert } from '../utils/errorHandler';
 import {
   DEFAULT_PO_FILTER,
@@ -132,7 +147,8 @@ export default function PurchaseOrders() {
           </div>
         </div>
         <h1 className="text-2xl md:text-3xl font-bold text-black">Purchase Orders</h1>
-        <p className="text-gray-600 mt-2">Manage and track all purchase orders</p>
+        <p className="text-gray-600 mt-2">Check a part price, or manage purchase orders</p>
+        <AdiPartPriceCheck purchaseOrders={pos} />
         <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-black">
           Create new purchase orders from `Suppliers` using the Quick Reorder panel, or start from `Inventory` to add stock-managed items.
         </div>
@@ -358,6 +374,10 @@ export default function PurchaseOrders() {
             setSelectedPO(null);
             fetchPOs();
           }}
+          onSync={(id, patch) => {
+            setSelectedPO((current) => (current && current._id === id ? { ...current, ...patch } : current));
+            setPOs((list) => list.map((entry) => (entry._id === id ? { ...entry, ...patch } : entry)));
+          }}
         />
       )}
 
@@ -381,7 +401,27 @@ export default function PurchaseOrders() {
 }
 
 // PO Detail Modal Component
-export function PODetailModal({ po, onClose, onUpdate }) {
+const fulfillmentFromIntegration = (source = {}) => ({
+  shipmentPickupIndicator: source.shipmentPickupIndicator || 'P',
+  referenceNumber: source.referenceNumber || '',
+  shipmentComplete: source.shipmentComplete || '',
+  shipmentCarrier: source.shipmentCarrier || '',
+  shipmentMethod: source.shipmentMethod || '',
+  pickupDC: source.pickupDC || '',
+  promoCode: source.promoCode || '',
+  promoCodeType: source.promoCodeType || '',
+  emailAddress: source.emailAddress || '',
+  dropShipmentName: source.dropShipmentName || '',
+  dropShipmentAddress1: source.dropShipmentAddress1 || '',
+  dropShipmentAddress2: source.dropShipmentAddress2 || '',
+  dropShipmentAddress3: source.dropShipmentAddress3 || '',
+  dropShipmentCity: source.dropShipmentCity || '',
+  dropShipmentStateProvince: source.dropShipmentStateProvince || '',
+  dropShipmentZipcode: source.dropShipmentZipcode || '',
+  dropShipmentCountryCode: source.dropShipmentCountryCode || '',
+});
+
+export function PODetailModal({ po, onClose, onUpdate, onSync }) {
   console.log('PODetailModal rendering with:', po);
   
   const [showCamera, setShowCamera] = useState(false);
@@ -403,8 +443,17 @@ export function PODetailModal({ po, onClose, onUpdate }) {
   const [expectedDelivery, setExpectedDelivery] = useState(safeFormatDate(po?.expectedDelivery));
   const [receivedDate, setReceivedDate] = useState(safeFormatDate(po?.receivedDate));
   const [paidDate, setPaidDate] = useState(safeFormatDate(po?.paidDate));
-  const [adiCustomerNumber, setAdiCustomerNumber] = useState(po?.adiIntegration?.customerNumber || '');
-  const [adiCustomerSuffix, setAdiCustomerSuffix] = useState(po?.adiIntegration?.customerSuffix || '000');
+  const supplierAdiAccount = po?.supplier?.adiAccount || {};
+  const [adiCustomerNumber, setAdiCustomerNumber] = useState(
+    supplierAdiAccount.customerNumber || po?.adiIntegration?.customerNumber || ''
+  );
+  const [adiCustomerSuffix, setAdiCustomerSuffix] = useState(
+    supplierAdiAccount.customerSuffix || po?.adiIntegration?.customerSuffix || '000'
+  );
+  const [editingAccount, setEditingAccount] = useState(
+    !(supplierAdiAccount.customerNumber || po?.adiIntegration?.customerNumber)
+  );
+  const [orderConfirmOpen, setOrderConfirmOpen] = useState(false);
   const [adiOrderNumber, setAdiOrderNumber] = useState(po?.adiIntegration?.adiOrderNumber || '');
   const [adiLoading, setAdiLoading] = useState(false);
   const [adiLastMessage, setAdiLastMessage] = useState('');
@@ -413,6 +462,23 @@ export function PODetailModal({ po, onClose, onUpdate }) {
     status: po?.adiIntegration?.lastInquiryStatus || '',
     message: po?.adiIntegration?.lastInquiryMessage || '',
     at: po?.adiIntegration?.lastInquiryAt || null,
+  });
+  const [adiFulfillment, setAdiFulfillment] = useState(fulfillmentFromIntegration(po?.adiIntegration));
+  const [adiPriceLines, setAdiPriceLines] = useState(
+    Array.isArray(po?.adiIntegration?.priceLines) ? po.adiIntegration.priceLines : []
+  );
+  const [adiShipments, setAdiShipments] = useState(
+    Array.isArray(po?.adiIntegration?.shipments) ? po.adiIntegration.shipments : []
+  );
+  const [adiCarts, setAdiCarts] = useState(
+    Array.isArray(po?.adiIntegration?.carts) ? po.adiIntegration.carts : []
+  );
+  const [displayItems, setDisplayItems] = useState(Array.isArray(po?.items) ? po.items : []);
+  const [displayTotals, setDisplayTotals] = useState({
+    subtotal: po?.subtotal || 0,
+    tax: po?.tax || 0,
+    shipping: po?.shipping || 0,
+    total: po?.total || 0,
   });
 
   // Safety check after hooks to keep hook order stable across renders.
@@ -433,6 +499,10 @@ export function PODetailModal({ po, onClose, onUpdate }) {
     );
   }
 
+  const setFulfillmentField = (field, value) => {
+    setAdiFulfillment((current) => ({ ...current, [field]: value }));
+  };
+
   const ensureAdiCustomerFields = () => {
     if (!adiCustomerNumber.trim()) {
       alert('Enter ADI Customer Number first.');
@@ -445,6 +515,32 @@ export function PODetailModal({ po, onClose, onUpdate }) {
     return true;
   };
 
+  const persistSupplierAccount = async (customerNumber, customerSuffix) => {
+    const supplierId = po.supplier?._id;
+    if (!supplierId || !customerNumber) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(
+        `${API_BASE_URL}/api/suppliers/${supplierId}`,
+        { adiAccount: { customerNumber, customerSuffix } },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      onSync?.(po._id, {
+        supplier: {
+          ...po.supplier,
+          adiAccount: { customerNumber, customerSuffix },
+        },
+      });
+    } catch (err) {
+      console.error('Error saving ADI account on supplier:', err);
+    }
+  };
+
+  const quoteForLine = (line) => {
+    const adiSku = adiItemNumberFromSku(line?.sku).toLowerCase();
+    return adiPriceLines.find((entry) => adiItemNumberFromSku(entry.itemNumber).toLowerCase() === adiSku);
+  };
+
   const handleAdiPriceLookup = async () => {
     if (!ensureAdiCustomerFields()) return;
 
@@ -453,15 +549,61 @@ export function PODetailModal({ po, onClose, onUpdate }) {
       const payload = {
         customerNumber: adiCustomerNumber.trim(),
         customerSuffix: adiCustomerSuffix.trim(),
-        itemList: po.items.map((item) => ({
-          ItemNumber: String(item.sku || '').trim(),
+        itemList: displayItems.map((item) => ({
+          ItemNumber: adiItemNumberFromSku(item.sku),
           Quantity: Number(item.quantity) || 0,
         })),
       };
 
       const response = await fetchAdiPriceInventory(payload);
-      const itemCount = Array.isArray(response.ItemList) ? response.ItemList.length : 0;
-      const message = `ADI Price Lookup complete (${itemCount} items). ReturnCode: ${response.ReturnCode || 'N/A'}`;
+      const applied = applyAdiPriceInventory(
+        { items: displayItems, tax: displayTotals.tax, shipping: displayTotals.shipping },
+        response
+      );
+      const syncedAt = new Date().toISOString();
+      const integration = buildAdiIntegrationPayload({
+        priceLines: applied.priceLines,
+        lastSyncedAt: syncedAt,
+      });
+      const token = localStorage.getItem('token');
+      await axios.put(
+        `${API_BASE_URL}/api/purchase-orders/${po._id}`,
+        {
+          items: applied.items,
+          subtotal: applied.subtotal,
+          tax: applied.tax,
+          shipping: applied.shipping,
+          total: applied.total,
+          adiIntegration: integration,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setDisplayItems(applied.items);
+      setDisplayTotals({
+        subtotal: applied.subtotal,
+        tax: applied.tax,
+        shipping: applied.shipping,
+        total: applied.total,
+      });
+      setAdiPriceLines(applied.priceLines);
+      setAdiLastSyncedAt(syncedAt);
+      setEditingAccount(false);
+      await persistSupplierAccount(adiCustomerNumber.trim(), adiCustomerSuffix.trim());
+      onSync?.(po._id, {
+        items: applied.items,
+        subtotal: applied.subtotal,
+        tax: applied.tax,
+        shipping: applied.shipping,
+        total: applied.total,
+        adiIntegration: integration,
+      });
+
+      const priced = applied.priceLines.filter((line) => line.itemPrice).length;
+      let message = `ADI Price Lookup complete (${applied.priceLines.length} items). ReturnCode: ${response.ReturnCode || 'N/A'}. Prices applied to ${priced} line${priced === 1 ? '' : 's'}.`;
+      if (applied.unmatchedSkus.length) {
+        message += ` No ADI quote for: ${applied.unmatchedSkus.join(', ')}.`;
+      }
       setAdiLastMessage(message);
       alert(`✅ ${message}`);
     } catch (err) {
@@ -470,28 +612,6 @@ export function PODetailModal({ po, onClose, onUpdate }) {
     } finally {
       setAdiLoading(false);
     }
-  };
-
-  const deriveAdiInquiryStatus = (inquiryResponse) => {
-    const directStatus =
-      inquiryResponse?.OrderStatus ||
-      inquiryResponse?.Status ||
-      inquiryResponse?.OrderState;
-    if (typeof directStatus === 'string' && directStatus.trim()) {
-      return directStatus.trim();
-    }
-
-    const message = inquiryResponse?.ReturnMessage;
-    if (typeof message === 'string' && message.trim()) {
-      const statusMatch = message.match(/\b(open|closed|shipped|cancelled|confirmed|delivered|processing)\b/i);
-      if (statusMatch?.[1]) {
-        const word = statusMatch[1].toLowerCase();
-        return word.charAt(0).toUpperCase() + word.slice(1);
-      }
-      return message.trim();
-    }
-
-    return 'Unknown';
   };
 
   const persistAdiIntegration = async (adiIntegrationPayload) => {
@@ -528,43 +648,32 @@ export function PODetailModal({ po, onClose, onUpdate }) {
       adiInquirySnapshot.at ??
       po?.adiIntegration?.lastInquiryAt ??
       null,
+    ...adiFulfillment,
+    priceLines: adiPriceLines,
+    shipments: adiShipments,
+    carts: adiCarts,
+    ...overrides,
   });
-
-  const extractAdiOrderNumber = (orderGenerationResponse, fallbackMessage) => {
-    const candidates = [
-      orderGenerationResponse?.AdiOrderNumber,
-      orderGenerationResponse?.ADIOrderNumber,
-      orderGenerationResponse?.OrderNumber,
-      orderGenerationResponse?.orderNumber,
-      orderGenerationResponse?.OrderNo,
-      orderGenerationResponse?.OrderID,
-      fallbackMessage,
-    ];
-
-    for (const candidate of candidates) {
-      const asText = candidate == null ? '' : String(candidate);
-      const match = asText.match(/\b\d{10}\b/);
-      if (match?.[0]) return match[0];
-    }
-    return '';
-  };
 
   const handleAdiOrderGeneration = async () => {
     if (!ensureAdiCustomerFields()) return;
 
+    const orderForm = {
+      customerNumber: adiCustomerNumber.trim(),
+      customerSuffix: adiCustomerSuffix.trim(),
+      poNumber: po.poNumber,
+      ...adiFulfillment,
+      items: displayItems,
+    };
+    const validationError = validateAdiGenerateOrder(orderForm);
+    if (validationError) {
+      alert(validationError);
+      return;
+    }
+
     try {
       setAdiLoading(true);
-      const payload = {
-        customerNumber: adiCustomerNumber.trim(),
-        customerSuffix: adiCustomerSuffix.trim(),
-        poNumber: po.poNumber,
-        shipmentPickupIndicator: 'P',
-        orderList: po.items.map((item) => ({
-          ItemNumber: String(item.sku || '').trim(),
-          Quantity: Number(item.quantity) || 0,
-          ItemPrice: Number(item.unitPrice) || 0,
-        })),
-      };
+      const payload = buildAdiGenerateOrderPayload(orderForm);
 
       const response = await generateAdiOrder(payload);
       const message = response.ReturnMessage || 'ADI order generation completed.';
@@ -575,6 +684,9 @@ export function PODetailModal({ po, onClose, onUpdate }) {
       const foundOrderNumber = extractAdiOrderNumber(response, message);
       if (foundOrderNumber) {
         setAdiOrderNumber(foundOrderNumber);
+        setEditingAccount(false);
+        setOrderConfirmOpen(false);
+        await persistSupplierAccount(adiCustomerNumber.trim(), adiCustomerSuffix.trim());
 
         // Auto-inquiry keeps the PO snapshot fresh right after generation.
         const inquiryResponse = await inquireAdiOrder({
@@ -585,15 +697,19 @@ export function PODetailModal({ po, onClose, onUpdate }) {
         const inquiryMessage = inquiryResponse?.ReturnMessage || 'ADI order inquiry completed.';
         const inquiryStatus = deriveAdiInquiryStatus(inquiryResponse);
         const inquiryAt = new Date().toISOString();
+        const shipments = collectAdiShipments(inquiryResponse);
+        const carts = collectAdiCarts(inquiryResponse);
 
         setAdiInquirySnapshot({
           status: inquiryStatus,
           message: inquiryMessage,
           at: inquiryAt,
         });
+        setAdiShipments(shipments);
+        setAdiCarts(carts);
         setAdiLastSyncedAt(inquiryAt);
 
-        await persistAdiIntegration({
+        await persistAdiIntegration(buildAdiIntegrationPayload({
           customerNumber: adiCustomerNumber.trim(),
           customerSuffix: adiCustomerSuffix.trim(),
           adiOrderNumber: foundOrderNumber,
@@ -601,7 +717,9 @@ export function PODetailModal({ po, onClose, onUpdate }) {
           lastInquiryStatus: inquiryStatus,
           lastInquiryMessage: inquiryMessage,
           lastInquiryAt: inquiryAt,
-        });
+          shipments,
+          carts,
+        }));
 
         setAdiLastMessage(`${message} Inquiry: ${inquiryMessage}`);
       } else {
@@ -659,6 +777,8 @@ export function PODetailModal({ po, onClose, onUpdate }) {
       const message = response.ReturnMessage || 'ADI order inquiry completed.';
       const inquiryStatus = deriveAdiInquiryStatus(response);
       const inquiryAt = new Date().toISOString();
+      const shipments = collectAdiShipments(response);
+      const carts = collectAdiCarts(response);
 
       setAdiLastMessage(message);
       setAdiInquirySnapshot({
@@ -666,8 +786,10 @@ export function PODetailModal({ po, onClose, onUpdate }) {
         message,
         at: inquiryAt,
       });
+      setAdiShipments(shipments);
+      setAdiCarts(carts);
       setAdiLastSyncedAt(inquiryAt);
-      await persistAdiIntegration({
+      await persistAdiIntegration(buildAdiIntegrationPayload({
         customerNumber: adiCustomerNumber.trim(),
         customerSuffix: adiCustomerSuffix.trim(),
         adiOrderNumber: adiOrderNumber.trim(),
@@ -675,7 +797,9 @@ export function PODetailModal({ po, onClose, onUpdate }) {
         lastInquiryStatus: inquiryStatus,
         lastInquiryMessage: message,
         lastInquiryAt: inquiryAt,
-      });
+        shipments,
+        carts,
+      }));
       alert(`✅ ${message}`);
     } catch (err) {
       const errorInfo = handleApiError(err, 'ADI order inquiry');
@@ -795,7 +919,7 @@ export function PODetailModal({ po, onClose, onUpdate }) {
             </tr>
           </thead>
           <tbody>
-            ${po.items.map(item => `
+            ${displayItems.map(item => `
               <tr>
                 <td>${item.sku || '-'}</td>
                 <td>${item.description || 'N/A'}</td>
@@ -809,21 +933,21 @@ export function PODetailModal({ po, onClose, onUpdate }) {
           <tfoot>
             <tr>
               <td colspan="5" class="totals">Subtotal:</td>
-              <td>$${(po.subtotal || 0).toFixed(2)}</td>
+              <td>$${(displayTotals.subtotal || 0).toFixed(2)}</td>
             </tr>
             <tr>
               <td colspan="5" class="totals">Tax:</td>
-              <td>$${(po.tax || 0).toFixed(2)}</td>
+              <td>$${(displayTotals.tax || 0).toFixed(2)}</td>
             </tr>
-            ${(po.shipping || 0) > 0 ? `
+            ${(displayTotals.shipping || 0) > 0 ? `
               <tr>
                 <td colspan="5" class="totals">Shipping:</td>
-                <td>$${(po.shipping || 0).toFixed(2)}</td>
+                <td>$${(displayTotals.shipping || 0).toFixed(2)}</td>
               </tr>
             ` : ''}
             <tr style="font-size: 18px;">
               <td colspan="5" class="totals"><strong>TOTAL:</strong></td>
-              <td><strong>$${(po.total || 0).toFixed(2)}</strong></td>
+              <td><strong>$${(displayTotals.total || 0).toFixed(2)}</strong></td>
             </tr>
           </tfoot>
         </table>
@@ -979,89 +1103,253 @@ export function PODetailModal({ po, onClose, onUpdate }) {
             </div>
           </div>
 
-          {/* ADI Integration Actions */}
+          {/* ADI pricing, ordering, and tracking */}
           <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
-            <h3 className="font-bold text-black mb-3">ADI Integration</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-              <div>
-                <label htmlFor="adi-customer-number" className="block text-sm font-medium text-black mb-1">
-                  Customer Number
-                </label>
-                <input
-                  id="adi-customer-number"
-                  type="text"
-                  value={adiCustomerNumber}
-                  onChange={(e) => setAdiCustomerNumber(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded text-black bg-white"
-                  placeholder="CUST001"
-                />
+            <h3 className="font-bold text-black mb-3">ADI</h3>
+            {adiCustomerNumber.trim() && !editingAccount ? (
+              <p className="text-sm text-black mb-3">
+                ADI account {adiCustomerNumber.trim()}-{adiCustomerSuffix.trim() || '000'}
+                <button
+                  type="button"
+                  onClick={() => setEditingAccount(true)}
+                  className="ml-3 text-indigo-700 underline"
+                >
+                  Change account
+                </button>
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label htmlFor="adi-customer-number" className="block text-sm font-medium text-black mb-1">
+                    ADI customer number
+                  </label>
+                  <input
+                    id="adi-customer-number"
+                    type="text"
+                    value={adiCustomerNumber}
+                    onChange={(e) => setAdiCustomerNumber(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="adi-customer-suffix" className="block text-sm font-medium text-black mb-1">
+                    Account suffix
+                  </label>
+                  <input
+                    id="adi-customer-suffix"
+                    type="text"
+                    value={adiCustomerSuffix}
+                    onChange={(e) => setAdiCustomerSuffix(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                    placeholder="000"
+                  />
+                </div>
               </div>
-              <div>
-                <label htmlFor="adi-customer-suffix" className="block text-sm font-medium text-black mb-1">
-                  Customer Suffix
-                </label>
-                <input
-                  id="adi-customer-suffix"
-                  type="text"
-                  value={adiCustomerSuffix}
-                  onChange={(e) => setAdiCustomerSuffix(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded text-black bg-white"
-                  placeholder="000"
-                />
-              </div>
-              <div>
-                <label htmlFor="adi-order-number" className="block text-sm font-medium text-black mb-1">
-                  ADI Order Number
-                </label>
-                <input
-                  id="adi-order-number"
-                  type="text"
-                  value={adiOrderNumber}
-                  onChange={(e) => setAdiOrderNumber(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded text-black bg-white"
-                  placeholder="1234567890"
-                />
-              </div>
-            </div>
+            )}
 
             <div className="flex flex-wrap gap-2">
               <button
+                type="button"
                 onClick={handleAdiPriceLookup}
-                disabled={adiLoading}
-                className="bg-indigo-500 text-white px-3 py-2 rounded hover:bg-indigo-600 disabled:opacity-60"
-              >
-                ADI Price Lookup
-              </button>
-              <button
-                onClick={handleAdiOrderGeneration}
                 disabled={adiLoading}
                 className="bg-indigo-600 text-white px-3 py-2 rounded hover:bg-indigo-700 disabled:opacity-60"
               >
-                ADI Generate Order
+                Update prices from ADI
               </button>
-              <button
-                onClick={handleAdiOrderInquiry}
-                disabled={adiLoading}
-                className="bg-indigo-700 text-white px-3 py-2 rounded hover:bg-indigo-800 disabled:opacity-60"
-              >
-                ADI Order Inquiry
-              </button>
+              {!orderConfirmOpen && (
+                <button
+                  type="button"
+                  onClick={() => setOrderConfirmOpen(true)}
+                  disabled={adiLoading}
+                  className="bg-white text-indigo-800 border border-indigo-300 px-3 py-2 rounded hover:bg-indigo-100 disabled:opacity-60"
+                >
+                  Place order with ADI
+                </button>
+              )}
             </div>
 
-            {adiLastMessage && (
-              <p className="text-sm text-gray-700 mt-3">{adiLastMessage}</p>
-            )}
-            {adiInquirySnapshot.status && (
-              <div className="mt-2 text-sm text-gray-700">
-                <p>
-                  <span className="font-medium">Last ADI Inquiry Status:</span> {adiInquirySnapshot.status}
+            {orderConfirmOpen && (
+              <div className="mt-4 p-3 bg-white border border-indigo-200 rounded">
+                <p className="text-sm font-medium text-black mb-2">This sends a real order to ADI.</p>
+                <p className="text-sm text-black mb-2">
+                  {displayItems.length} lines · ${Number(displayTotals.total || 0).toFixed(2)}
                 </p>
-                {adiInquirySnapshot.message && (
-                  <p>
-                    <span className="font-medium">Last ADI Inquiry Message:</span> {adiInquirySnapshot.message}
-                  </p>
+                <ul className="text-sm text-gray-700 mb-3 list-disc pl-5">
+                  {displayItems.map((item, index) => {
+                    const parts = splitCatalogSku(item.sku);
+                    return (
+                      <li key={`${parts.adiItemNumber}-${index}`}>
+                        {parts.adiItemNumber || 'Item'} × {item.quantity || 0}
+                      </li>
+                    );
+                  })}
+                </ul>
+                <div className="mb-3">
+                  <label htmlFor="adi-fulfillment" className="block text-sm font-medium text-black mb-1">
+                    Fulfillment
+                  </label>
+                  <select
+                    id="adi-fulfillment"
+                    value={adiFulfillment.shipmentPickupIndicator}
+                    onChange={(e) => setFulfillmentField('shipmentPickupIndicator', e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                  >
+                    <option value="P">Pickup</option>
+                    <option value="S">Ship to address</option>
+                  </select>
+                </div>
+                {adiFulfillment.shipmentPickupIndicator === 'S' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label htmlFor="adi-drop-name" className="block text-sm font-medium text-black mb-1">Drop shipment name</label>
+                      <input id="adi-drop-name" type="text" value={adiFulfillment.dropShipmentName} onChange={(e) => setFulfillmentField('dropShipmentName', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                    <div>
+                      <label htmlFor="adi-drop-address" className="block text-sm font-medium text-black mb-1">Drop shipment address</label>
+                      <input id="adi-drop-address" type="text" value={adiFulfillment.dropShipmentAddress1} onChange={(e) => setFulfillmentField('dropShipmentAddress1', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                    <div>
+                      <label htmlFor="adi-drop-city" className="block text-sm font-medium text-black mb-1">Drop shipment city</label>
+                      <input id="adi-drop-city" type="text" value={adiFulfillment.dropShipmentCity} onChange={(e) => setFulfillmentField('dropShipmentCity', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                    <div>
+                      <label htmlFor="adi-drop-state" className="block text-sm font-medium text-black mb-1">Drop shipment state</label>
+                      <input id="adi-drop-state" type="text" value={adiFulfillment.dropShipmentStateProvince} onChange={(e) => setFulfillmentField('dropShipmentStateProvince', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                    <div>
+                      <label htmlFor="adi-drop-zip" className="block text-sm font-medium text-black mb-1">Drop shipment ZIP</label>
+                      <input id="adi-drop-zip" type="text" value={adiFulfillment.dropShipmentZipcode} onChange={(e) => setFulfillmentField('dropShipmentZipcode', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                    <div>
+                      <label htmlFor="adi-drop-country" className="block text-sm font-medium text-black mb-1">Drop shipment country</label>
+                      <input id="adi-drop-country" type="text" value={adiFulfillment.dropShipmentCountryCode} onChange={(e) => setFulfillmentField('dropShipmentCountryCode', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                  </div>
+                )}
+                <details className="mb-3">
+                  <summary className="text-sm font-medium text-black cursor-pointer">More options</summary>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                    <div>
+                      <label htmlFor="adi-carrier" className="block text-sm font-medium text-black mb-1">Shipment carrier</label>
+                      <input id="adi-carrier" type="text" value={adiFulfillment.shipmentCarrier} onChange={(e) => setFulfillmentField('shipmentCarrier', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                    <div>
+                      <label htmlFor="adi-method" className="block text-sm font-medium text-black mb-1">Shipment method</label>
+                      <input id="adi-method" type="text" value={adiFulfillment.shipmentMethod} onChange={(e) => setFulfillmentField('shipmentMethod', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                    <div>
+                      <label htmlFor="adi-pickup-dc" className="block text-sm font-medium text-black mb-1">Pickup DC</label>
+                      <input id="adi-pickup-dc" type="text" value={adiFulfillment.pickupDC} onChange={(e) => setFulfillmentField('pickupDC', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                    <div>
+                      <label htmlFor="adi-reference" className="block text-sm font-medium text-black mb-1">Reference number</label>
+                      <input id="adi-reference" type="text" value={adiFulfillment.referenceNumber} onChange={(e) => setFulfillmentField('referenceNumber', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                    <div>
+                      <label htmlFor="adi-email" className="block text-sm font-medium text-black mb-1">Confirmation email</label>
+                      <input id="adi-email" type="email" value={adiFulfillment.emailAddress} onChange={(e) => setFulfillmentField('emailAddress', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                    <div>
+                      <label htmlFor="adi-promo-code" className="block text-sm font-medium text-black mb-1">Promo code</label>
+                      <input id="adi-promo-code" type="text" value={adiFulfillment.promoCode} onChange={(e) => setFulfillmentField('promoCode', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                  </div>
+                </details>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAdiOrderGeneration}
+                    disabled={adiLoading}
+                    className="bg-indigo-700 text-white px-3 py-2 rounded hover:bg-indigo-800 disabled:opacity-60"
+                  >
+                    Send order to ADI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderConfirmOpen(false)}
+                    className="bg-white text-black border border-gray-300 px-3 py-2 rounded"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {(adiOrderNumber.trim() || adiShipments.length > 0 || adiInquirySnapshot.status) && (
+              <div className="mt-4">
+                {adiOrderNumber.trim() && (
+                  <p className="text-sm text-black mb-2">ADI order {adiOrderNumber.trim()}</p>
+                )}
+                {adiOrderNumber.trim() && (
+                  <button
+                    type="button"
+                    onClick={handleAdiOrderInquiry}
+                    disabled={adiLoading}
+                    className="bg-white text-indigo-800 border border-indigo-300 px-3 py-2 rounded hover:bg-indigo-100 disabled:opacity-60"
+                  >
+                    Check status
+                  </button>
+                )}
+                {adiInquirySnapshot.status && (
+                  <div className="mt-2 text-sm text-gray-700">
+                    <p><span className="font-medium">ADI status:</span> {adiInquirySnapshot.status}</p>
+                    {adiInquirySnapshot.message && (
+                      <p>{plainAdiItemMessage(adiInquirySnapshot.message)}</p>
+                    )}
+                  </div>
+                )}
+                {adiCarts.length > 0 && (
+                  <div className="mt-3 overflow-x-auto">
+                    <table aria-label="ADI cart units" className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-indigo-200 text-left">
+                          <th className="p-2">Cart</th>
+                          <th className="p-2">Status</th>
+                          <th className="p-2">Carrier</th>
+                          <th className="p-2">Tracking</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adiCarts.map((row, index) => (
+                          <tr key={`${row.cartNumber}-${index}`}>
+                            <td className="p-2">{row.cartNumber || '-'}</td>
+                            <td className="p-2">{row.status || '-'}</td>
+                            <td className="p-2">{row.carrier || '-'}</td>
+                            <td className="p-2">{row.trackingNumber || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {adiShipments.length > 0 && (
+                  <div className="mt-3 overflow-x-auto">
+                    <table aria-label="ADI shipments" className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-indigo-200 text-left">
+                          <th className="p-2">Tracking</th>
+                          <th className="p-2">Carrier</th>
+                          <th className="p-2">Status</th>
+                          <th className="p-2">Ship date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adiShipments.map((row, index) => (
+                          <tr key={`${row.trackingNumber}-${index}`} className="border-b border-indigo-100">
+                            <td className="p-2">{row.trackingNumber || '-'}</td>
+                            <td className="p-2">{row.carrier || '-'}</td>
+                            <td className="p-2">{row.status || '-'}</td>
+                            <td className="p-2">{row.shipDate || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
+            )}
+            {adiLastMessage && (
+              <p className="text-sm text-gray-700 mt-3">{adiLastMessage}</p>
             )}
           </div>
 
@@ -1069,47 +1357,75 @@ export function PODetailModal({ po, onClose, onUpdate }) {
           <div className="mb-6">
             <h3 className="font-bold text-black mb-3">Line Items</h3>
             <div className="bg-gray-50 border border-gray-300 rounded-lg overflow-hidden">
-              <table className="w-full">
+              <table aria-label="Line items" className="w-full">
                 <thead>
                   <tr className="border-b border-gray-300 bg-gray-100">
-                    <th className="text-left p-3 text-black text-sm">SKU</th>
+                    <th className="text-left p-3 text-black text-sm">Manufacturer part</th>
+                    <th className="text-left p-3 text-black text-sm">ADI item</th>
                     <th className="text-left p-3 text-black text-sm">Description</th>
                     <th className="text-left p-3 text-black text-sm">Qty</th>
                     <th className="text-left p-3 text-black text-sm">Unit</th>
-                    <th className="text-left p-3 text-black text-sm">Unit Price</th>
+                    <th className="text-left p-3 text-black text-sm">Your price</th>
+                    <th className="text-left p-3 text-black text-sm">ADI price</th>
+                    <th className="text-left p-3 text-black text-sm">Stock</th>
+                    <th className="text-left p-3 text-black text-sm">Can buy</th>
                     <th className="text-left p-3 text-black text-sm">Total</th>
                   </tr>
                 </thead>
                   <tbody>
-                    {po.items.map((item, idx) => (
+                    {displayItems.map((item, idx) => {
+                      const parts = splitCatalogSku(item.sku);
+                      const quote = quoteForLine(item);
+                      const adiPriceNumber = Number(quote?.itemPrice);
+                      const adiPrice = Number.isFinite(adiPriceNumber) && adiPriceNumber > 0
+                        ? `$${adiPriceNumber.toFixed(2)}`
+                        : '—';
+                      const note = quote?.returnMessage
+                        ? plainAdiItemMessage(quote.returnMessage, parts.adiItemNumber)
+                        : '';
+                      const supportCode = quote?.returnMessage ? adiSupportCode(quote.returnMessage) : '';
+                      const sale = [quote?.saleStartDate, quote?.saleEndDate].filter(Boolean).join(' – ');
+                      return (
                       <tr key={idx} className="border-b border-gray-200">
-                        <td className="p-3 text-black text-sm">{item.sku || '-'}</td>
+                        <td className="p-3 text-black text-sm">{parts.manufacturerPart || '—'}</td>
+                        <td className="p-3 text-black text-sm">
+                          {parts.adiItemNumber || '—'}
+                          {note && <p className="text-xs text-gray-600 mt-1">{note}</p>}
+                          {supportCode && <p className="text-xs text-gray-500">{supportCode}</p>}
+                        </td>
                         <td className="p-3 text-black">{item.description || 'N/A'}</td>
                         <td className="p-3 text-black">{item.quantity || 0}</td>
                         <td className="p-3 text-black text-sm">{item.unit || ''}</td>
                         <td className="p-3 text-black">${(item.unitPrice || 0).toFixed(2)}</td>
+                        <td className="p-3 text-black">
+                          {adiPrice}
+                          {sale && <p className="text-xs text-gray-600">{sale}</p>}
+                        </td>
+                        <td className="p-3 text-black text-sm">{quote?.nationalInventory || '—'}</td>
+                        <td className="p-3 text-black text-sm">{adiAllowedLabel(quote?.allowedToBuy) || '—'}</td>
                         <td className="p-3 text-black font-medium">${(item.total || 0).toFixed(2)}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr className="border-t-2 border-gray-300">
-                      <td colSpan="5" className="p-3 text-right font-medium text-black">Subtotal:</td>
-                      <td className="p-3 font-medium text-black">${(po.subtotal || 0).toFixed(2)}</td>
+                      <td colSpan="9" className="p-3 text-right font-medium text-black">Subtotal:</td>
+                      <td className="p-3 font-medium text-black">${(displayTotals.subtotal || 0).toFixed(2)}</td>
                     </tr>
                     <tr>
-                      <td colSpan="5" className="p-3 text-right text-gray-600 text-sm">Tax:</td>
-                      <td className="p-3 text-gray-600 text-sm">${(po.tax || 0).toFixed(2)}</td>
+                      <td colSpan="9" className="p-3 text-right text-gray-600 text-sm">Tax:</td>
+                      <td className="p-3 text-gray-600 text-sm">${(displayTotals.tax || 0).toFixed(2)}</td>
                     </tr>
-                    {(po.shipping || 0) > 0 && (
+                    {(displayTotals.shipping || 0) > 0 && (
                       <tr>
-                        <td colSpan="5" className="p-3 text-right text-gray-600 text-sm">Shipping:</td>
-                        <td className="p-3 text-gray-600 text-sm">${(po.shipping || 0).toFixed(2)}</td>
+                        <td colSpan="9" className="p-3 text-right text-gray-600 text-sm">Shipping:</td>
+                        <td className="p-3 text-gray-600 text-sm">${(displayTotals.shipping || 0).toFixed(2)}</td>
                       </tr>
                     )}
                     <tr className="bg-gray-100">
-                      <td colSpan="5" className="p-3 text-right font-bold text-black text-lg">TOTAL:</td>
-                      <td className="p-3 font-bold text-black text-lg">${(po.total || 0).toFixed(2)}</td>
+                      <td colSpan="9" className="p-3 text-right font-bold text-black text-lg">TOTAL:</td>
+                      <td className="p-3 font-bold text-black text-lg">${(displayTotals.total || 0).toFixed(2)}</td>
                     </tr>
                   </tfoot>
               </table>

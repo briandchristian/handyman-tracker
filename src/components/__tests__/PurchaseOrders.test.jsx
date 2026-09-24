@@ -126,6 +126,44 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     });
   });
 
+  test('checks an ADI part price without creating an order', async () => {
+    fetchAdiPriceInventory.mockResolvedValueOnce({
+      ReturnCode: '00',
+      ItemList: [{
+        ItemNumber: '3W-MX922',
+        ItemPrice: '28.00',
+        AllowedToBuy: 'Y',
+        NationalInventory: '12',
+        ReturnCode: '00',
+        ReturnMessage: '',
+      }],
+    });
+
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Check a part price' })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText('Part number'), { target: { value: 'MX922 | 3W-MX922' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Check price' }));
+
+    await waitFor(() => {
+      expect(fetchAdiPriceInventory).toHaveBeenCalledWith({
+        customerNumber: 'CUST-EXISTING',
+        customerSuffix: '111',
+        itemList: [{ ItemNumber: '3W-MX922', Quantity: 1 }],
+      });
+    });
+
+    expect(generateAdiOrder).not.toHaveBeenCalled();
+    const result = screen.getByRole('status', { name: 'ADI price result' });
+    expect(within(result).getByText('3W-MX922')).toBeInTheDocument();
+    expect(within(result).getByText('$28.00')).toBeInTheDocument();
+    expect(within(result).getByText('12')).toBeInTheDocument();
+    expect(within(result).getByText('Yes')).toBeInTheDocument();
+  });
+
   test('should render purchase orders page', async () => {
     render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
     
@@ -648,21 +686,12 @@ describe('PurchaseOrders Component - Phase 2B', () => {
       fireEvent.click(poNumbers[0]);
     });
 
-    await waitFor(() => {
-      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
-        target: { value: 'CUST001' },
-      });
-      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
-        target: { value: '000' },
-      });
-    });
-
-    fireEvent.click(screen.getByText('ADI Price Lookup'));
+    fireEvent.click(screen.getByRole('button', { name: 'Update prices from ADI' }));
 
     await waitFor(() => {
       expect(fetchAdiPriceInventory).toHaveBeenCalledWith({
-        customerNumber: 'CUST001',
-        customerSuffix: '000',
+        customerNumber: 'CUST-EXISTING',
+        customerSuffix: '111',
         itemList: [{ ItemNumber: 'LUM-2X4', Quantity: 50 }],
       });
     });
@@ -676,21 +705,15 @@ describe('PurchaseOrders Component - Phase 2B', () => {
       fireEvent.click(poNumbers[0]);
     });
 
-    await waitFor(() => {
-      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
-        target: { value: 'CUST001' },
-      });
-      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
-        target: { value: '000' },
-      });
-    });
-
-    fireEvent.click(screen.getByText('ADI Generate Order'));
+    fireEvent.click(screen.getByRole('button', { name: 'Place order with ADI' }));
+    expect(generateAdiOrder).not.toHaveBeenCalled();
+    expect(screen.getByText('This sends a real order to ADI.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Send order to ADI' }));
 
     await waitFor(() => {
       expect(generateAdiOrder).toHaveBeenCalledWith({
-        customerNumber: 'CUST001',
-        customerSuffix: '000',
+        customerNumber: 'CUST-EXISTING',
+        customerSuffix: '111',
         poNumber: 'PO-2024-001',
         shipmentPickupIndicator: 'P',
         orderList: [{ ItemNumber: 'LUM-2X4', Quantity: 50, ItemPrice: 5.99 }],
@@ -706,25 +729,13 @@ describe('PurchaseOrders Component - Phase 2B', () => {
       fireEvent.click(poNumbers[0]);
     });
 
-    await waitFor(() => {
-      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
-        target: { value: 'CUST001' },
-      });
-      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
-        target: { value: '000' },
-      });
-      fireEvent.change(screen.getByLabelText(/ADI Order Number/i), {
-        target: { value: '1234567890' },
-      });
-    });
-
-    fireEvent.click(screen.getByText('ADI Order Inquiry'));
+    fireEvent.click(screen.getByRole('button', { name: 'Check status' }));
 
     await waitFor(() => {
       expect(inquireAdiOrder).toHaveBeenCalledWith({
-        customerNumber: 'CUST001',
-        customerSuffix: '000',
-        adiOrderNumber: '1234567890',
+        customerNumber: 'CUST-EXISTING',
+        customerSuffix: '111',
+        adiOrderNumber: '9999999999',
       });
     });
   });
@@ -738,9 +749,8 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/Customer Number/i)).toHaveValue('CUST-EXISTING');
-      expect(screen.getByLabelText(/Customer Suffix/i)).toHaveValue('111');
-      expect(screen.getByLabelText(/ADI Order Number/i)).toHaveValue('9999999999');
+      expect(screen.getByText('ADI account CUST-EXISTING-111')).toBeInTheDocument();
+      expect(screen.getByText('ADI order 9999999999')).toBeInTheDocument();
     });
   });
 
@@ -752,24 +762,16 @@ describe('PurchaseOrders Component - Phase 2B', () => {
       fireEvent.click(poNumbers[0]);
     });
 
-    await waitFor(() => {
-      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
-        target: { value: 'CUST001' },
-      });
-      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
-        target: { value: '000' },
-      });
-    });
-
-    fireEvent.click(screen.getByText('ADI Generate Order'));
+    fireEvent.click(screen.getByRole('button', { name: 'Place order with ADI' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send order to ADI' }));
 
     await waitFor(() => {
       expect(axios.put).toHaveBeenCalledWith(
         expect.stringContaining('po1'),
         expect.objectContaining({
           adiIntegration: expect.objectContaining({
-            customerNumber: 'CUST001',
-            customerSuffix: '000',
+            customerNumber: 'CUST-EXISTING',
+            customerSuffix: '111',
             adiOrderNumber: '1234567890',
           }),
         }),
@@ -786,21 +788,13 @@ describe('PurchaseOrders Component - Phase 2B', () => {
       fireEvent.click(poNumbers[0]);
     });
 
-    await waitFor(() => {
-      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
-        target: { value: 'CUST001' },
-      });
-      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
-        target: { value: '000' },
-      });
-    });
-
-    fireEvent.click(screen.getByText('ADI Generate Order'));
+    fireEvent.click(screen.getByRole('button', { name: 'Place order with ADI' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send order to ADI' }));
 
     await waitFor(() => {
       expect(inquireAdiOrder).toHaveBeenCalledWith({
-        customerNumber: 'CUST001',
-        customerSuffix: '000',
+        customerNumber: 'CUST-EXISTING',
+        customerSuffix: '111',
         adiOrderNumber: '1234567890',
       });
     });
@@ -814,16 +808,8 @@ describe('PurchaseOrders Component - Phase 2B', () => {
       fireEvent.click(poNumbers[0]);
     });
 
-    await waitFor(() => {
-      fireEvent.change(screen.getByLabelText(/Customer Number/i), {
-        target: { value: 'CUST001' },
-      });
-      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
-        target: { value: '000' },
-      });
-    });
-
-    fireEvent.click(screen.getByText('ADI Generate Order'));
+    fireEvent.click(screen.getByRole('button', { name: 'Place order with ADI' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send order to ADI' }));
 
     await waitFor(() => {
       expect(axios.put).toHaveBeenCalledWith(
@@ -847,8 +833,8 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Last ADI Inquiry Status:/i)).toBeInTheDocument();
-      expect(document.body.textContent).toMatch(/Last ADI Inquiry Status:\s*Open/i);
+      expect(screen.getByText(/ADI status:/i)).toBeInTheDocument();
+      expect(document.body.textContent).toMatch(/ADI status:\s*Open/i);
     });
   });
 
@@ -869,12 +855,13 @@ describe('PurchaseOrders Component - Phase 2B', () => {
       fireEvent.change(screen.getByLabelText(/Customer Number/i), {
         target: { value: 'CUST002' },
       });
-      fireEvent.change(screen.getByLabelText(/Customer Suffix/i), {
+      fireEvent.change(screen.getByLabelText(/Account suffix/i), {
         target: { value: '001' },
       });
     });
 
-    fireEvent.click(screen.getByText('ADI Generate Order'));
+    fireEvent.click(screen.getByRole('button', { name: 'Place order with ADI' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send order to ADI' }));
 
     await waitFor(() => {
       expect(inquireAdiOrder).not.toHaveBeenCalled();
@@ -956,6 +943,160 @@ describe('PurchaseOrders Component - Phase 2B', () => {
         expect.any(Object)
       );
     });
+  });
+
+  test('should write ADI prices onto purchase order lines', async () => {
+    fetchAdiPriceInventory.mockResolvedValueOnce({
+      ReturnCode: '00',
+      ItemList: [{
+        ItemNumber: 'LUM-2X4',
+        Quantity: 50,
+        ItemPrice: '4.50',
+        AllowedToBuy: 'Y',
+        NationalInventory: '25',
+        SaleStartDate: '01/01/2026',
+        SaleEndDate: '01/31/2026',
+        ReturnCode: '00',
+        ReturnMessage: '',
+      }],
+    });
+
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      fireEvent.click(screen.getAllByText('PO-2024-001')[0]);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update prices from ADI' }));
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('po1'),
+        expect.objectContaining({
+          items: [expect.objectContaining({ sku: 'LUM-2X4', unitPrice: 4.5, total: 225 })],
+          subtotal: 225,
+          total: 248.96,
+        }),
+        expect.any(Object)
+      );
+    });
+
+    const lines = screen.getByRole('table', { name: 'Line items' });
+    expect(within(lines).getAllByText('$4.50').length).toBeGreaterThan(0);
+    expect(within(lines).getByText('Yes')).toBeInTheDocument();
+    expect(within(lines).getByText('25')).toBeInTheDocument();
+    expect(within(lines).getByText('01/01/2026 – 01/31/2026')).toBeInTheDocument();
+  });
+
+  test('should send a drop-ship order when fulfillment is ship', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      fireEvent.click(screen.getAllByText('PO-2024-002')[0]);
+    });
+
+    fireEvent.change(screen.getByLabelText(/ADI customer number/i), { target: { value: 'CUST002' } });
+    fireEvent.change(screen.getByLabelText(/Account suffix/i), { target: { value: '001' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Place order with ADI' }));
+    fireEvent.change(screen.getByLabelText('Fulfillment'), { target: { value: 'S' } });
+    fireEvent.change(screen.getByLabelText('Drop shipment name'), { target: { value: 'Job Site' } });
+    fireEvent.change(screen.getByLabelText('Drop shipment address'), { target: { value: '1 Main' } });
+    fireEvent.change(screen.getByLabelText('Drop shipment city'), { target: { value: 'Austin' } });
+    fireEvent.change(screen.getByLabelText('Drop shipment state'), { target: { value: 'TX' } });
+    fireEvent.change(screen.getByLabelText('Drop shipment ZIP'), { target: { value: '78701' } });
+    fireEvent.click(screen.getByText('More options'));
+    fireEvent.change(screen.getByLabelText('Shipment carrier'), { target: { value: 'UPS' } });
+    fireEvent.change(screen.getByLabelText('Confirmation email'), { target: { value: 'jobs@example.com' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send order to ADI' }));
+
+    await waitFor(() => {
+      expect(generateAdiOrder).toHaveBeenCalledWith({
+        customerNumber: 'CUST002',
+        customerSuffix: '001',
+        poNumber: 'PO-2024-002',
+        shipmentPickupIndicator: 'S',
+        shipmentCarrier: 'UPS',
+        emailAddress: 'jobs@example.com',
+        dropShipmentName: 'Job Site',
+        dropShipmentAddress1: '1 Main',
+        dropShipmentCity: 'Austin',
+        dropShipmentStateProvince: 'TX',
+        dropShipmentZipcode: '78701',
+        orderList: [{ ItemNumber: 'HW-SCREW', Quantity: 10, ItemPrice: 12.99 }],
+      });
+    });
+  });
+
+  test('should block a ship order until the drop-ship address is complete', async () => {
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      fireEvent.click(screen.getAllByText('PO-2024-002')[0]);
+    });
+
+    fireEvent.change(screen.getByLabelText(/ADI customer number/i), { target: { value: 'CUST002' } });
+    fireEvent.change(screen.getByLabelText(/Account suffix/i), { target: { value: '001' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Place order with ADI' }));
+    fireEvent.change(screen.getByLabelText('Fulfillment'), { target: { value: 'S' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send order to ADI' }));
+
+    expect(generateAdiOrder).not.toHaveBeenCalled();
+    expect(global.alert).toHaveBeenCalledWith(
+      'dropShipmentName is required when shipmentPickupIndicator is S'
+    );
+  });
+
+  test('should show ADI shipment and cart tracking after inquiry', async () => {
+    inquireAdiOrder.mockResolvedValueOnce({
+      ReturnCode: '00',
+      ReturnMessage: 'Tracking loaded',
+      OrderStatus: 'Shipped',
+      OrderLineHead: {
+        OrderLineShipmentUnitHeadList: [{
+          TrackingNumber: '1Z999',
+          Carrier: 'UPS',
+          Status: 'In Transit',
+          ItemNumber: 'LUM-2X4',
+          Quantity: 50,
+        }],
+        CartShipUnitList: [{ CartNumber: 'CART1', Status: 'Packed' }],
+      },
+    });
+
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      fireEvent.click(screen.getAllByText('PO-2024-001')[0]);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check status' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('table', { name: 'ADI shipments' })).toBeInTheDocument();
+    });
+
+    const shipments = screen.getByRole('table', { name: 'ADI shipments' });
+    expect(within(shipments).getByText('1Z999')).toBeInTheDocument();
+    expect(within(shipments).getByText('UPS')).toBeInTheDocument();
+    expect(within(shipments).getByText('In Transit')).toBeInTheDocument();
+
+    const carts = screen.getByRole('table', { name: 'ADI cart units' });
+    expect(within(carts).getByText('CART1')).toBeInTheDocument();
+    expect(within(carts).getByText('Packed')).toBeInTheDocument();
+    expect(document.body.textContent).toMatch(/ADI status:\s*Shipped/i);
+
+    expect(axios.put).toHaveBeenCalledWith(
+      expect.stringContaining('po1'),
+      expect.objectContaining({
+        adiIntegration: expect.objectContaining({
+          lastInquiryStatus: 'Shipped',
+          shipments: [expect.objectContaining({ trackingNumber: '1Z999', carrier: 'UPS' })],
+          carts: [expect.objectContaining({ cartNumber: 'CART1', status: 'Packed' })],
+        }),
+      }),
+      expect.any(Object)
+    );
   });
 
   test('PODetailModal should not violate hook order on valid-to-invalid po rerender', async () => {

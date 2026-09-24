@@ -104,9 +104,29 @@ const validateRequest = ({
   validateOrderList(orderList);
 };
 
+const firstOrderNumber = (response) => {
+  const candidates = [
+    response.ADIOrderNumber,
+    response.AdiOrderNumber,
+    response.OrderNumber,
+    response.orderNumber,
+    response.OrderNo,
+    response.OrderID,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate !== undefined && candidate !== null && String(candidate).trim() !== '') {
+      return String(candidate).trim();
+    }
+  }
+
+  return '';
+};
+
 export const normalizeAdiOrderGenerationResponse = (response = {}) => ({
   ReturnCode: response.ReturnCode ?? '',
   ReturnMessage: response.ReturnMessage ?? '',
+  ADIOrderNumber: firstOrderNumber(response),
 });
 
 export const fetchAdiOrderGeneration = async ({

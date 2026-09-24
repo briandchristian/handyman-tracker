@@ -472,7 +472,11 @@ function SupplierModal({ supplier, onClose }) {
     leadTimeDays: supplier.supplier?.leadTimeDays || supplier.leadTimeDays || 0,
     minimumOrder: supplier.supplier?.minimumOrder || supplier.minimumOrder || 0,
     paymentTerms: supplier.supplier?.paymentTerms || supplier.paymentTerms || '',
-    notes: supplier.supplier?.notes || supplier.notes || ''
+    notes: supplier.supplier?.notes || supplier.notes || '',
+    adiAccount: {
+      customerNumber: supplier.supplier?.adiAccount?.customerNumber || supplier.adiAccount?.customerNumber || '',
+      customerSuffix: supplier.supplier?.adiAccount?.customerSuffix || supplier.adiAccount?.customerSuffix || '000',
+    },
   });
   const [activeTab, setActiveTab] = useState('details'); // 'details', 'catalog', 'orders'
 
@@ -620,6 +624,37 @@ function SupplierModal({ supplier, onClose }) {
                     value={formData.minimumOrder}
                     onChange={(e) => setFormData({ ...formData, minimumOrder: parseFloat(e.target.value) || 0 })}
                     className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="supplier-adi-customer-number" className="block text-sm font-medium text-black mb-1">ADI customer number</label>
+                  <input
+                    id="supplier-adi-customer-number"
+                    type="text"
+                    value={formData.adiAccount?.customerNumber || ''}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      adiAccount: { ...formData.adiAccount, customerNumber: e.target.value },
+                    })}
+                    className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                    placeholder="Saved on this supplier"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="supplier-adi-account-suffix" className="block text-sm font-medium text-black mb-1">Account suffix</label>
+                  <input
+                    id="supplier-adi-account-suffix"
+                    type="text"
+                    value={formData.adiAccount?.customerSuffix || ''}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      adiAccount: { ...formData.adiAccount, customerSuffix: e.target.value },
+                    })}
+                    className="w-full p-2 border border-gray-300 rounded text-black bg-white"
+                    placeholder="000"
                   />
                 </div>
               </div>

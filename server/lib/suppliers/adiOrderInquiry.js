@@ -25,12 +25,31 @@ const validateRequest = ({ customerNumber, customerSuffix, adiOrderNumber }) => 
   }
 };
 
+const firstStatus = (response) => {
+  const head = response.OrderLineHead || {};
+  const candidates = [
+    response.OrderStatus,
+    response.Status,
+    response.OrderState,
+    head.OrderStatus,
+    head.Status,
+    head.OrderState,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+
+  return '';
+};
+
 export const normalizeAdiOrderInquiryResponse = (response = {}) => ({
   CustomerNumber: response.CustomerNumber ?? '',
   CustomerSuffix: response.CustomerSuffix ?? '',
   ADIOrderNumber: response.ADIOrderNumber ?? '',
   ReturnCode: response.ReturnCode ?? '',
   ReturnMessage: response.ReturnMessage ?? '',
+  OrderStatus: firstStatus(response),
   OrderLineHead: {
     ...(response.OrderLineHead || {}),
     OrderLineShipmentUnitHeadList: Array.isArray(response.OrderLineHead?.OrderLineShipmentUnitHeadList)
