@@ -317,6 +317,25 @@ export function supplierPriceLookupAccount(supplier) {
   };
 }
 
+/** The first supplier whose account can look up an ADI price. */
+export function adiAccountFromSuppliers(suppliers = []) {
+  const list = Array.isArray(suppliers)
+    ? suppliers
+    : (Array.isArray(suppliers?.suppliers) ? suppliers.suppliers : []);
+  for (const supplier of list) {
+    const account = supplierPriceLookupAccount(supplier);
+    if (account) return account;
+  }
+  return null;
+}
+
+/** The supplier part number is what a price API looks up. A barcode SKU is the fallback. */
+export function supplierPartForPriceLookup(item) {
+  const part = text(item?.supplierPartNumber);
+  if (part) return adiItemNumberFromSku(part);
+  return adiItemNumberFromSku(item?.sku);
+}
+
 /**
  * A successful price update keeps the previous price, the new price,
  * the dollar and percent change, and the time of the update.
@@ -361,6 +380,17 @@ export function keepLatestPriceHistory(history = [], count) {
   return list.slice(0, limit);
 }
 
+/** Keep the saved price, and surface the reason the supplier update failed. */
+export function priceUpdateFailureMessage(err) {
+  const data = err?.response?.data || {};
+  const parts = [data.msg, data.message, data.details, data.error]
+    .map((part) => text(part))
+    .filter(Boolean);
+  const reason = [...new Set(parts)].join(' ');
+  if (reason) return `${reason} The saved price was not changed.`;
+  return 'Price update failed. The saved price was not changed.';
+}
+
 export function formatPriceChangeAmount(amount) {
   const value = roundMoney(amount);
   const body = Math.abs(value).toFixed(2);
@@ -396,6 +426,23 @@ export function inventoryUpdateFromAdiQuote(item, quote = {}) {
       returnMessage: text(quote.ReturnMessage),
       checkedAt: new Date().toISOString(),
     },
+  };
+}
+
+/**
+ * Apply an ADI price and stock quote to a bid worksheet line.
+ * A failed or zero quote keeps the saved estimate.
+ */
+export function bidWorksheetFromAdiQuote(line = {}, quote = {}) {
+  const update = inventoryUpdateFromAdiQuote(
+    { sku: line.sku, description: line.item, lastPrice: line.estimate },
+    quote
+  );
+  const priced = Boolean(update.adiQuote.itemPrice);
+  return {
+    sku: update.adiQuote.itemNumber || adiItemNumberFromSku(line.sku),
+    estimate: priced ? Number(update.adiQuote.itemPrice) : Math.max(0, Number(line.estimate) || 0),
+    adiQuote: update.adiQuote,
   };
 }
 

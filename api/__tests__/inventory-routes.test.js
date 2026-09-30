@@ -192,6 +192,30 @@ describe('PUT /api/inventory/:id', () => {
     expect(res.body.currentStock).toBe(5);
   });
 
+  test('saves a supplier part number when the barcode SKU is blank', async () => {
+    const created = await request(app)
+      .post('/api/inventory')
+      .set(auth())
+      .send({ name: 'Glassbreak', currentStock: 0 });
+
+    const res = await request(app)
+      .put(`/api/inventory/${created.body._id}`)
+      .set(auth())
+      .send({
+        name: 'Glassbreak',
+        sku: '',
+        supplierPartNumber: 'Q9-IQRPG',
+        currentStock: 0,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.supplierPartNumber).toBe('Q9-IQRPG');
+
+    const stored = await mongoose.model('InventoryItem').findById(created.body._id).lean();
+    expect(stored.supplierPartNumber).toBe('Q9-IQRPG');
+    expect(stored.sku).toBeUndefined();
+  });
+
   test('rejects a duplicate SKU on update', async () => {
     await request(app).post('/api/inventory').set(auth()).send({ name: 'A', sku: 'KEEP' });
     const other = await request(app)
@@ -205,6 +229,30 @@ describe('PUT /api/inventory/:id', () => {
       .send({ name: 'B', sku: 'KEEP' });
 
     expect(res.status).toBe(409);
+  });
+
+  test('merges a barcode row and a supplier-part row into one item', async () => {
+    const barcode = await request(app)
+      .post('/api/inventory')
+      .set(auth())
+      .send({ name: 'Glassbreak', sku: '012345678905', currentStock: 2, lastPrice: 40 });
+    const part = await request(app)
+      .post('/api/inventory')
+      .set(auth())
+      .send({ name: 'Sensor', supplierPartNumber: 'Q9-IQRPG', currentStock: 1 });
+
+    const res = await request(app)
+      .post('/api/inventory/merge')
+      .set(auth())
+      .send({ keeperId: barcode.body._id, removeId: part.body._id });
+
+    expect(res.status).toBe(200);
+    expect(res.body.sku).toBe('012345678905');
+    expect(res.body.supplierPartNumber).toBe('Q9-IQRPG');
+    expect(res.body.currentStock).toBe(3);
+
+    const gone = await request(app).get('/api/inventory').set(auth());
+    expect(gone.body.map((item) => item.name)).toEqual(['Glassbreak']);
   });
 });
 

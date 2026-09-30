@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
@@ -16,6 +16,17 @@ import { COST_CENTERS } from '../constants/costCenters';
 import { JOB_LABOR_WORK_TYPES, LABOR_WORK_TYPES } from '../constants/laborWorkTypes';
 import { PROJECT_WORK_TYPES, DEFAULT_PROJECT_WORK_TYPE, normalizeProjectWorkType } from '../constants/projectWorkTypes';
 import { getLastIssuedBidQuoteNumber, getNextBidQuoteNumber } from '../utils/bidQuoteSequence';
+import { moveBidMaterial } from '../utils/bidMaterialsOrder';
+import { bidPartLinkTone, inventoryPartKeySet } from '../utils/inventoryFromBid';
+import { fetchAdiPriceInventory } from '../services/adiSupplierApi';
+import {
+  adiAccountFromSuppliers,
+  adiAllowedLabel,
+  adiItemNumberFromSku,
+  bidWorksheetFromAdiQuote,
+  plainAdiItemMessage,
+  priceUpdateFailureMessage,
+} from '../utils/adiIntegration';
 import { jobQuotedAmount, bidWorksheetTotal } from '../../server/lib/accountingSummary.js';
 import { formatCustomerLabel, formatJobLabel, jobLinesToDate } from '../constants/jobIdentity';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
@@ -146,7 +157,15 @@ export default function ProjectDetails() {
   const [paidToDateAmount, setPaidToDateAmount] = useState('');
   const [scheduleDate, setScheduleDate] = useState('');
   const [newMaterial, setNewMaterial] = useState({ item: '', quantity: 0, cost: 0, markup: 0 });
-  const [newBidMaterial, setNewBidMaterial] = useState({ item: '', quantity: '', estimate: '' });
+  const [newBidMaterial, setNewBidMaterial] = useState({ item: '', quantity: '', estimate: '', sku: '' });
+  const [editingBidMaterialId, setEditingBidMaterialId] = useState(null);
+  const [editBidMaterial, setEditBidMaterial] = useState({ item: '', quantity: '', estimate: '', sku: '' });
+  const [draggingBidId, setDraggingBidId] = useState(null);
+  const [adiPriceAccount, setAdiPriceAccount] = useState(null);
+  const [checkingBidId, setCheckingBidId] = useState(null);
+  const [inventoryPartKeys, setInventoryPartKeys] = useState(() => new Set());
+  const [alreadyExistedParts, setAlreadyExistedParts] = useState(() => new Set());
+  const bidTouchDrag = useRef(null);
   const [catalogItems, setCatalogItems] = useState([]);
   const [selectedCatalogItem, setSelectedCatalogItem] = useState('');
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -198,9 +217,10 @@ export default function ProjectDetails() {
     notes: '',
   });
 
-  const fetchProject = useCallback(async () => {
+  const fetchProject = useCallback(async (options = {}) => {
+    const silent = options.silent === true;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       const token = localStorage.getItem('token');
       if (!token) {
@@ -242,12 +262,16 @@ export default function ProjectDetails() {
         setProject(proj);
         setCustomer({ name: cust.name, phone: cust.phone || '', address: cust.address || '' });
         const headers = { Authorization: `Bearer ${token}` };
-        const [expRes, laborRes] = await Promise.all([
+        const [expRes, laborRes, supplierRes, inventoryRes] = await Promise.all([
           axios.get(`${API_BASE_URL}/api/expenses?customerId=${customerId}&projectId=${projectId}`, { headers }).catch(() => ({ data: [] })),
           axios.get(`${API_BASE_URL}/api/labor-entries?customerId=${customerId}&projectId=${projectId}`, { headers }).catch(() => ({ data: [] })),
+          axios.get(`${API_BASE_URL}/api/suppliers`, { headers }).catch(() => ({ data: [] })),
+          axios.get(`${API_BASE_URL}/api/inventory`, { headers }).catch(() => ({ data: [] })),
         ]);
         setJobExpenses(Array.isArray(expRes.data) ? expRes.data : []);
         setJobLabor(Array.isArray(laborRes.data) ? laborRes.data : []);
+        setAdiPriceAccount(adiAccountFromSuppliers(supplierRes.data));
+        setInventoryPartKeys(inventoryPartKeySet(Array.isArray(inventoryRes.data) ? inventoryRes.data : []));
       }
     } catch (err) {
       console.error('Error fetching project:', err);
@@ -269,7 +293,7 @@ export default function ProjectDetails() {
         setError(err.response?.data?.msg || err.response?.data?.error || 'Failed to load project. Please check the console for details.');
       }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [customerId, projectId]);
 
@@ -426,10 +450,11 @@ export default function ProjectDetails() {
           item: newBidMaterial.item,
           quantity: parseFloat(newBidMaterial.quantity),
           estimate: parseFloat(newBidMaterial.estimate || 0),
+          ...(newBidMaterial.sku.trim() ? { sku: newBidMaterial.sku.trim() } : {}),
         },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
-      setNewBidMaterial({ item: '', quantity: '', estimate: '' });
+      setNewBidMaterial({ item: '', quantity: '', estimate: '', sku: '' });
       fetchProject();
     } catch (err) {
       console.error('Error adding bid worksheet line:', err);
@@ -444,11 +469,143 @@ export default function ProjectDetails() {
         `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/bid-materials/${bidMaterialId}`,
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
+      if (editingBidMaterialId === bidMaterialId) cancelEditBidMaterial();
       fetchProject();
     } catch (err) {
       console.error('Error deleting bid worksheet line:', err);
       alert('Failed to delete bid worksheet line: ' + (err.response?.data?.msg || err.message));
     }
+  };
+
+  const startEditBidMaterial = (line) => {
+    setEditingBidMaterialId(line._id);
+    setEditBidMaterial({
+      item: line.item || '',
+      quantity: String(line.quantity ?? ''),
+      estimate: line.estimate == null ? '' : String(line.estimate),
+      sku: line.sku || '',
+    });
+  };
+
+  const cancelEditBidMaterial = () => {
+    setEditingBidMaterialId(null);
+    setEditBidMaterial({ item: '', quantity: '', estimate: '', sku: '' });
+  };
+
+  const saveBidMaterial = async (bidMaterialId, overrides = null) => {
+    const draft = overrides || editBidMaterial;
+    const item = String(draft.item || '').trim();
+    const quantity = parseFloat(draft.quantity);
+    const estimate = parseFloat(draft.estimate || 0);
+    const sku = String(draft.sku || '').trim();
+    if (!item || !Number.isFinite(quantity) || quantity <= 0) {
+      alert('Please enter a worksheet item and quantity');
+      return;
+    }
+    try {
+      await axios.put(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/bid-materials/${bidMaterialId}`,
+        {
+          item,
+          quantity,
+          estimate: Number.isFinite(estimate) && estimate >= 0 ? estimate : 0,
+          sku,
+          ...(draft.adiQuote ? { adiQuote: draft.adiQuote } : {}),
+        },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      cancelEditBidMaterial();
+      fetchProject();
+    } catch (err) {
+      console.error('Error updating bid worksheet line:', err);
+      alert('Failed to update bid worksheet line: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const checkBidMaterialPrice = async (line) => {
+    const itemNumber = adiItemNumberFromSku(line?.sku);
+    if (!itemNumber) {
+      alert('Add an ADI part number before checking price.');
+      return;
+    }
+    if (!adiPriceAccount) {
+      alert('This supplier is not setup for price check');
+      return;
+    }
+    const quantity = Number(line.quantity) > 0 ? Number(line.quantity) : 1;
+    try {
+      setCheckingBidId(line._id);
+      const response = await fetchAdiPriceInventory({
+        customerNumber: adiPriceAccount.customerNumber,
+        customerSuffix: adiPriceAccount.customerSuffix,
+        itemList: [{ ItemNumber: itemNumber, Quantity: quantity }],
+      });
+      const quote = Array.isArray(response?.ItemList) ? response.ItemList[0] || {} : {};
+      const update = bidWorksheetFromAdiQuote(
+        { item: line.item, sku: line.sku, estimate: line.estimate },
+        quote
+      );
+      await axios.put(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/bid-materials/${line._id}`,
+        {
+          item: line.item,
+          quantity,
+          estimate: update.estimate,
+          sku: update.sku,
+          adiQuote: update.adiQuote,
+        },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      fetchProject();
+    } catch (err) {
+      console.error('Error checking bid worksheet price:', err);
+      alert(priceUpdateFailureMessage(err));
+    } finally {
+      setCheckingBidId(null);
+    }
+  };
+
+  const reorderBidWorksheet = async (fromId, toId) => {
+    const current = project?.bidMaterials || [];
+    const next = moveBidMaterial(current, fromId, toId);
+    if (next === current) return;
+    setProject({ ...project, bidMaterials: next });
+    try {
+      await axios.post(
+        `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/bid-materials/reorder`,
+        { orderedIds: next.map((line) => line._id) },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      fetchProject({ silent: true });
+    } catch (err) {
+      console.error('Error reordering bid worksheet:', err);
+      alert('Failed to reorder bid worksheet: ' + (err.response?.data?.msg || err.message));
+      fetchProject({ silent: true });
+    }
+  };
+
+  const onBidTouchPointerDown = (event, lineId) => {
+    if (event.pointerType !== 'touch' || editingBidMaterialId) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    bidTouchDrag.current = { id: String(lineId), pointerId: event.pointerId, overId: null };
+    setDraggingBidId(lineId);
+  };
+
+  const onBidTouchPointerMove = (event) => {
+    const drag = bidTouchDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const el = document.elementFromPoint(event.clientX, event.clientY);
+    const row = el && typeof el.closest === 'function' ? el.closest('[data-bid-line-id]') : null;
+    drag.overId = row ? row.getAttribute('data-bid-line-id') : null;
+  };
+
+  const onBidTouchPointerUp = (event) => {
+    const drag = bidTouchDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    bidTouchDrag.current = null;
+    setDraggingBidId(null);
+    if (drag.overId) reorderBidWorksheet(drag.id, drag.overId);
   };
 
   const copyBidWorksheetToJob = async () => {
@@ -465,6 +622,64 @@ export default function ProjectDetails() {
     } catch (err) {
       console.error('Error copying bid worksheet:', err);
       alert('Failed to copy bid worksheet: ' + (err.response?.data?.msg || err.message));
+    }
+  };
+
+  const rememberInventoryParts = (parts, alreadyExisted) => {
+    const tokens = (parts || [])
+      .map((part) => String(adiItemNumberFromSku(part) || '').trim().toLowerCase())
+      .filter(Boolean);
+    if (!tokens.length) return;
+    setInventoryPartKeys((prev) => {
+      const next = new Set(prev);
+      tokens.forEach((token) => next.add(token));
+      return next;
+    });
+    setAlreadyExistedParts((prev) => {
+      const next = new Set(prev);
+      tokens.forEach((token) => {
+        if (alreadyExisted) next.add(token);
+        else next.delete(token);
+      });
+      return next;
+    });
+  };
+
+  const sendBidLinesToInventory = async (lineIds) => {
+    const payloadFor = (overwrite) => ({
+      ...(lineIds ? { lineIds } : {}),
+      ...(overwrite ? { overwrite: true } : {}),
+    });
+    const postInventory = (overwrite) => axios.post(
+      `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/bid-materials/send-to-inventory`,
+      payloadFor(overwrite),
+      { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+    );
+    const report = (res) => {
+      rememberInventoryParts(res.data?.createdParts, false);
+      rememberInventoryParts(res.data?.updatedParts, true);
+      const createdCount = Number(res.data?.createdCount) || 0;
+      const updatedCount = Number(res.data?.updatedCount) || 0;
+      alert(`Added ${createdCount} item${createdCount === 1 ? '' : 's'} to inventory at zero quantity. Updated ${updatedCount} existing item${updatedCount === 1 ? '' : 's'}.`);
+    };
+    try {
+      report(await postInventory(false));
+    } catch (err) {
+      if (err.response?.status === 409) {
+        rememberInventoryParts((err.response?.data?.conflicts || []).map((conflict) => conflict.partNumber), true);
+        const message = err.response?.data?.msg || 'A part number already exists in inventory. Overwrite it, or cancel.';
+        if (!window.confirm(message)) return;
+        try {
+          report(await postInventory(true));
+          return;
+        } catch (overwriteErr) {
+          console.error('Error overwriting inventory from bid worksheet:', overwriteErr);
+          alert('Failed to send worksheet to inventory: ' + (overwriteErr.response?.data?.msg || overwriteErr.message));
+          return;
+        }
+      }
+      console.error('Error sending bid worksheet to inventory:', err);
+      alert('Failed to send worksheet to inventory: ' + (err.response?.data?.msg || err.message));
     }
   };
 
@@ -975,7 +1190,10 @@ export default function ProjectDetails() {
       y += rowH;
     } else {
       materials.forEach((mat, idx) => {
-        const descText = mat.item || 'Material';
+        const partNumber = adiItemNumberFromSku(mat.sku);
+        const descText = partNumber
+          ? `${mat.item || 'Material'} · ${partNumber}`
+          : (mat.item || 'Material');
         const descLines = doc.splitTextToSize(descText, descColW - 4);
         const rowH = Math.max(rowPadY * 2 + (descLines.length * lineH), rowPadY * 2 + lineH);
         if (y + rowH > pageHeight - bottomMargin) {
@@ -1805,34 +2023,35 @@ export default function ProjectDetails() {
       <h2 className="text-lg sm:text-xl mt-6 text-black">Bid worksheet</h2>
       <p className="text-sm text-slate-600 mt-1 mb-2">
         Equipment you proposed on the quote. This does not affect Job Profit. Bid Amount is still the customer quote.
+        Drag a line to change its order. Add an ADI part number to check price and stock. Checking does not place an order.
       </p>
 
       <div data-testid="quote-document-controls" className="mt-2 mb-3 flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={() => generateBidPdf({ incrementQuote: true })}
-          className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm font-medium"
+          className="btn-row btn-row-primary"
         >
           Generate Bid
         </button>
         <button
           type="button"
           onClick={() => generateBidPdf({ incrementQuote: false })}
-          className="bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm font-medium"
+          className="btn-row btn-row-secondary"
         >
           Regenerate Bid
         </button>
         <button
           type="button"
           onClick={generateInvoicePdf}
-          className="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 text-sm font-medium"
+          className="btn-row btn-row-staff"
         >
           Generate Invoice
         </button>
         <button
           type="button"
           onClick={copyBidWorksheetToJob}
-          className="bg-slate-800 text-white px-3 py-1 rounded hover:bg-slate-900 text-sm font-medium"
+          className="btn-row btn-row-secondary"
           disabled={!(project.bidMaterials && project.bidMaterials.length)}
         >
           Copy bid worksheet to materials used
@@ -1851,21 +2070,176 @@ export default function ProjectDetails() {
         {(project.bidMaterials || []).length > 0 ? (
           <>
             {(project.bidMaterials || []).map((line) => (
-              <div key={line._id} className="bg-white border border-gray-300 rounded-lg p-3 min-w-0 flex flex-wrap justify-between gap-2">
-                <div>
-                  <p className="font-medium text-black">{line.item}</p>
-                  <p className="text-sm text-gray-600">
-                    Qty {line.quantity || 0}
-                    {line.estimate != null ? ` · Estimate $${Number(line.estimate).toFixed(2)}` : ''}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => deleteBidMaterial(line._id)}
-                  className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
-                >
-                  Delete
-                </button>
+              <div
+                key={line._id}
+                data-testid={`bid-worksheet-line-${line._id}`}
+                data-bid-line-id={line._id}
+                draggable={editingBidMaterialId !== line._id}
+                onDragStart={(e) => {
+                  if (editingBidMaterialId || (e.target.closest && e.target.closest('button, input, label'))) {
+                    e.preventDefault();
+                    return;
+                  }
+                  if (e.dataTransfer) {
+                    e.dataTransfer.setData('text/plain', String(line._id));
+                    e.dataTransfer.effectAllowed = 'move';
+                  }
+                  setDraggingBidId(line._id);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const fromId = (e.dataTransfer && e.dataTransfer.getData('text/plain')) || draggingBidId;
+                  setDraggingBidId(null);
+                  if (fromId) reorderBidWorksheet(fromId, line._id);
+                }}
+                onDragEnd={() => setDraggingBidId(null)}
+                className={`bg-white border rounded-lg p-3 min-w-0 ${draggingBidId === line._id ? 'opacity-60 border-blue-400' : 'border-gray-300'}`}
+              >
+                {editingBidMaterialId === line._id ? (
+                  <div className="space-y-2">
+                    <input
+                      aria-label="Edit worksheet item"
+                      value={editBidMaterial.item}
+                      onChange={(e) => setEditBidMaterial({ ...editBidMaterial, item: e.target.value })}
+                      className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        aria-label="Edit worksheet quantity"
+                        value={editBidMaterial.quantity}
+                        onChange={(e) => setEditBidMaterial({ ...editBidMaterial, quantity: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        aria-label="Edit worksheet estimate"
+                        value={editBidMaterial.estimate}
+                        onChange={(e) => setEditBidMaterial({ ...editBidMaterial, estimate: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                    </div>
+                    <input
+                      aria-label="Edit ADI part number"
+                      placeholder="ADI part number"
+                      value={editBidMaterial.sku}
+                      onChange={(e) => setEditBidMaterial({ ...editBidMaterial, sku: e.target.value })}
+                      className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => saveBidMaterial(line._id)}
+                        className="btn-row btn-row-primary"
+                      >
+                        Save worksheet line
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditBidMaterial}
+                        className="btn-row btn-row-secondary"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteBidMaterial(line._id)}
+                        className="btn-row btn-row-danger"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div data-testid="bid-line-row" className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2 min-w-0 flex-1">
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Reorder ${line.item}`}
+                        className="shrink-0 cursor-grab touch-none select-none px-1 text-lg leading-none text-slate-500"
+                        onPointerDown={(e) => onBidTouchPointerDown(e, line._id)}
+                        onPointerMove={onBidTouchPointerMove}
+                        onPointerUp={onBidTouchPointerUp}
+                        onPointerCancel={onBidTouchPointerUp}
+                      >
+                        ⋮⋮
+                      </span>
+                      <div data-testid="bid-line-text" className="min-w-0 break-words">
+                        <p className="font-medium text-black break-words">{line.item}</p>
+                        {line.sku ? (
+                          <p className="text-sm text-gray-600">
+                            ADI part{' '}
+                            {bidPartLinkTone(line.sku, inventoryPartKeys, alreadyExistedParts) ? (
+                              <Link
+                                to={`/inventory?search=${encodeURIComponent(adiItemNumberFromSku(line.sku))}`}
+                                className={bidPartLinkTone(line.sku, inventoryPartKeys, alreadyExistedParts) === 'green'
+                                  ? 'text-green-700 underline font-medium'
+                                  : 'text-blue-700 underline font-medium'}
+                              >
+                                {adiItemNumberFromSku(line.sku)}
+                              </Link>
+                            ) : (
+                              adiItemNumberFromSku(line.sku)
+                            )}
+                          </p>
+                        ) : null}
+                        <p className="text-sm text-gray-600">
+                          Qty {line.quantity || 0}
+                          {line.estimate != null ? ` · Estimate $${Number(line.estimate).toFixed(2)}` : ''}
+                        </p>
+                        {line.adiQuote ? (
+                          <p className="text-sm text-gray-600">
+                            {`ADI stock ${line.adiQuote.nationalInventory || '—'}`}
+                            {` · Can buy ${adiAllowedLabel(line.adiQuote.allowedToBuy) || '—'}`}
+                            {plainAdiItemMessage(line.adiQuote.returnMessage, line.adiQuote.itemNumber || line.sku)
+                              ? ` · ${plainAdiItemMessage(line.adiQuote.returnMessage, line.adiQuote.itemNumber || line.sku)}`
+                              : ''}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div data-testid="bid-line-actions" className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => startEditBidMaterial(line)}
+                        className="btn-row btn-row-secondary"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => checkBidMaterialPrice(line)}
+                        disabled={checkingBidId === line._id}
+                        className="btn-row btn-row-accent"
+                      >
+                        {checkingBidId === line._id ? 'Checking...' : 'Check price'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sendBidLinesToInventory([line._id])}
+                        className="btn-row btn-row-staff"
+                      >
+                        Send to Inventory
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteBidMaterial(line._id)}
+                        className="btn-row btn-row-danger"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
             <p className="font-semibold text-black">
@@ -1912,10 +2286,29 @@ export default function ProjectDetails() {
               className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
             />
           </AlignedFormField>
+          <AlignedFormField label="ADI part number" htmlFor="bid-worksheet-sku" className="col-span-12 md:col-span-6">
+            <input
+              id="bid-worksheet-sku"
+              value={newBidMaterial.sku}
+              onChange={(e) => setNewBidMaterial({ ...newBidMaterial, sku: e.target.value })}
+              placeholder="3W-MX922"
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            />
+          </AlignedFormField>
         </AlignedFormGrid>
-        <button type="button" onClick={addBidMaterial} className="mt-3 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-          Add to bid worksheet
-        </button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={addBidMaterial} className="btn-row btn-row-primary">
+            Add to bid worksheet
+          </button>
+          <button
+            type="button"
+            onClick={() => sendBidLinesToInventory()}
+            className="btn-row btn-row-staff"
+            disabled={!(project.bidMaterials && project.bidMaterials.length)}
+          >
+            Send worksheet to inventory
+          </button>
+        </div>
       </div>
 
       <section data-testid="job-lines" className="mt-6">
@@ -1997,21 +2390,21 @@ export default function ProjectDetails() {
                       <button
                         type="button"
                         onClick={() => updateMaterial(mat._id)}
-                        className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
+                        className="btn-row btn-row-primary"
                       >
                         Save
                       </button>
                       <button
                         type="button"
                         onClick={cancelEditMaterial}
-                        className="bg-gray-200 text-black px-3 py-1 rounded hover:bg-gray-300"
+                        className="btn-row btn-row-secondary"
                       >
                         Cancel
                       </button>
                       <button
                         type="button"
                         onClick={() => deleteMaterial(mat._id)}
-                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
+                        className="btn-row btn-row-danger"
                       >
                         Delete
                       </button>
@@ -2056,21 +2449,21 @@ export default function ProjectDetails() {
                       <button
                         type="button"
                         onClick={() => startEditMaterial(mat)}
-                        className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
+                        className="btn-row btn-row-secondary"
                       >
                         Edit
                       </button>
                       <button
                         type="button"
                         onClick={() => toggleMaterialTaxable(mat)}
-                        className="bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600 text-sm"
+                        className="btn-row btn-row-accent"
                       >
                         {mat.taxable === false ? 'Add to Taxable' : 'Remove from Taxable'}
                       </button>
                       <button
                         type="button"
                         onClick={() => deleteMaterial(mat._id)}
-                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                        className="btn-row btn-row-danger"
                       >
                         Delete
                       </button>

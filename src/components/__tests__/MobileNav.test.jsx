@@ -77,6 +77,7 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
       expect(screen.getByText('Customers')).toBeInTheDocument();
       expect(screen.getByText('Inventory')).toBeInTheDocument();
       expect(screen.getByText('Suppliers')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Part price/ })).toHaveAttribute('href', '/inventory#adi-price');
       expect(screen.getByText('Purchase Orders')).toBeInTheDocument();
       expect(screen.getByText('Accounting')).toBeInTheDocument();
       expect(screen.getByText('Subcontractor')).toBeInTheDocument();

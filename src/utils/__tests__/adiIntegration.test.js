@@ -17,10 +17,13 @@ import {
   deriveAdiInquiryStatus,
   extractAdiOrderNumber,
   findAdiAccount,
+  adiAccountFromSuppliers,
+  bidWorksheetFromAdiQuote,
   buildAdiInventoryLookups,
   inventoryUpdateFromAdiQuote,
   isAdiInventoryItem,
   supplierPriceLookupAccount,
+  supplierPartForPriceLookup,
   appendPriceHistory,
   formatPriceChangeAmount,
   formatPriceChangePercent,
@@ -28,6 +31,7 @@ import {
   priceChangeForUpdate,
   priceChangeRecord,
   removePriceHistoryAt,
+  priceUpdateFailureMessage,
   validateAdiGenerateOrder,
 } from '../adiIntegration';
 
@@ -397,5 +401,67 @@ describe('adiIntegration', () => {
       Array.from({ length: 12 }, (_, index) => ({ ...history[0], updatedAt: `2026-09-${String(index + 1).padStart(2, '0')}T00:00:00.000Z` })),
       10
     )).toHaveLength(10);
+  });
+
+  test('shows the server reason when a supplier price update fails', () => {
+    expect(priceUpdateFailureMessage({
+      response: { data: { msg: 'ADI API credentials are not configured.' } },
+    })).toBe('ADI API credentials are not configured. The saved price was not changed.');
+
+    expect(priceUpdateFailureMessage({
+      response: { data: { msg: 'ADI request failed.', details: 'timeout of 10000ms exceeded' } },
+    })).toBe('ADI request failed. timeout of 10000ms exceeded The saved price was not changed.');
+
+    expect(priceUpdateFailureMessage(new Error('Network Error'))).toBe(
+      'Price update failed. The saved price was not changed.'
+    );
+  });
+
+  test('applies an ADI price and stock quote to a bid worksheet line', () => {
+    const line = { item: 'Camera', sku: 'MX922 | 3W-MX922', quantity: 4, estimate: 30.99 };
+    const quoted = bidWorksheetFromAdiQuote(line, {
+      ItemNumber: '3W-MX922',
+      ItemPrice: '28.00',
+      AllowedToBuy: 'Y',
+      NationalInventory: '12',
+    });
+
+    expect(quoted.sku).toBe('3W-MX922');
+    expect(quoted.estimate).toBe(28);
+    expect(quoted.adiQuote).toEqual(expect.objectContaining({
+      itemNumber: '3W-MX922',
+      itemPrice: '28.00',
+      allowedToBuy: 'Y',
+      nationalInventory: '12',
+    }));
+  });
+
+  test('keeps the worksheet estimate when ADI does not return a price', () => {
+    const line = { item: 'Camera', sku: 'MX922 | 3W-MX922', estimate: 30.99 };
+    const quoted = bidWorksheetFromAdiQuote(line, {
+      ItemNumber: '3W-MX922',
+      ItemPrice: '0',
+      ReturnMessage: 'Item "MX922 | 3W-MX922" does not exist in dimension',
+    });
+
+    expect(quoted.estimate).toBe(30.99);
+    expect(quoted.adiQuote.itemPrice).toBe('');
+    expect(quoted.adiQuote.itemNumber).toBe('3W-MX922');
+  });
+
+  test('uses the supplier account that can look up ADI prices', () => {
+    expect(adiAccountFromSuppliers([
+      { name: 'Home Depot' },
+      { name: 'ADI', adiAccount: { customerNumber: '451278', customerSuffix: '' } },
+    ])).toEqual({ customerNumber: '451278', customerSuffix: '000' });
+    expect(adiAccountFromSuppliers([{ name: 'Lowe\'s' }])).toBeNull();
+  });
+
+  test('prices from the supplier part number before the barcode sku', () => {
+    expect(supplierPartForPriceLookup({
+      sku: 'BARCODE-1',
+      supplierPartNumber: 'MX922 | Q9-IQRPG',
+    })).toBe('Q9-IQRPG');
+    expect(supplierPartForPriceLookup({ sku: 'MX922 | 3W-MX922' })).toBe('3W-MX922');
   });
 });

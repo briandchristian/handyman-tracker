@@ -4,7 +4,6 @@ import axios from 'axios';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
 import CameraCapture from './CameraCapture';
-import AdiPartPriceCheck from './AdiPartPriceCheck';
 import {
   fetchAdiPriceInventory,
   generateAdiOrder,
@@ -147,8 +146,7 @@ export default function PurchaseOrders() {
           </div>
         </div>
         <h1 className="text-2xl md:text-3xl font-bold text-black">Purchase Orders</h1>
-        <p className="text-gray-600 mt-2">Check a part price, or manage purchase orders</p>
-        <AdiPartPriceCheck purchaseOrders={pos} />
+        <p className="text-gray-600 mt-2">Manage purchase orders</p>
         <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-black">
           Create new purchase orders from `Suppliers` using the Quick Reorder panel, or start from `Inventory` to add stock-managed items.
         </div>

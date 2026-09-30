@@ -11,7 +11,7 @@ export default function MobileNav() {
     { name: 'Installation History', path: '/installation-history', icon: '📜' },
     { name: 'Inventory', path: '/inventory', icon: '📦' },
     { name: 'Suppliers', path: '/suppliers', icon: '🏪' },
-    { name: 'Part price', path: '/purchase-orders#adi-price', icon: '💲' },
+    { name: 'Part price', path: '/inventory#adi-price', icon: '💲' },
     { name: 'Purchase Orders', path: '/purchase-orders', icon: '📋' },
     { name: 'Accounting', path: '/accounting', icon: '💵' },
     { name: 'Subcontractor', path: '/subcontractor', icon: '🛠️' },

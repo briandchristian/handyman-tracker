@@ -101,7 +101,7 @@ export default function Dashboard() {
           <Link to="/inventory" className="btn-staff text-sm">
             Inventory
           </Link>
-          <Link to="/purchase-orders#adi-price" className="btn-staff text-sm">
+          <Link to="/inventory#adi-price" className="btn-staff text-sm">
             Part price
           </Link>
           <Link to="/purchase-orders" className="btn-staff text-sm">

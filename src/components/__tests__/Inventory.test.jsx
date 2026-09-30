@@ -344,6 +344,63 @@ describe('Inventory Component - Phase 2C', () => {
     });
   });
 
+  test('shows Check a part price above search and looks up a part without ordering', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/suppliers')) {
+        return Promise.resolve({
+          data: {
+            suppliers: [
+              { _id: 'sup-adi', name: 'ADI', adiAccount: { customerNumber: '451278', customerSuffix: '000' } },
+            ],
+          },
+        });
+      }
+      if (String(url).includes('/customers')) return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: mockInventoryData });
+    });
+    axios.post.mockImplementation((url) => {
+      if (String(url).includes('/price-inventory')) {
+        return Promise.resolve({
+          data: {
+            ItemList: [{
+              ItemNumber: '3W-MX922',
+              ItemPrice: '28.00',
+              AllowedToBuy: 'Y',
+              NationalInventory: '12',
+            }],
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    const priceCheck = await screen.findByRole('region', { name: 'Check a part price' });
+    const search = screen.getByLabelText('Search');
+    expect(priceCheck.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.change(within(priceCheck).getByLabelText('Part number'), { target: { value: 'MX922 | 3W-MX922' } });
+    fireEvent.click(within(priceCheck).getByRole('button', { name: 'Check price' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/suppliers/adi/price-inventory'),
+        expect.objectContaining({
+          customerNumber: '451278',
+          customerSuffix: '000',
+          itemList: [{ ItemNumber: '3W-MX922', Quantity: 1 }],
+        }),
+        expect.any(Object)
+      );
+    });
+    expect(axios.post).not.toHaveBeenCalledWith(
+      expect.stringContaining('/order-generation'),
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
   test('should search inventory by name or SKU', async () => {
     render(<BrowserRouter><Inventory /></BrowserRouter>);
     
@@ -822,6 +879,101 @@ describe('Inventory Component - Phase 2C', () => {
     expect(screen.getByText('-9.65%')).toBeInTheDocument();
   });
 
+  test('shows Update price for a worksheet part when no preferred supplier is saved', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/suppliers')) {
+        return Promise.resolve({
+          data: {
+            suppliers: [
+              { _id: 'sup-adi', name: 'ADI', adiAccount: { customerNumber: '451278', customerSuffix: '000' } },
+            ],
+          },
+        });
+      }
+      if (String(url).includes('/customers')) return Promise.resolve({ data: [] });
+      return Promise.resolve({
+        data: [{
+          _id: 'from-bid',
+          name: 'Glassbreak',
+          sku: '',
+          supplierPartNumber: 'Q9-IQRPG',
+          currentStock: 0,
+          unit: 'each',
+          parLevel: 0,
+          lastPrice: 40,
+          preferredSupplier: null,
+        }],
+      });
+    });
+    axios.post.mockImplementation((url) => {
+      if (String(url).includes('/price-inventory')) {
+        return Promise.resolve({
+          data: {
+            ItemList: [{
+              ItemNumber: 'Q9-IQRPG',
+              ItemPrice: '40.00',
+              AllowedToBuy: 'Y',
+              NationalInventory: '4',
+            }],
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+    await waitFor(() => {
+      expect(screen.getAllByText('Glassbreak').length).toBeGreaterThan(0);
+    });
+    fireEvent.click(screen.getAllByText('Edit')[0]);
+
+    expect(await screen.findByRole('button', { name: 'Update price' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Update price' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/suppliers/adi/price-inventory'),
+        expect.objectContaining({
+          customerNumber: '451278',
+          itemList: [{ ItemNumber: 'Q9-IQRPG', Quantity: 1 }],
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('saves a supplier part number when that supplier has no price check', async () => {
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('2x4 Lumber').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByText('Edit')[0]);
+    const part = await screen.findByLabelText('Supplier part number');
+    fireEvent.change(part, { target: { value: 'Q9-IQRPG' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update price' }));
+
+    expect(await screen.findByText('This supplier is not setup for price check')).toBeInTheDocument();
+    expect(axios.post).not.toHaveBeenCalledWith(
+      expect.stringContaining('/price-inventory'),
+      expect.anything(),
+      expect.anything()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('/api/inventory/item1'),
+        expect.objectContaining({
+          sku: 'LUM-2X4',
+          supplierPartNumber: 'Q9-IQRPG',
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
   test('deletes older price history and a single price update', async () => {
     const pricedItem = {
       _id: 'item-priced',
@@ -891,5 +1043,57 @@ describe('Inventory Component - Phase 2C', () => {
       );
     });
     expect(screen.queryByRole('region', { name: 'Price history' })).not.toBeInTheDocument();
+  });
+
+  test('merges a barcode row with the same product stored as a supplier part', async () => {
+    const rows = [
+      {
+        _id: 'item-barcode',
+        name: 'Glassbreak',
+        sku: '012345678905',
+        supplierPartNumber: '',
+        currentStock: 2,
+        unit: 'each',
+        parLevel: 0,
+        lastPrice: 40,
+      },
+      {
+        _id: 'item-part',
+        name: 'Sensor',
+        sku: '',
+        supplierPartNumber: 'Q9-IQRPG',
+        currentStock: 1,
+        unit: 'each',
+        parLevel: 0,
+        lastPrice: 0,
+      },
+    ];
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/suppliers')) return Promise.resolve({ data: { suppliers: [] } });
+      if (String(url).includes('/customers')) return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: rows });
+    });
+    axios.post.mockResolvedValue({ data: { _id: 'item-barcode', name: 'Glassbreak' } });
+    window.confirm = jest.fn(() => true);
+
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Glassbreak').length).toBeGreaterThan(0);
+    });
+    fireEvent.click(screen.getAllByText('Edit')[0]);
+    fireEvent.change(await screen.findByLabelText('Same product as another row'), {
+      target: { value: 'item-part' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Merge items' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/inventory/merge'),
+        { keeperId: 'item-barcode', removeId: 'item-part' },
+        expect.any(Object)
+      );
+    });
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Quantity becomes 3'));
   });
 });

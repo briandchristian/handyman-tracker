@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
 import { INVENTORY_CATEGORIES } from '../constants/inventoryCategories';
 import { findItemBySku, normalizeSkuCode } from '../utils/inventorySkuMatch';
+import { duplicateIdentityGroups, mergedInventoryFields } from '../utils/inventoryIdentity';
 import { filterJobs, jobsFromCustomers } from '../utils/inventoryJobs';
 import { fetchAdiPriceInventory } from '../services/adiSupplierApi';
 import {
@@ -16,16 +17,21 @@ import {
   formatPriceChangeAmount,
   formatPriceChangePercent,
   keepLatestPriceHistory,
+  priceUpdateFailureMessage,
   removePriceHistoryAt,
   supplierPriceLookupAccount,
+  supplierPartForPriceLookup,
+  adiAccountFromSuppliers,
 } from '../utils/adiIntegration';
 import BarcodeScanner from './BarcodeScanner';
+import AdiPartPriceCheck from './AdiPartPriceCheck';
 
 export default function Inventory() {
+  const [searchParams] = useSearchParams();
   const [items, setItems] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [stockFilter, setStockFilter] = useState(''); // 'all', 'low', 'out'
   const [selectedItem, setSelectedItem] = useState(null);
@@ -112,13 +118,16 @@ export default function Inventory() {
     return labels[status] || 'Unknown';
   };
 
+  const duplicateGroups = duplicateIdentityGroups(items);
+
   const filteredItems = items.filter(item => {
     // Search filter - search by name OR SKU
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
       const matchesName = item.name.toLowerCase().includes(search);
       const matchesSKU = item.sku && item.sku.toLowerCase().includes(search);
-      if (!matchesName && !matchesSKU) {
+      const matchesPart = item.supplierPartNumber && item.supplierPartNumber.toLowerCase().includes(search);
+      if (!matchesName && !matchesSKU && !matchesPart) {
         return false;
       }
     }
@@ -179,6 +188,7 @@ export default function Inventory() {
     setSelectedItem({
       name: '',
       sku: normalized,
+      supplierPartNumber: '',
       description: '',
       category: '',
       currentStock: 0,
@@ -228,6 +238,7 @@ export default function Inventory() {
               setSelectedItem({ 
                 name: '', 
                 sku: '', 
+                supplierPartNumber: '',
                 category: '', 
                 currentStock: 0, 
                 parLevel: 0, 
@@ -279,6 +290,8 @@ export default function Inventory() {
           </p>
         </div>
       </div>
+
+      <AdiPartPriceCheck suppliers={suppliers} />
 
       {/* Filters */}
       <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4 mb-6">
@@ -339,6 +352,22 @@ export default function Inventory() {
         </div>
       </div>
 
+      {duplicateGroups.length > 0 && (
+        <div role="status" aria-label="Possible duplicate items" className="mb-4 bg-amber-50 border border-amber-300 rounded-lg p-4 text-sm text-black">
+          <p className="font-medium">These rows may be the same item</p>
+          <ul className="mt-2 list-disc pl-5">
+            {duplicateGroups.map((group) => (
+              <li key={group.map((entry) => entry._id).join('-')}>
+                {group.map((entry) => entry.name).join(' and ')}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-slate-700">
+            Edit one of them and choose Merge items. The barcode and the supplier part stay on the item you keep, and the quantities are added.
+          </p>
+        </div>
+      )}
+
       {/* Inventory Table */}
       <div className="bg-white border border-gray-300 rounded-lg shadow-sm overflow-hidden">
         {filteredItems.length === 0 ? (
@@ -352,6 +381,7 @@ export default function Inventory() {
                   setSelectedItem({ 
                     name: '', 
                     sku: '', 
+                    supplierPartNumber: '',
                     category: '', 
                     currentStock: 0, 
                     parLevel: 0, 
@@ -393,6 +423,12 @@ export default function Inventory() {
                         <div className="flex justify-between">
                           <span className="text-gray-600">SKU:</span>
                           <span className="text-black">{item.sku}</span>
+                        </div>
+                      )}
+                      {item.supplierPartNumber && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Supplier part:</span>
+                          <span className="text-black">{item.supplierPartNumber}</span>
                         </div>
                       )}
                       {item.category && (
@@ -487,7 +523,10 @@ export default function Inventory() {
                             {item.name}
                           </button>
                         </td>
-                        <td className="p-4 text-gray-600 text-sm">{item.sku || '-'}</td>
+                        <td className="p-4 text-gray-600 text-sm">
+                          <div>{item.sku || '-'}</div>
+                          {item.supplierPartNumber ? <div>Part {item.supplierPartNumber}</div> : null}
+                        </td>
                         <td className="p-4">
                           {item.category && (
                             <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
@@ -553,6 +592,7 @@ export default function Inventory() {
       {showModal && selectedItem && (
         <ItemModal
           item={selectedItem}
+          items={items}
           suppliers={suppliers}
           categories={categories}
           onClose={() => {
@@ -651,11 +691,13 @@ function priceInfoFromSaved(item) {
 }
 
 // Item Edit Modal
-function ItemModal({ item, suppliers, categories, onClose, onSave }) {
+function ItemModal({ item, items = [], suppliers, categories, onClose, onSave }) {
   const [showSkuScanner, setShowSkuScanner] = useState(false);
+  const [mergeWithId, setMergeWithId] = useState('');
   const [formData, setFormData] = useState({
     name: item.name || '',
     sku: item.sku || '',
+    supplierPartNumber: item.supplierPartNumber || '',
     description: item.description || '',
     category: item.category || '',
     currentStock: item.currentStock || 0,
@@ -671,13 +713,42 @@ function ItemModal({ item, suppliers, categories, onClose, onSave }) {
   const [priceNotice, setPriceNotice] = useState('');
   const [priceLoading, setPriceLoading] = useState(false);
   const selectedSupplier = suppliers.find((supplier) => supplier._id === formData.preferredSupplier);
-  const priceAccount = !item.isNew ? supplierPriceLookupAccount(selectedSupplier) : null;
+  const catalogPriceAccount = adiAccountFromSuppliers(suppliers);
+  const supplierAccount = supplierPriceLookupAccount(selectedSupplier);
+  const priceAccount = supplierAccount || (!selectedSupplier ? catalogPriceAccount : null);
+  const showPriceCheck = Boolean(selectedSupplier || (supplierPartForPriceLookup(formData) && catalogPriceAccount));
 
   useEffect(() => {
     setUnitPriceText(unitPriceTextFromItem(item));
   }, [item._id, item.isNew, item.lastPrice]);
 
   const units = ['each', 'box', 'ft', 'yd', 'lb', 'gallon', 'pack', 'roll', 'sheet'];
+
+  const mergeWithSelectedItem = async () => {
+    const other = items.find((entry) => entry._id === mergeWithId);
+    if (!other) {
+      alert('Choose the other inventory item that is the same product.');
+      return;
+    }
+    const preview = mergedInventoryFields(item, other);
+    const dropped = preview.dropped.length ? ` Removed codes: ${preview.dropped.join(', ')}.` : '';
+    const confirmed = window.confirm(
+      `Merge "${other.name}" into "${item.name}"? Quantity becomes ${preview.currentStock}. SKU: ${preview.sku || 'none'}. Supplier part: ${preview.supplierPartNumber || 'none'}.${dropped}`
+    );
+    if (!confirmed) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(
+        `${API_BASE_URL}/api/inventory/merge`,
+        { keeperId: item._id, removeId: other._id },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      onSave();
+    } catch (err) {
+      console.error('Error merging inventory items:', err);
+      alert('Failed to merge items: ' + (err.response?.data?.msg || err.message));
+    }
+  };
 
   const handleSave = async () => {
     if (!formData.name) {
@@ -712,8 +783,15 @@ function ItemModal({ item, suppliers, categories, onClose, onSave }) {
   };
 
   const updateSupplierPrice = async () => {
-    const itemNumber = adiItemNumberFromSku(formData.sku);
-    if (!priceAccount) return;
+    if (selectedSupplier && !supplierAccount) {
+      setPriceNotice('This supplier is not setup for price check');
+      return;
+    }
+    if (!priceAccount) {
+      setPriceNotice('This supplier is not setup for price check');
+      return;
+    }
+    const itemNumber = supplierPartForPriceLookup(formData);
     if (!itemNumber) {
       setPriceNotice('Enter a part number.');
       return;
@@ -741,6 +819,8 @@ function ItemModal({ item, suppliers, categories, onClose, onSave }) {
         setTrackedPrice(info.lastPrice);
       }
 
+      if (item.isNew || !item._id) return;
+
       const token = localStorage.getItem('token');
       await axios.put(
         `${API_BASE_URL}/api/inventory/${item._id}`,
@@ -754,7 +834,7 @@ function ItemModal({ item, suppliers, categories, onClose, onSave }) {
       );
     } catch (err) {
       console.error('Error updating supplier price:', err);
-      setPriceNotice('Price update failed. The saved price was not cleared.');
+      setPriceNotice(priceUpdateFailureMessage(err));
     } finally {
       setPriceLoading(false);
     }
@@ -858,7 +938,54 @@ function ItemModal({ item, suppliers, categories, onClose, onSave }) {
                 Scanned codes are stored here. Scanning from the inventory page fills this when adding a new item.
               </p>
             </div>
+            <div className="md:col-span-2">
+              <label htmlFor="supplier-part-number" className="block text-base md:text-sm font-medium text-black mb-2">
+                Supplier part number
+              </label>
+              <input
+                id="supplier-part-number"
+                name="supplier-part-number"
+                type="text"
+                value={formData.supplierPartNumber}
+                onChange={(e) => setFormData({ ...formData, supplierPartNumber: e.target.value })}
+                className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+                placeholder="Q9-IQRPG"
+                autoComplete="off"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                The supplier’s own part number, such as an ADI or Wave Electronics item. A combined code like barcode | part counts as both.
+              </p>
+            </div>
           </div>
+
+          {!item.isNew && (
+            <div className="border border-slate-200 rounded-lg p-3">
+              <label htmlFor="merge-with-item" className="block text-sm font-medium text-black mb-1">
+                Same product as another row
+              </label>
+              <p className="text-xs text-gray-600 mb-2">
+                Use this when one row has the barcode and another has the supplier part number.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <select
+                  id="merge-with-item"
+                  value={mergeWithId}
+                  onChange={(e) => setMergeWithId(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded text-black bg-white text-sm"
+                >
+                  <option value="">Choose the other item</option>
+                  {items.filter((entry) => entry._id && entry._id !== item._id).map((entry) => (
+                    <option key={entry._id} value={entry._id}>
+                      {`${entry.name}${entry.sku ? ` · SKU ${entry.sku}` : ''}${entry.supplierPartNumber ? ` · Part ${entry.supplierPartNumber}` : ''}`}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" onClick={mergeWithSelectedItem} className="btn-row btn-row-staff">
+                  Merge items
+                </button>
+              </div>
+            </div>
+          )}
 
           <div>
             <label htmlFor="item-description" className="block text-base md:text-sm font-medium text-black mb-2">Description</label>
@@ -952,7 +1079,7 @@ function ItemModal({ item, suppliers, categories, onClose, onSave }) {
                   className="min-w-0 flex-1 p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
                   placeholder="0.00"
                 />
-                {priceAccount && (
+                {showPriceCheck && (
                   <button
                     type="button"
                     onClick={updateSupplierPrice}

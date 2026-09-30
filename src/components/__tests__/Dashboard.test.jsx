@@ -64,6 +64,7 @@ describe('Dashboard Component', () => {
 
     expect(screen.getByText('Customers')).toBeInTheDocument();
     expect(screen.getByText('Subcontractor')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Part price' })).toHaveAttribute('href', '/inventory#adi-price');
   });
 
   test('should handle empty projects', async () => {

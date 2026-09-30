@@ -26,6 +26,25 @@
   .btn-staff {
     @apply inline-flex justify-center items-center min-h-[44px] rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white transition hover:bg-slate-800;
   }
+  /* One height for buttons that sit beside a description. Matches the hero: slate, emerald, rounded-lg. */
+  .btn-row {
+    @apply inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-3 text-sm font-semibold leading-none transition disabled:opacity-60;
+  }
+  .btn-row-primary {
+    @apply bg-emerald-600 text-white hover:bg-emerald-500;
+  }
+  .btn-row-accent {
+    @apply border border-emerald-600 bg-white text-emerald-700 hover:bg-emerald-50;
+  }
+  .btn-row-secondary {
+    @apply border border-slate-300 bg-white text-slate-800 hover:bg-slate-50;
+  }
+  .btn-row-staff {
+    @apply bg-slate-900 text-white hover:bg-slate-800;
+  }
+  .btn-row-danger {
+    @apply bg-red-600 text-white hover:bg-red-700;
+  }
   .btn-danger {
     @apply inline-flex justify-center items-center min-h-[44px] rounded-lg bg-red-600 px-4 py-2 font-semibold text-white transition hover:bg-red-700;
   }

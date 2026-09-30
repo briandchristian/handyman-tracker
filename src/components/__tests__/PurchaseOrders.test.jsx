@@ -126,42 +126,13 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     });
   });
 
-  test('checks an ADI part price without creating an order', async () => {
-    fetchAdiPriceInventory.mockResolvedValueOnce({
-      ReturnCode: '00',
-      ItemList: [{
-        ItemNumber: '3W-MX922',
-        ItemPrice: '28.00',
-        AllowedToBuy: 'Y',
-        NationalInventory: '12',
-        ReturnCode: '00',
-        ReturnMessage: '',
-      }],
-    });
-
+  test('does not show the part price check on purchase orders', async () => {
     render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
 
     await waitFor(() => {
-      expect(screen.getByRole('region', { name: 'Check a part price' })).toBeInTheDocument();
+      expect(screen.getAllByText('PO-2024-001').length).toBeGreaterThan(0);
     });
-
-    fireEvent.change(screen.getByLabelText('Part number'), { target: { value: 'MX922 | 3W-MX922' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Check price' }));
-
-    await waitFor(() => {
-      expect(fetchAdiPriceInventory).toHaveBeenCalledWith({
-        customerNumber: 'CUST-EXISTING',
-        customerSuffix: '111',
-        itemList: [{ ItemNumber: '3W-MX922', Quantity: 1 }],
-      });
-    });
-
-    expect(generateAdiOrder).not.toHaveBeenCalled();
-    const result = screen.getByRole('status', { name: 'ADI price result' });
-    expect(within(result).getByText('3W-MX922')).toBeInTheDocument();
-    expect(within(result).getByText('$28.00')).toBeInTheDocument();
-    expect(within(result).getByText('12')).toBeInTheDocument();
-    expect(within(result).getByText('Yes')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Check a part price' })).not.toBeInTheDocument();
   });
 
   test('should render purchase orders page', async () => {

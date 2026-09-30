@@ -5,15 +5,17 @@ import {
   adiAllowedLabel,
   adiItemNumberFromSku,
   adiSupportCode,
+  adiAccountFromSuppliers,
   findAdiAccount,
   plainAdiItemMessage,
 } from '../utils/adiIntegration';
 
 /**
  * Look up one ADI part price and stock without creating a purchase order.
+ * On Inventory, the account comes from the supplier list.
  */
-export default function AdiPartPriceCheck({ purchaseOrders = [] }) {
-  const savedAccount = findAdiAccount(purchaseOrders);
+export default function AdiPartPriceCheck({ suppliers = [], purchaseOrders = [] }) {
+  const savedAccount = adiAccountFromSuppliers(suppliers) || findAdiAccount(purchaseOrders);
   const [customerNumber, setCustomerNumber] = useState(savedAccount?.customerNumber || '');
   const [customerSuffix, setCustomerSuffix] = useState(savedAccount?.customerSuffix || '000');
   const [editingAccount, setEditingAccount] = useState(!savedAccount?.customerNumber);
@@ -28,6 +30,11 @@ export default function AdiPartPriceCheck({ purchaseOrders = [] }) {
     setCustomerSuffix(savedAccount.customerSuffix || '000');
     setEditingAccount(false);
   }, [savedAccount?.customerNumber, savedAccount?.customerSuffix]);
+
+  useEffect(() => {
+    if (window.location.hash !== '#adi-price') return;
+    document.getElementById('adi-price')?.scrollIntoView();
+  }, []);
 
   const checkPrice = async () => {
     const itemNumber = adiItemNumberFromSku(partNumber);

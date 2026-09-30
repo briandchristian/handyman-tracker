@@ -25,6 +25,10 @@ import {
   reconcileCount,
 } from './lib/inventoryStock.js';
 import { buildAccountingSummary } from './lib/accountingSummary.js';
+import { reorderByIds } from '../src/utils/bidMaterialsOrder.js';
+import { inventoryItemsFromBidLines, inventoryConflictMessage } from '../src/utils/inventoryFromBid.js';
+import { mergedInventoryFields } from '../src/utils/inventoryIdentity.js';
+import { supplierPriceLookupAccount } from '../src/utils/adiIntegration.js';
 import { normalizeCostCenterCode } from './lib/costCenters.js';
 import { isKnownLaborWorkType, normalizeLaborWorkType } from './lib/laborWorkTypes.js';
 import { normalizeProjectWorkType, serviceHistoryTypeFromProjectWorkType } from './lib/projectWorkTypes.js';
@@ -336,6 +340,16 @@ const customerSchema = new mongoose.Schema({
       sku: String,
       quantity: Number,
       estimate: Number,
+      adiQuote: {
+        itemNumber: String,
+        itemPrice: String,
+        allowedToBuy: String,
+        nationalInventory: String,
+        saleStartDate: String,
+        saleEndDate: String,
+        returnMessage: String,
+        checkedAt: Date,
+      },
     }],
     payments: [{
       amount: Number,
@@ -523,6 +537,7 @@ const SupplierPayment = mongoose.model('SupplierPayment', supplierPaymentSchema)
 const inventoryItemSchema = new mongoose.Schema({
   name: { type: String, required: true },
   sku: { type: String, unique: true, sparse: true },
+  supplierPartNumber: { type: String, default: '' },
   description: String,
   category: String,
   currentStock: { type: Number, default: 0, min: 0 },
@@ -2083,6 +2098,83 @@ app.post('/api/customers/:customerId/projects/:projectId/bid-materials/copy-to-j
   }
 });
 
+app.post('/api/customers/:customerId/projects/:projectId/bid-materials/reorder', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.customerId);
+    const found = findCustomerProject(customer, req.params.projectId);
+    if (found.error) return res.status(found.error.status).json({ msg: found.error.msg });
+    const { project } = found;
+    let ordered;
+    try {
+      ordered = reorderByIds([...(project.bidMaterials || [])], req.body?.orderedIds);
+    } catch (err) {
+      return res.status(400).json({ msg: err.message });
+    }
+    const stored = ordered.map((line) => (typeof line.toObject === 'function' ? line.toObject() : line));
+    if (!project.bidMaterials) project.bidMaterials = [];
+    project.bidMaterials.splice(0, project.bidMaterials.length, ...stored);
+    await customer.save();
+    res.json(project.bidMaterials);
+  } catch (err) {
+    console.error('Error reordering bid worksheet:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.post('/api/customers/:customerId/projects/:projectId/bid-materials/send-to-inventory', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.customerId);
+    const found = findCustomerProject(customer, req.params.projectId);
+    if (found.error) return res.status(found.error.status).json({ msg: found.error.msg });
+    const requestedIds = Array.isArray(req.body?.lineIds) ? req.body.lineIds.map((id) => String(id)) : null;
+    const lines = (found.project.bidMaterials || []).filter((line) => (
+      !requestedIds || requestedIds.includes(String(line._id))
+    ));
+    const existing = await InventoryItem.find().select('name sku supplierPartNumber currentStock');
+    const overwrite = req.body?.overwrite === true;
+    const supplierDocs = await Supplier.find().select('name adiAccount');
+    const adiSupplier = supplierDocs.find((supplier) => supplierPriceLookupAccount(supplier));
+    const plan = inventoryItemsFromBidLines(lines, existing, {
+      overwrite,
+      preferredSupplierId: adiSupplier?._id || null,
+    });
+    if (plan.conflicts.length) {
+      return res.status(409).json({
+        msg: inventoryConflictMessage(plan.conflicts),
+        conflicts: plan.conflicts,
+      });
+    }
+    const saved = [];
+    for (const draft of plan.created) {
+      const payload = { ...draft };
+      if (payload.sku == null) delete payload.sku;
+      const item = new InventoryItem(payload);
+      await item.save();
+      saved.push(item);
+    }
+    let updatedCount = 0;
+    for (const update of plan.updates) {
+      const item = await InventoryItem.findById(update._id);
+      if (!item) continue;
+      item.name = update.name;
+      item.supplierPartNumber = update.supplierPartNumber;
+      item.lastPrice = update.lastPrice;
+      if (!item.preferredSupplier && adiSupplier?._id) item.preferredSupplier = adiSupplier._id;
+      await item.save();
+      updatedCount += 1;
+    }
+    res.json({
+      createdCount: saved.length,
+      updatedCount,
+      createdParts: saved.map((item) => item.supplierPartNumber).filter(Boolean),
+      updatedParts: plan.updates.map((update) => update.supplierPartNumber).filter(Boolean),
+    });
+  } catch (err) {
+    console.error('Error sending bid worksheet to inventory:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
 app.put('/api/customers/:customerId/projects/:projectId/bid-materials/:bidMaterialId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerId);
@@ -2090,10 +2182,30 @@ app.put('/api/customers/:customerId/projects/:projectId/bid-materials/:bidMateri
     if (found.error) return res.status(found.error.status).json({ msg: found.error.msg });
     const line = found.project.bidMaterials.id(req.params.bidMaterialId);
     if (!line) return res.status(404).json({ msg: 'Bid worksheet line not found' });
-    if (req.body?.item !== undefined) line.item = String(req.body.item).trim();
-    if (req.body?.quantity !== undefined) line.quantity = Number(req.body.quantity);
-    if (req.body?.estimate !== undefined) line.estimate = Number(req.body.estimate);
-    if (req.body?.sku !== undefined) line.sku = String(req.body.sku).trim();
+    if (req.body?.item !== undefined) {
+      const item = String(req.body.item).trim();
+      if (!item) return res.status(400).json({ msg: 'item and a positive quantity are required' });
+      line.item = item;
+    }
+    if (req.body?.quantity !== undefined) {
+      const quantity = Number(req.body.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        return res.status(400).json({ msg: 'item and a positive quantity are required' });
+      }
+      line.quantity = quantity;
+    }
+    if (req.body?.estimate !== undefined) {
+      const estimate = Number(req.body.estimate);
+      line.estimate = Number.isFinite(estimate) && estimate >= 0 ? estimate : 0;
+    }
+    if (req.body?.sku !== undefined) {
+      const nextSku = String(req.body.sku).trim();
+      if (nextSku !== String(line.sku || '') && req.body?.adiQuote === undefined) {
+        line.adiQuote = undefined;
+      }
+      line.sku = nextSku;
+    }
+    if (req.body?.adiQuote) line.adiQuote = adiQuoteFromBody(req.body.adiQuote);
     await customer.save();
     res.json({ msg: 'Bid worksheet line updated', bidMaterials: found.project.bidMaterials });
   } catch (err) {
@@ -2745,6 +2857,7 @@ function inventoryPayloadFromBody(body) {
   return {
     name: String(body.name ?? '').trim(),
     sku: normalizeSku(body.sku),
+    supplierPartNumber: String(body.supplierPartNumber ?? '').trim(),
     description: body.description != null ? String(body.description) : '',
     category: body.category != null ? String(body.category) : '',
     currentStock,
@@ -2925,12 +3038,13 @@ app.put('/api/inventory/:id', authMiddleware, async (req, res) => {
     }
 
     existing.name = data.name;
+    // A blank barcode is unset. Calling $unset on the document throws and blocks the save.
     if (data.sku == null) {
       existing.sku = undefined;
-      existing.$unset('sku');
     } else {
       existing.sku = data.sku;
     }
+    existing.supplierPartNumber = data.supplierPartNumber;
     existing.description = data.description;
     existing.category = data.category;
     existing.unit = data.unit;
@@ -3047,6 +3161,44 @@ app.get('/api/inventory/:id/movements', authMiddleware, async (req, res) => {
     res.json(movements);
   } catch (err) {
     console.error('Error fetching inventory movements:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.post('/api/inventory/merge', authMiddleware, async (req, res) => {
+  try {
+    const keeperId = String(req.body?.keeperId || '');
+    const removeId = String(req.body?.removeId || '');
+    if (!keeperId || !removeId || keeperId === removeId) {
+      return res.status(400).json({ msg: 'Choose two different inventory items to merge' });
+    }
+    const keeper = await InventoryItem.findById(keeperId);
+    const other = await InventoryItem.findById(removeId);
+    if (!keeper || !other) {
+      return res.status(404).json({ msg: 'Inventory item not found' });
+    }
+    const merged = mergedInventoryFields(keeper, other);
+    if (merged.sku) {
+      await ensureUniqueInventorySku(merged.sku, keeper._id);
+      keeper.sku = merged.sku;
+    } else {
+      keeper.sku = undefined;
+    }
+    keeper.supplierPartNumber = merged.supplierPartNumber;
+    keeper.currentStock = merged.currentStock;
+    if (!(Number(keeper.lastPrice) > 0) && merged.lastPrice) keeper.lastPrice = merged.lastPrice;
+    if (!String(keeper.description || '').trim() && merged.description) keeper.description = merged.description;
+    await keeper.save();
+    if (!merged.sku) {
+      await InventoryItem.updateOne({ _id: keeper._id }, { $unset: { sku: 1 } });
+    }
+    await InventoryMovement.updateMany({ itemId: other._id }, { $set: { itemId: keeper._id } });
+    await InventoryItem.findByIdAndDelete(other._id);
+    await keeper.populate('preferredSupplier', 'name adiAccount');
+    res.json(keeper);
+  } catch (err) {
+    if (inventoryConflictResponse(res, err)) return;
+    console.error('Error merging inventory items:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });

@@ -3,7 +3,7 @@
  * Testing: Project display, Status updates, Materials management, Error handling
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import axios from 'axios';
@@ -802,12 +802,13 @@ describe('ProjectDetails Component', () => {
       await userEvent.type(screen.getByLabelText('Worksheet item'), 'Panel');
       await userEvent.type(screen.getByLabelText('Worksheet quantity'), '1');
       await userEvent.type(screen.getByLabelText('Estimate ($)'), '80');
+      await userEvent.type(screen.getByLabelText('ADI part number'), '3W-MX922');
       await userEvent.click(screen.getByRole('button', { name: /add to bid worksheet/i }));
 
       await waitFor(() => {
         expect(axios.post).toHaveBeenCalledWith(
           expect.stringContaining('/bid-materials'),
-          expect.objectContaining({ item: 'Panel', quantity: 1, estimate: 80 }),
+          expect.objectContaining({ item: 'Panel', quantity: 1, estimate: 80, sku: '3W-MX922' }),
           expect.any(Object)
         );
       });
@@ -820,6 +821,406 @@ describe('ProjectDetails Component', () => {
           expect.any(Object)
         );
       });
+    });
+
+    test('edits a bid worksheet line', async () => {
+      const customerWithWorksheet = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidMaterials: [{ _id: 'b1', item: 'Quoted camera', quantity: 3, estimate: 200 }],
+          },
+        ],
+      };
+      axios.get.mockResolvedValue({ data: customerWithWorksheet });
+      axios.put.mockResolvedValue({ data: { msg: 'Bid worksheet line updated' } });
+
+      renderWithRouter();
+
+      const list = await screen.findByTestId('bid-worksheet-list');
+      await userEvent.click(within(list).getByRole('button', { name: 'Edit' }));
+
+      const item = screen.getByLabelText('Edit worksheet item');
+      const quantity = screen.getByLabelText('Edit worksheet quantity');
+      const estimate = screen.getByLabelText('Edit worksheet estimate');
+      await userEvent.clear(item);
+      await userEvent.type(item, 'Door contact');
+      await userEvent.clear(quantity);
+      await userEvent.type(quantity, '4');
+      await userEvent.clear(estimate);
+      await userEvent.type(estimate, '15');
+      await userEvent.click(screen.getByRole('button', { name: 'Save worksheet line' }));
+
+      await waitFor(() => {
+        expect(axios.put).toHaveBeenCalledWith(
+          expect.stringContaining('/bid-materials/b1'),
+          expect.objectContaining({ item: 'Door contact', quantity: 4, estimate: 15 }),
+          expect.any(Object)
+        );
+      });
+    });
+
+    test('checks ADI price and stock for a bid worksheet part without placing an order', async () => {
+      const customerWithWorksheet = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidAmount: 2500,
+            bidMaterials: [{ _id: 'b1', item: 'Quoted camera', sku: 'MX922 | 3W-MX922', quantity: 3, estimate: 200 }],
+          },
+        ],
+      };
+      const pricedLine = {
+        _id: 'b1',
+        item: 'Quoted camera',
+        sku: '3W-MX922',
+        quantity: 3,
+        estimate: 28,
+        adiQuote: {
+          itemNumber: '3W-MX922',
+          itemPrice: '28.00',
+          allowedToBuy: 'Y',
+          nationalInventory: '12',
+        },
+      };
+      let customerGets = 0;
+      axios.get.mockImplementation((url) => {
+        const value = String(url);
+        if (value.includes('/api/suppliers')) {
+          return Promise.resolve({
+            data: { suppliers: [{ name: 'ADI', adiAccount: { customerNumber: '451278', customerSuffix: '000' } }] },
+          });
+        }
+        if (value.includes('/api/customers/')) {
+          customerGets += 1;
+          const bidMaterials = customerGets > 1 ? [pricedLine] : customerWithWorksheet.projects[0].bidMaterials;
+          return Promise.resolve({
+            data: {
+              ...customerWithWorksheet,
+              projects: [{ ...customerWithWorksheet.projects[0], bidMaterials }],
+            },
+          });
+        }
+        return Promise.resolve({ data: [] });
+      });
+      axios.post.mockImplementation((url) => {
+        if (String(url).includes('/price-inventory')) {
+          return Promise.resolve({
+            data: {
+              ItemList: [{
+                ItemNumber: '3W-MX922',
+                ItemPrice: '28.00',
+                AllowedToBuy: 'Y',
+                NationalInventory: '12',
+              }],
+            },
+          });
+        }
+        return Promise.resolve({ data: {} });
+      });
+      axios.put.mockResolvedValue({ data: { msg: 'Bid worksheet line updated' } });
+
+      renderWithRouter();
+
+      expect(await screen.findByText('ADI part 3W-MX922')).toBeInTheDocument();
+      await userEvent.click(await screen.findByRole('button', { name: 'Check price' }));
+
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenCalledWith(
+          expect.stringContaining('/api/suppliers/adi/price-inventory'),
+          expect.objectContaining({
+            customerNumber: '451278',
+            itemList: [{ ItemNumber: '3W-MX922', Quantity: 3 }],
+          }),
+          expect.any(Object)
+        );
+      });
+      expect(axios.post).not.toHaveBeenCalledWith(
+        expect.stringContaining('/order-generation'),
+        expect.anything(),
+        expect.anything()
+      );
+      await waitFor(() => {
+        expect(axios.put).toHaveBeenCalledWith(
+          expect.stringContaining('/bid-materials/b1'),
+          expect.objectContaining({
+            sku: '3W-MX922',
+            estimate: 28,
+            adiQuote: expect.objectContaining({
+              itemPrice: '28.00',
+              nationalInventory: '12',
+              allowedToBuy: 'Y',
+            }),
+          }),
+          expect.any(Object)
+        );
+      });
+      expect(await screen.findByText(/ADI stock 12/)).toBeInTheDocument();
+      expect(screen.getByText(/Can buy Yes/)).toBeInTheDocument();
+    });
+
+    test('shows Check price on every worksheet line and wraps a long description beside the buttons', async () => {
+      const longItem = 'Glassbreak sensor for the front hallway door that should stay left of the buttons';
+      const customerWithWorksheet = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidMaterials: [
+              { _id: 'b1', item: longItem, quantity: 1, estimate: 10 },
+              { _id: 'b2', item: 'Panel', sku: 'PNL-1', quantity: 1, estimate: 12 },
+            ],
+          },
+        ],
+      };
+      axios.get.mockImplementation((url) => {
+        if (String(url).includes('/api/suppliers')) {
+          return Promise.resolve({
+            data: { suppliers: [{ name: 'ADI', adiAccount: { customerNumber: '451278', customerSuffix: '000' } }] },
+          });
+        }
+        if (String(url).includes('/api/customers/')) {
+          return Promise.resolve({ data: customerWithWorksheet });
+        }
+        return Promise.resolve({ data: [] });
+      });
+      window.alert = jest.fn();
+
+      renderWithRouter();
+
+      const list = await screen.findByTestId('bid-worksheet-list');
+      const glassbreak = within(list).getByTestId('bid-worksheet-line-b1');
+      const panel = within(list).getByTestId('bid-worksheet-line-b2');
+      expect(within(glassbreak).getByRole('button', { name: 'Check price' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Check price' })).toBeInTheDocument();
+
+      const row = within(glassbreak).getByTestId('bid-line-row');
+      const description = within(glassbreak).getByTestId('bid-line-text');
+      const actions = within(glassbreak).getByTestId('bid-line-actions');
+      expect(row.className).not.toContain('flex-wrap');
+      expect(description.className).toContain('break-words');
+      expect(actions.className).toContain('shrink-0');
+      expect(description.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      await userEvent.click(within(glassbreak).getByRole('button', { name: 'Check price' }));
+      expect(window.alert).toHaveBeenCalledWith('Add an ADI part number before checking price.');
+      expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    test('sends one bid worksheet line to inventory', async () => {
+      const customerWithWorksheet = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidMaterials: [
+              { _id: 'b1', item: 'Glassbreak', sku: 'Q9-IQRPG', quantity: 2, estimate: 40 },
+              { _id: 'b2', item: 'Panel', sku: 'PNL-1', quantity: 1, estimate: 10 },
+            ],
+          },
+        ],
+      };
+      axios.get.mockResolvedValue({ data: customerWithWorksheet });
+      axios.post.mockResolvedValue({
+        data: { createdCount: 1, updatedCount: 0, createdParts: ['Q9-IQRPG'], updatedParts: [] },
+      });
+
+      renderWithRouter();
+
+      const list = await screen.findByTestId('bid-worksheet-list');
+      const glassbreak = within(list).getByTestId('bid-worksheet-line-b1');
+      const lineButtons = ['Edit', 'Check price', 'Send to Inventory', 'Delete'].map((name) => (
+        within(glassbreak).getByRole('button', { name })
+      ));
+      lineButtons.forEach((button) => {
+        expect(button.className).toContain('btn-row');
+        expect(button.className).not.toContain('py-1');
+        expect(button.className).not.toContain('btn-staff');
+      });
+      expect(lineButtons[0].className).toContain('btn-row-secondary');
+      expect(lineButtons[1].className).toContain('btn-row-accent');
+      expect(lineButtons[2].className).toContain('btn-row-staff');
+      expect(lineButtons[3].className).toContain('btn-row-danger');
+      const sendLine = lineButtons[2];
+      await userEvent.click(sendLine);
+
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenCalledWith(
+          expect.stringContaining('/bid-materials/send-to-inventory'),
+          { lineIds: ['b1'] },
+          expect.any(Object)
+        );
+      });
+      const partLink = within(glassbreak).getByRole('link', { name: 'Q9-IQRPG' });
+      expect(partLink).toHaveAttribute('href', '/inventory?search=Q9-IQRPG');
+      expect(partLink.className).toContain('text-blue-700');
+      expect(partLink.className).not.toContain('text-green-700');
+    });
+
+    test('sends the whole worksheet from beside add, and confirms before overwrite', async () => {
+      const customerWithWorksheet = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidMaterials: [
+              { _id: 'b1', item: 'Glassbreak', sku: 'Q9-IQRPG', quantity: 2, estimate: 40 },
+            ],
+          },
+        ],
+      };
+      axios.get.mockResolvedValue({ data: customerWithWorksheet });
+      axios.post
+        .mockRejectedValueOnce({
+          response: {
+            status: 409,
+            data: {
+              msg: 'Q9-IQRPG already exists in inventory. Overwrite it, or cancel.',
+              conflicts: [{ partNumber: 'Q9-IQRPG', name: 'Glassbreak' }],
+            },
+          },
+        })
+        .mockResolvedValueOnce({ data: { createdCount: 0, updatedCount: 1 } });
+      window.confirm = jest.fn(() => true);
+
+      renderWithRouter();
+
+      const sendWorksheet = await screen.findByRole('button', { name: 'Send worksheet to inventory' });
+      expect(sendWorksheet.className).toContain('btn-row');
+      expect(sendWorksheet.className).toContain('btn-row-staff');
+      expect(sendWorksheet.className).not.toContain('btn-staff');
+      await userEvent.click(sendWorksheet);
+
+      await waitFor(() => {
+        expect(window.confirm).toHaveBeenCalledWith(
+          'Q9-IQRPG already exists in inventory. Overwrite it, or cancel.'
+        );
+      });
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenLastCalledWith(
+          expect.stringContaining('/bid-materials/send-to-inventory'),
+          { overwrite: true },
+          expect.any(Object)
+        );
+      });
+    });
+
+    test('leaves inventory unchanged when overwrite is cancelled', async () => {
+      const customerWithWorksheet = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidMaterials: [
+              { _id: 'b1', item: 'Glassbreak', sku: 'Q9-IQRPG', quantity: 2, estimate: 40 },
+            ],
+          },
+        ],
+      };
+      axios.get.mockResolvedValue({ data: customerWithWorksheet });
+      axios.post.mockRejectedValue({
+        response: {
+          status: 409,
+          data: {
+            msg: 'Q9-IQRPG already exists in inventory. Overwrite it, or cancel.',
+            conflicts: [{ partNumber: 'Q9-IQRPG', name: 'Glassbreak' }],
+          },
+        },
+      });
+      window.confirm = jest.fn(() => false);
+
+      renderWithRouter();
+      await userEvent.click(await screen.findByRole('button', { name: 'Send to Inventory' }));
+
+      await waitFor(() => {
+        expect(window.confirm).toHaveBeenCalled();
+      });
+      expect(axios.post).toHaveBeenCalledTimes(1);
+      const partLink = screen.getByRole('link', { name: 'Q9-IQRPG' });
+      expect(partLink.className).toContain('text-green-700');
+    });
+
+    test('links an existing inventory part in blue after refresh', async () => {
+      const customerWithWorksheet = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidMaterials: [
+              { _id: 'b1', item: 'Glassbreak', sku: 'Q9-IQRPG', quantity: 2, estimate: 40 },
+            ],
+          },
+        ],
+      };
+      axios.get.mockImplementation((url) => {
+        if (String(url).includes('/api/inventory')) {
+          return Promise.resolve({ data: [{ supplierPartNumber: 'Q9-IQRPG', sku: 'BAR-1', name: 'Glassbreak' }] });
+        }
+        if (String(url).includes('/api/customers/')) {
+          return Promise.resolve({ data: customerWithWorksheet });
+        }
+        return Promise.resolve({ data: [] });
+      });
+
+      renderWithRouter();
+
+      const partLink = await screen.findByRole('link', { name: 'Q9-IQRPG' });
+      expect(partLink.className).toContain('text-blue-700');
+      expect(partLink.className).not.toContain('text-green-700');
+    });
+
+    test('reorders bid worksheet lines by drag and drop', async () => {
+      const customerWithWorksheet = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidMaterials: [
+              { _id: 'b1', item: 'Camera', quantity: 1, estimate: 10 },
+              { _id: 'b2', item: 'Panel', quantity: 2, estimate: 20 },
+            ],
+          },
+        ],
+      };
+      let customerGets = 0;
+      axios.get.mockImplementation((url) => {
+        if (String(url).includes('/api/customers/')) {
+          customerGets += 1;
+          if (customerGets > 1) return new Promise(() => {});
+          return Promise.resolve({ data: customerWithWorksheet });
+        }
+        return Promise.resolve({ data: [] });
+      });
+      axios.post.mockResolvedValue({ data: [] });
+
+      renderWithRouter();
+
+      const camera = await screen.findByTestId('bid-worksheet-line-b1');
+      const panel = screen.getByTestId('bid-worksheet-line-b2');
+      const stored = {};
+      const dataTransfer = {
+        setData(type, value) { stored[type] = value; },
+        getData(type) { return stored[type] || ''; },
+        effectAllowed: 'move',
+        dropEffect: 'move',
+      };
+
+      fireEvent.dragStart(camera, { dataTransfer });
+      fireEvent.dragOver(panel, { dataTransfer });
+      fireEvent.drop(panel, { dataTransfer });
+
+      await waitFor(() => {
+        const rows = screen.getAllByTestId(/bid-worksheet-line-/);
+        expect(rows[0]).toHaveTextContent('Panel');
+        expect(rows[1]).toHaveTextContent('Camera');
+      });
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/bid-materials/reorder'),
+        { orderedIds: ['b2', 'b1'] },
+        expect.any(Object)
+      );
     });
 
     test('bid pdf lists worksheet items, not job materials used', async () => {
@@ -850,6 +1251,30 @@ describe('ProjectDetails Component', () => {
           ([line]) => typeof line === 'string' && line.includes('Cable used on site')
         )
       ).toBe(false);
+    });
+
+    test('bid pdf includes the ADI part number', async () => {
+      const customerWithPart = {
+        ...mockCustomer,
+        projects: [
+          {
+            ...mockCustomer.projects[0],
+            bidAmount: 2500,
+            bidMaterials: [{ _id: 'b1', item: 'Quoted camera', sku: 'MX922 | 3W-MX922', quantity: 3, estimate: 200 }],
+          },
+        ],
+      };
+      axios.get.mockResolvedValue({ data: customerWithPart });
+      renderWithRouter();
+
+      await userEvent.click(await screen.findByRole('button', { name: /^generate bid$/i }));
+      await waitFor(() => expect(jsPDF).toHaveBeenCalled());
+
+      expect(
+        mockPdfDoc.text.mock.calls.some(
+          ([line]) => typeof line === 'string' && line.includes('3W-MX922')
+        )
+      ).toBe(true);
     });
 
     test('should show generate bid for labor-only jobs with no materials', async () => {
