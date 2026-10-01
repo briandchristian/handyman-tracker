@@ -148,5 +148,70 @@ describe('Dashboard Component', () => {
     expect(screen.getAllByText('Fire').length).toBeGreaterThan(0);
     expect(screen.queryByText('CCTV')).not.toBeInTheDocument();
   });
+
+  test('links each job back to its customer', async () => {
+    axios.get.mockResolvedValue({ data: mockCustomers });
+
+    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('link', { name: 'Customer 1' }).length).toBeGreaterThan(0);
+    });
+
+    screen.getAllByRole('link', { name: 'Customer 1' }).forEach((link) => {
+      expect(link).toHaveAttribute('href', '/customers/1');
+    });
+    expect(screen.getAllByRole('link', { name: 'View Details →' })[0]).toHaveAttribute(
+      'href',
+      '/projects/1/p1'
+    );
+  });
+
+  test('links New Customer Bid to the customer from the Request a Bid page and removes it after it is opened', async () => {
+    axios.get.mockResolvedValue({
+      data: [
+        {
+          _id: '9',
+          name: 'Hero Lead',
+          heroBidUnread: true,
+          obtainedVia: 'hero-bid',
+          projects: [{ _id: 'p9', name: 'Alarm', status: 'Pending', createdAt: '2024-01-02' }],
+        },
+        ...mockCustomers,
+      ],
+    });
+    axios.put.mockResolvedValue({ data: { heroBidUnread: false } });
+
+    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+
+    const notices = await screen.findByTestId('hero-bid-notices');
+    const notice = within(notices).getByRole('link', { name: 'New Customer Bid!' });
+    expect(notice).toHaveAttribute('href', '/customers/9');
+    expect(within(notices).getByText('Hero Lead')).toBeInTheDocument();
+
+    await userEvent.click(notice);
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('/api/customers/9/hero-bid-notice'),
+        expect.any(Object),
+        expect.objectContaining({
+          headers: { Authorization: 'Bearer test-token' },
+        })
+      );
+    });
+    expect(screen.queryByRole('link', { name: 'New Customer Bid!' })).not.toBeInTheDocument();
+  });
+
+  test('does not show New Customer Bid when no hero bid is unread', async () => {
+    axios.get.mockResolvedValue({ data: mockCustomers });
+
+    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Customer 1').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('link', { name: 'New Customer Bid!' })).not.toBeInTheDocument();
+  });
 });
 

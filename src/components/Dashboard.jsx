@@ -28,6 +28,7 @@ const FILTER_LABELS = {
 
 export default function Dashboard() {
   const [projects, setProjects] = useState([]);
+  const [bidNotices, setBidNotices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(DEFAULT_STATUS_FILTER);
   const [search, setSearch] = useState('');
@@ -64,6 +65,7 @@ export default function Dashboard() {
       });
 
       setProjects(allProjects);
+      setBidNotices(res.data.filter((customer) => customer.heroBidUnread));
       setLoading(false);
     } catch (err) {
       console.error('Error fetching projects:', err);
@@ -76,6 +78,17 @@ export default function Dashboard() {
     () => filterAndSortProjects(projects, { statusFilter, search, sort }),
     [projects, statusFilter, search, sort]
   );
+
+  const openHeroBidNotice = (customerId) => {
+    setBidNotices((current) => current.filter((customer) => customer._id !== customerId));
+    axios.put(
+      `${API_BASE_URL}/api/customers/${customerId}/hero-bid-notice`,
+      {},
+      { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+    ).catch((err) => {
+      console.error('Failed to clear new customer bid notice:', err);
+    });
+  };
 
   const cardClass = (filter) =>
     `text-left w-full card-surface p-4 min-h-[44px] ${
@@ -131,6 +144,23 @@ export default function Dashboard() {
       <div className="lg:hidden mb-4">
         <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
       </div>
+
+      {bidNotices.length > 0 && (
+        <ul data-testid="hero-bid-notices" className="mb-4 space-y-2">
+          {bidNotices.map((customer) => (
+            <li key={customer._id} className="card-surface p-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <Link
+                to={`/customers/${customer._id}`}
+                onClick={() => openHeroBidNotice(customer._id)}
+                className="font-semibold text-emerald-800 underline"
+              >
+                New Customer Bid!
+              </Link>
+              <span className="text-slate-700">{customer.name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4">
         <button
@@ -244,12 +274,15 @@ export default function Dashboard() {
                   <div className="space-y-2 text-base">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Customer:</span>
-                      <span className="text-black font-medium">
+                      <Link
+                        to={`/customers/${project.customerId}`}
+                        className="text-emerald-700 font-medium underline"
+                      >
                         {formatCustomerLabel({
                           name: project.customerName,
                           accountNumber: project.accountNumber,
                         })}
-                      </span>
+                      </Link>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Bid Amount:</span>
@@ -315,10 +348,17 @@ export default function Dashboard() {
                   {visibleProjects.map((project, index) => (
                     <tr key={project._id || index} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="p-3 text-black font-medium text-sm">{formatJobLabel(project)}</td>
-                      <td className="p-3 text-black text-sm">{formatCustomerLabel({
-                        name: project.customerName,
-                        accountNumber: project.accountNumber,
-                      })}</td>
+                      <td className="p-3 text-sm">
+                        <Link
+                          to={`/customers/${project.customerId}`}
+                          className="text-emerald-700 font-medium underline"
+                        >
+                          {formatCustomerLabel({
+                            name: project.customerName,
+                            accountNumber: project.accountNumber,
+                          })}
+                        </Link>
+                      </td>
                       <td className="p-3">
                         <span
                           className={`px-2 py-1 rounded text-sm ${

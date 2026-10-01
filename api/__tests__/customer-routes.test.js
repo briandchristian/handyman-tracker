@@ -1238,3 +1238,82 @@ describe('Customer account numbers and job numbers', () => {
   });
 });
 
+describe('Hero Request a Bid notices', () => {
+  const heroBid = {
+    name: 'Hero Lead',
+    email: 'hero@example.com',
+    phone: '555-0100',
+    address: '1 Bid St',
+    projectName: 'Alarm',
+    projectDescription: 'New system',
+  };
+
+  test('marks a customer created from the Request a Bid page and leaves an unread staff notice', async () => {
+    const res = await request(app).post('/api/customer-bid').send(heroBid);
+    expect(res.status).toBe(201);
+
+    const Customer = mongoose.model('Customer');
+    const customer = await Customer.findOne({ email: 'hero@example.com' });
+    expect(customer.obtainedVia).toBe('hero-bid');
+    expect(customer.heroBidUnread).toBe(true);
+  });
+
+  test('notifies staff when an existing customer submits a bid without changing how that customer was obtained', async () => {
+    const Customer = mongoose.model('Customer');
+    await Customer.create({
+      name: 'Existing',
+      email: 'existing@example.com',
+      phone: '555-2222',
+      projects: [],
+    });
+
+    const res = await request(app).post('/api/customer-bid').send({
+      ...heroBid,
+      name: 'Existing',
+      email: 'existing@example.com',
+    });
+    expect(res.status).toBe(200);
+
+    const customer = await Customer.findOne({ email: 'existing@example.com' });
+    expect(customer.obtainedVia || '').not.toBe('hero-bid');
+    expect(customer.heroBidUnread).toBe(true);
+  });
+
+  test('clears the unread notice when staff open it and keeps the source', async () => {
+    await request(app).post('/api/customer-bid').send(heroBid);
+    const Customer = mongoose.model('Customer');
+    const customer = await Customer.findOne({ email: 'hero@example.com' });
+
+    const res = await request(app)
+      .put(`/api/customers/${customer._id}/hero-bid-notice`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    const updated = await Customer.findById(customer._id);
+    expect(updated.heroBidUnread).toBe(false);
+    expect(updated.obtainedVia).toBe('hero-bid');
+  });
+
+  test('raises the notice again when that customer submits another bid from the page', async () => {
+    await request(app).post('/api/customer-bid').send(heroBid);
+    const Customer = mongoose.model('Customer');
+    const customer = await Customer.findOne({ email: 'hero@example.com' });
+    await request(app)
+      .put(`/api/customers/${customer._id}/hero-bid-notice`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({});
+
+    const again = await request(app).post('/api/customer-bid').send({
+      ...heroBid,
+      projectName: 'Second job',
+      projectDescription: 'More cameras',
+    });
+    expect(again.status).toBe(200);
+
+    const updated = await Customer.findById(customer._id);
+    expect(updated.heroBidUnread).toBe(true);
+    expect(updated.obtainedVia).toBe('hero-bid');
+  });
+});
+

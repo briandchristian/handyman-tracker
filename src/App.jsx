@@ -5,6 +5,7 @@ import MarketingHome from './components/MarketingHome';
 import RequestBid from './components/RequestBid';
 import Dashboard from './components/Dashboard';
 import Customers from './components/Customers';
+import CustomerDetail from './components/CustomerDetail';
 import ProjectDetails from './components/ProjectDetails';
 import UserManagement from './components/UserManagement';
 import Suppliers from './components/Suppliers';
@@ -65,6 +66,20 @@ function App() {
             token ? (
               !isCustomer ? (
                 <Customers />
+              ) : (
+                <Navigate to="/customer" />
+              )
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
+        />
+        <Route
+          path="/customers/:customerId"
+          element={
+            token ? (
+              !isCustomer ? (
+                <CustomerDetail />
               ) : (
                 <Navigate to="/customer" />
               )

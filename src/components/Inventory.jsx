@@ -155,7 +155,6 @@ export default function Inventory() {
     lowStock: items.filter(i => getStockStatus(i) === 'low').length,
     outOfStock: items.filter(i => getStockStatus(i) === 'out').length,
     goodStock: items.filter(i => getStockStatus(i) === 'good').length,
-    autoReorder: items.filter(i => i.autoReorder).length,
     totalValue: items.reduce(
       (sum, i) => sum + i.currentStock * (Number(i.lastPrice) || 0),
       0
@@ -255,11 +254,11 @@ export default function Inventory() {
           </button>
         </div>
         <h1 className="text-2xl md:text-3xl font-bold text-black">Inventory Management</h1>
-        <p className="text-gray-600 mt-2 text-base md:text-sm">Track stock levels and manage par levels</p>
+        <p className="text-gray-600 mt-2 text-base md:text-sm">Track stock levels and unit prices</p>
       </div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
           <p className="text-gray-600 text-base md:text-sm">Total Items</p>
           <p className="text-3xl font-bold text-black">{stats.total}</p>
@@ -275,10 +274,6 @@ export default function Inventory() {
         <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4 cursor-pointer hover:bg-gray-50" onClick={() => setStockFilter('out')}>
           <p className="text-gray-600 text-base md:text-sm">Out of Stock</p>
           <p className="text-3xl font-bold text-red-600">{stats.outOfStock}</p>
-        </div>
-        <div className="bg-white border border-gray-300 rounded-lg p-4 md:p-4">
-          <p className="text-gray-600 text-base md:text-sm">Auto-Reorder</p>
-          <p className="text-3xl font-bold text-purple-600">{stats.autoReorder}</p>
         </div>
         <div
           className="bg-white border border-gray-300 rounded-lg p-4 md:p-4"
@@ -302,7 +297,7 @@ export default function Inventory() {
               id="search-inventory"
               name="search-inventory"
               type="text"
-              placeholder="Search by name or SKU..."
+              placeholder="Search by name or part number..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
@@ -419,18 +414,10 @@ export default function Inventory() {
                     </div>
                     
                     <div className="space-y-2 text-base">
-                      {item.sku && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">SKU:</span>
-                          <span className="text-black">{item.sku}</span>
-                        </div>
-                      )}
-                      {item.supplierPartNumber && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Supplier part:</span>
-                          <span className="text-black">{item.supplierPartNumber}</span>
-                        </div>
-                      )}
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Part number:</span>
+                        <span className="text-black">{item.supplierPartNumber || '—'}</span>
+                      </div>
                       {item.category && (
                         <div className="flex justify-between items-center">
                           <span className="text-gray-600">Category:</span>
@@ -453,10 +440,6 @@ export default function Inventory() {
                         </div>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Par Level:</span>
-                        <span className="text-black">{item.parLevel || '-'}</span>
-                      </div>
-                      <div className="flex justify-between">
                         <span className="text-gray-600">Unit price:</span>
                         <span className="text-black">
                           {(Number(item.lastPrice) || 0) > 0
@@ -470,14 +453,6 @@ export default function Inventory() {
                           <span className="text-black">{item.preferredSupplier.name}</span>
                         </div>
                       )}
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Auto-Reorder:</span>
-                        {item.autoReorder ? (
-                          <span className="text-green-600 font-bold text-lg" title="Auto-reorder enabled">✓</span>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </div>
                     </div>
                     
                     <div className="mt-4 pt-4 border-t border-gray-200">
@@ -499,14 +474,12 @@ export default function Inventory() {
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
                     <th className="text-left p-4 text-black font-semibold text-sm">Item Name</th>
-                    <th className="text-left p-4 text-black font-semibold text-sm">SKU</th>
+                    <th className="text-left p-4 text-black font-semibold text-sm">Part number</th>
                     <th className="text-left p-4 text-black font-semibold text-sm">Category</th>
                     <th className="text-left p-4 text-black font-semibold text-sm">Stock</th>
-                    <th className="text-left p-4 text-black font-semibold text-sm">Par Level</th>
                     <th className="text-left p-4 text-black font-semibold text-sm">Unit price</th>
                     <th className="text-left p-4 text-black font-semibold text-sm">Status</th>
                     <th className="text-left p-4 text-black font-semibold text-sm">Supplier</th>
-                    <th className="text-left p-4 text-black font-semibold text-sm">Auto-Reorder</th>
                     <th className="text-left p-4 text-black font-semibold text-sm">Actions</th>
                   </tr>
                 </thead>
@@ -523,10 +496,7 @@ export default function Inventory() {
                             {item.name}
                           </button>
                         </td>
-                        <td className="p-4 text-gray-600 text-sm">
-                          <div>{item.sku || '-'}</div>
-                          {item.supplierPartNumber ? <div>Part {item.supplierPartNumber}</div> : null}
-                        </td>
+                        <td className="p-4 text-gray-600 text-sm">{item.supplierPartNumber || '—'}</td>
                         <td className="p-4">
                           {item.category && (
                             <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
@@ -547,7 +517,6 @@ export default function Inventory() {
                             </button>
                           </div>
                         </td>
-                        <td className="p-4 text-black text-sm">{item.parLevel || '-'}</td>
                         <td className="p-4 text-black text-sm tabular-nums">
                           {(Number(item.lastPrice) || 0) > 0
                             ? `$${(Number(item.lastPrice) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -560,13 +529,6 @@ export default function Inventory() {
                         </td>
                         <td className="p-4 text-gray-600 text-sm">
                           {item.preferredSupplier?.name || '-'}
-                        </td>
-                        <td className="p-4 text-center">
-                          {item.autoReorder ? (
-                            <span className="text-green-600 font-bold" title="Auto-reorder enabled">✓</span>
-                          ) : (
-                            <span className="text-gray-300">-</span>
-                          )}
                         </td>
                         <td className="p-4">
                           <div className="flex gap-2">

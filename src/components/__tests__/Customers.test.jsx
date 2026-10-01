@@ -142,14 +142,13 @@ describe('Customers Component', () => {
       });
 
       const customerManagementToggle = screen.getByRole('button', { name: /Customer Management/i });
-      const addProjectToggle = screen.getByRole('button', { name: /Add Job to Customer/i });
       const addCustomerToggle = screen.getByRole('button', { name: /Add New Customer/i });
       const customerListToggle = screen.getByRole('button', { name: /Customer List/i });
 
       expect(customerManagementToggle).toHaveAttribute('aria-expanded', 'true');
       expect(addCustomerToggle).toHaveAttribute('aria-expanded', 'false');
       expect(customerListToggle).toHaveAttribute('aria-expanded', 'true');
-      expect(addProjectToggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('button', { name: /Add Job to Customer/i })).not.toBeInTheDocument();
     });
 
     test('should toggle mobile sections when pressed', async () => {
@@ -158,13 +157,7 @@ describe('Customers Component', () => {
       axios.get.mockResolvedValue({ data: [] });
       renderWithRouter(<Customers />);
 
-      const addProjectToggle = await screen.findByRole('button', { name: /Add Job to Customer/i });
-      expect(addProjectToggle).toHaveAttribute('aria-expanded', 'false');
-
-      await userEvent.click(addProjectToggle);
-      expect(addProjectToggle).toHaveAttribute('aria-expanded', 'true');
-
-      const addCustomerToggle = screen.getByRole('button', { name: /Add New Customer/i });
+      const addCustomerToggle = await screen.findByRole('button', { name: /Add New Customer/i });
       expect(addCustomerToggle).toHaveAttribute('aria-expanded', 'false');
 
       await userEvent.click(addCustomerToggle);
@@ -281,151 +274,32 @@ describe('Customers Component', () => {
     });
   });
 
-  describe('Adding Projects', () => {
-    test('should show labeled add-project fields for aligned form layout', async () => {
+  describe('Customer directory', () => {
+    test('opens a customer from the name and shows a job count', async () => {
       axios.get.mockResolvedValue({ data: mockCustomers });
       renderWithRouter(<Customers />);
 
       await waitFor(() => {
-        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
+        expect(screen.getAllByRole('link', { name: 'John Doe' })[0]).toHaveAttribute('href', '/customers/1');
       });
-
-      const searchInput = screen.getByPlaceholderText(/Type customer name to search/i);
-      await userEvent.type(searchInput, 'John');
-
-      await waitFor(() => {
-        expect(screen.getByText('Add New Job')).toBeInTheDocument();
-      });
-
-      expect(screen.getByLabelText('Job name')).toBeInTheDocument();
-      expect(screen.getByLabelText('Description')).toBeInTheDocument();
-      expect(screen.getByTestId('new-project-equipment-categories')).toBeInTheDocument();
-      expect(screen.getByRole('checkbox', { name: /Burglar Alarm/i })).toBeInTheDocument();
-      expect(screen.getByRole('checkbox', { name: /Fire Alarm/i })).toBeInTheDocument();
-      expect(screen.getByRole('checkbox', { name: /Access Control/i })).toBeInTheDocument();
-      expect(screen.getByRole('checkbox', { name: /CCTV/i })).toBeInTheDocument();
-      expect(screen.getByRole('checkbox', { name: /Monitoring/i })).toBeInTheDocument();
+      expect(screen.getAllByRole('link', { name: 'Jane Smith' })[0]).toHaveAttribute('href', '/customers/2');
+      expect(screen.getAllByText('1 job').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('No jobs').length).toBeGreaterThan(0);
+      expect(screen.queryByPlaceholderText(/Type customer name to search/i)).not.toBeInTheDocument();
     });
 
-    test('should POST equipmentCategories when adding project', async () => {
+    test('filters the directory by name, email, phone, or account', async () => {
       axios.get.mockResolvedValue({ data: mockCustomers });
-      axios.post.mockResolvedValue({ data: { _id: 'p2', name: 'Scope Project' } });
-
       renderWithRouter(<Customers />);
 
       await waitFor(() => {
-        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
-      });
-
-      const searchInput = screen.getByPlaceholderText(/Type customer name to search/i);
-      await userEvent.type(searchInput, 'John');
-
-      await waitFor(() => {
-        expect(screen.getByText('Add New Job')).toBeInTheDocument();
-      });
-
-      await userEvent.type(screen.getByLabelText('Job name'), 'Alarm install');
-      await userEvent.click(screen.getByRole('checkbox', { name: /Fire Alarm/i }));
-      await userEvent.click(screen.getByRole('checkbox', { name: /CCTV/i }));
-
-      axios.get.mockResolvedValue({ data: mockCustomers });
-      await userEvent.click(screen.getByRole('button', { name: 'Add Job' }));
-
-      await waitFor(() => {
-        expect(axios.post).toHaveBeenCalledWith(
-          expect.stringContaining('/api/customers/1/projects'),
-          expect.objectContaining({
-            name: 'Alarm install',
-            equipmentCategories: {
-              burglarAlarm: false,
-              fireAlarm: true,
-              accessControl: false,
-              cctv: true,
-              monitoring: false
-            }
-          }),
-          expect.any(Object)
-        );
-      });
-    });
-
-    test('should add project to customer', async () => {
-      axios.get.mockResolvedValue({ data: mockCustomers });
-      axios.post.mockResolvedValue({ data: { _id: 'p2', name: 'New Project' } });
-
-      renderWithRouter(<Customers />);
-
-      await waitFor(() => {
-        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
-      });
-
-      // Find the search input in "Add Project to Customer" section
-      const searchInput = screen.getByPlaceholderText(/Type customer name to search/i);
-      await userEvent.type(searchInput, 'John');
-
-      // Wait for customer to be selectable
-      await waitFor(() => {
-        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
-      });
-
-      // Component structure changed - project addition is now through search
-      // This test would need to be updated to match actual component behavior
-      // For now, verify the search functionality works
-      expect(searchInput.value).toBe('John');
-    });
-
-    test('should validate project fields', async () => {
-      axios.get.mockResolvedValue({ data: mockCustomers });
-
-      renderWithRouter(<Customers />);
-
-      await waitFor(() => {
-        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
-      });
-
-      // Validation testing would require actual form interaction
-      // Component structure changed - skip detailed validation test
-      expect(screen.getAllByText('Add Job to Customer').length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('Search and Filter', () => {
-    test('should allow searching for customers in project section', async () => {
-      axios.get.mockResolvedValue({ data: mockCustomers });
-
-      renderWithRouter(<Customers />);
-
-      await waitFor(() => {
-        expect(screen.getAllByText('John Doe').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Jane Smith').length).toBeGreaterThan(0);
       });
 
-      const searchInput = screen.getByPlaceholderText(/Type customer name to search/i);
-      await userEvent.type(searchInput, 'John');
-
-      // The search is for selecting customer for project assignment
-      // Main table should still show all customers
-      expect(screen.getAllByText('John Doe').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('Jane Smith').length).toBeGreaterThan(0);
-      expect(searchInput.value).toBe('John');
-    });
-
-    test('should accept search input for project customer selection', async () => {
-      axios.get.mockResolvedValue({ data: mockCustomers });
-
-      renderWithRouter(<Customers />);
-
-      await waitFor(() => {
-        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
-      });
-
-      const searchInput = screen.getByPlaceholderText(/Type customer name to search/i);
+      const searchInput = screen.getByPlaceholderText(/Search name, email, phone, or account/i);
       await userEvent.type(searchInput, 'jane');
 
-      // Verify search input works
-      expect(searchInput.value).toBe('jane');
-      // Main customer table still shows all customers
-      expect(screen.getAllByText('John Doe').length).toBeGreaterThan(0);
+      expect(screen.queryByText('John Doe')).not.toBeInTheDocument();
       expect(screen.getAllByText('Jane Smith').length).toBeGreaterThan(0);
     });
   });
@@ -443,55 +317,16 @@ describe('Customers Component', () => {
     });
   });
 
-  describe('Editing Customers', () => {
-    test('should open edit form', async () => {
+  describe('Opening a customer', () => {
+    test('offers an Open link to the customer page', async () => {
       axios.get.mockResolvedValue({ data: mockCustomers });
 
       renderWithRouter(<Customers />);
 
       await waitFor(() => {
-        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
+        expect(screen.getAllByRole('link', { name: 'Open' })[0]).toHaveAttribute('href', '/customers/1');
       });
-
-      const editButtons = screen.getAllByText('Edit');
-      await userEvent.click(editButtons[0]);
-
-      // Edit form should be visible
-      await waitFor(() => {
-        const nameInputs = screen.getAllByDisplayValue('John Doe');
-        expect(nameInputs.length).toBeGreaterThan(0);
-      });
-    });
-
-    test('should update customer', async () => {
-      axios.get.mockResolvedValue({ data: mockCustomers });
-      axios.put.mockResolvedValue({ data: { ...mockCustomers[0], name: 'Updated Name' } });
-
-      renderWithRouter(<Customers />);
-
-      await waitFor(() => {
-        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
-      });
-
-      await userEvent.click(screen.getAllByText('Edit')[0]);
-
-      await waitFor(() => {
-        const inputs = screen.getAllByDisplayValue('John Doe');
-        expect(inputs.length).toBeGreaterThan(0);
-      });
-
-      const editNameInput = screen.getAllByDisplayValue('John Doe')[0];
-      await userEvent.clear(editNameInput);
-      await userEvent.type(editNameInput, 'Updated Name');
-
-      axios.get.mockResolvedValueOnce({ data: [{ ...mockCustomers[0], name: 'Updated Name' }] });
-      
-      const saveButtons = screen.getAllByText('Save');
-      await userEvent.click(saveButtons[0]);
-
-      await waitFor(() => {
-        expect(axios.put).toHaveBeenCalled();
-      });
+      expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     });
   });
 
@@ -518,9 +353,22 @@ describe('Customers Component', () => {
         expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
       });
 
-      // Project should be visible directly in the table - may appear multiple times
-      const projectLinks = screen.queryAllByText('Kitchen Remodel');
-      expect(projectLinks.length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('link', { name: 'Open' })[0]).toHaveAttribute('href', '/customers/1');
+      expect(screen.queryByRole('link', { name: 'Kitchen Remodel' })).not.toBeInTheDocument();
+    });
+
+    test('notes a customer obtained from the Request a Bid page', async () => {
+      axios.get.mockResolvedValue({
+        data: [
+          { ...mockCustomers[0], obtainedVia: 'hero-bid' },
+          mockCustomers[1],
+        ],
+      });
+
+      renderWithRouter(<Customers />);
+
+      expect(await screen.findByText('Obtained from the Request a Bid page')).toBeInTheDocument();
+      expect(screen.getAllByText('Obtained from the Request a Bid page')).toHaveLength(1);
     });
   });
 

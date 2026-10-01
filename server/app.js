@@ -302,6 +302,10 @@ const customerSchema = new mongoose.Schema({
   phone: String,
   address: String,
   accountNumber: { type: String, default: '', trim: true },
+  // Set only when this customer record is created by the public Request a Bid page.
+  obtainedVia: { type: String, default: '' },
+  // True after a Request a Bid submission until staff open the "New Customer Bid!" link.
+  heroBidUnread: { type: Boolean, default: false },
   projects: [{
     name: String,
     jobNumber: { type: String, default: '', trim: true },
@@ -1009,7 +1013,9 @@ app.post('/api/customer-bid', async (req, res) => {
     let customer = await Customer.findOne({ email });
 
     if (customer) {
-      // Customer exists, add new project to existing customer
+      // Customer exists, add new project to existing customer.
+      // A later bid does not change how the customer was first obtained.
+      customer.heroBidUnread = true;
       customer.projects.push({
         name: projectName,
         description: projectDescription,
@@ -1031,6 +1037,8 @@ app.post('/api/customer-bid', async (req, res) => {
         email,
         phone,
         address: address || '',
+        obtainedVia: 'hero-bid',
+        heroBidUnread: true,
         projects: [{
           name: projectName,
           description: projectDescription,
@@ -1477,6 +1485,24 @@ app.get('/api/customers/:id', authMiddleware, adminMiddleware, async (req, res) 
   }
 });
 
+// Staff opened the "New Customer Bid!" link. Hide that notice. Keep obtainedVia.
+app.put('/api/customers/:id/hero-bid-notice', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const customerId = String(req.params.id || '').trim();
+    if (!mongoose.Types.ObjectId.isValid(customerId)) {
+      return res.status(400).json({ msg: 'Invalid customer ID format' });
+    }
+    const customer = await Customer.findById(customerId);
+    if (!customer) return res.status(404).json({ msg: 'Customer not found' });
+    customer.heroBidUnread = false;
+    await customer.save();
+    res.json({ heroBidUnread: false, obtainedVia: customer.obtainedVia || '' });
+  } catch (err) {
+    console.error('Error clearing hero bid notice:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
 app.post('/api/customers', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customerData = { ...req.body };
@@ -1516,10 +1542,10 @@ app.put('/api/customers/:id', authMiddleware, adminMiddleware, async (req, res) 
       return res.status(404).json({ msg: 'Customer not found' });
     }
     
-    // Update customer fields
+    // Name stays required. Email and phone update whenever they are sent, including a blank value.
     if (req.body.name) customer.name = req.body.name;
-    if (req.body.email) customer.email = req.body.email;
-    if (req.body.phone) customer.phone = req.body.phone;
+    if (req.body.email !== undefined) customer.email = req.body.email;
+    if (req.body.phone !== undefined) customer.phone = req.body.phone;
     if (req.body.address !== undefined) customer.address = req.body.address;
     if (req.body.accountNumber !== undefined) {
       const nextAccount = normalizeNumber(req.body.accountNumber);

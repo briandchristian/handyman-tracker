@@ -138,22 +138,32 @@ describe('Inventory Component - Phase 2C', () => {
     });
   });
 
-  test('should show auto-reorder status', async () => {
-    render(<BrowserRouter><Inventory /></BrowserRouter>);
-    
-    await waitFor(() => {
-      const lumberElements = screen.queryAllByText('2x4 Lumber');
-      expect(lumberElements.length).toBeGreaterThan(0);
+  test('shows part numbers and hides sku, par level, and auto-reorder on the list', async () => {
+    axios.get.mockImplementation((url) => {
+      if (url.includes('/suppliers')) {
+        return Promise.resolve({ data: { suppliers: [], stats: {} } });
+      }
+      if (url.includes('/customers')) {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({
+        data: [{ ...mockInventoryData[0], supplierPartNumber: 'Q9-IQRPG' }],
+      });
     });
-    
-    // Auto-reorder is shown in stats card and table header
-    // Use queryAllByText to avoid errors when multiple elements exist
-    const autoReorderTexts = screen.queryAllByText('Auto-Reorder');
-    expect(autoReorderTexts.length).toBeGreaterThan(0);
-    
-    // Stats show 2 items with auto-reorder enabled - check body text instead
-    const bodyText = document.body.textContent;
-    expect(bodyText).toMatch(/Auto-Reorder/i);
+
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Q9-IQRPG').length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getByRole('columnheader', { name: 'Part number' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'SKU' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Par Level' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Auto-Reorder' })).not.toBeInTheDocument();
+    expect(screen.queryByText('LUM-2X4')).not.toBeInTheDocument();
+    expect(screen.queryByText('Auto-Reorder')).not.toBeInTheDocument();
+    expect(screen.queryByText('Par Level:')).not.toBeInTheDocument();
   });
 
   test('should open adjust stock modal when clicked', async () => {
@@ -405,7 +415,7 @@ describe('Inventory Component - Phase 2C', () => {
     render(<BrowserRouter><Inventory /></BrowserRouter>);
     
     await waitFor(() => {
-      const searchInput = screen.getByPlaceholderText(/Search by name or SKU/i);
+      const searchInput = screen.getByPlaceholderText(/Search by name or part number/i);
       fireEvent.change(searchInput, { target: { value: 'LUM' } });
     });
     
@@ -532,11 +542,8 @@ describe('Inventory Component - Phase 2C', () => {
       // Total Items - may appear multiple times, use queryAllByText
       const totalItems = screen.queryAllByText('3');
       expect(totalItems.length).toBeGreaterThan(0);
-      // Auto-Reorder count (2 items)
-      const autoReorderStats = screen.getAllByText('2').filter(el => 
-        el.className.includes('font-bold')
-      );
-      expect(autoReorderStats.length).toBeGreaterThan(0);
+      expect(screen.getByText('Est. Value')).toBeInTheDocument();
+      expect(screen.queryByText('Auto-Reorder')).not.toBeInTheDocument();
     });
   });
 
@@ -828,7 +835,7 @@ describe('Inventory Component - Phase 2C', () => {
     expect(screen.getByRole('button', { name: 'Update price' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Preferred Supplier'), { target: { value: '' } });
-    expect(screen.queryByRole('button', { name: 'Update price' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Update price' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Preferred Supplier'), { target: { value: 'adi' } });
     fireEvent.click(screen.getByRole('button', { name: 'Update price' }));
