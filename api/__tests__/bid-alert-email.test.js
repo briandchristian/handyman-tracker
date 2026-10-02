@@ -327,6 +327,40 @@ describe('POST /api/customer-bid email alert', () => {
     );
   });
 
+  test('finishes the staff email before the bid response so Vercel does not drop it', async () => {
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    sendBidAlert.mockImplementation(() => gate.then(() => ({
+      sent: false,
+      reason: 'smtp-not-configured',
+    })));
+
+    let settled = false;
+    const pending = request(app).post('/api/customer-bid').send(heroBid).then((res) => {
+      settled = true;
+      return res;
+    });
+
+    const start = Date.now();
+    while (sendBidAlert.mock.calls.length < 1) {
+      if (Date.now() - start > 2000) {
+        throw new Error('sendBidAlert was not called');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(settled).toBe(false);
+
+    release();
+    const res = await pending;
+    expect(res.status).toBe(201);
+
+    const Customer = mongoose.model('Customer');
+    expect(await Customer.findOne({ email: 'jane@example.com' })).toBeTruthy();
+  });
+
   test('still saves the bid when sending throws', async () => {
     await request(app)
       .put('/api/settings/bid-alerts')

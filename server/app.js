@@ -440,12 +440,14 @@ async function loadSentBidAlerts() {
   }));
 }
 
-/** Fire-and-forget. A mail failure must not change the bid response. */
-function notifyStaffOfBid(bid) {
+/**
+ * Send the staff alert and wait for it. Vercel freezes the function as soon as
+ * the HTTP response is sent, so a detached promise never reaches SMTP.
+ * A mail failure is logged and does not change the bid response.
+ */
+async function notifyStaffOfBid(bid) {
   try {
-    Promise.resolve(deliverStaffBidAlert(bid)).catch((err) => {
-      console.error('Bid alert email failed:', err?.message || err);
-    });
+    await deliverStaffBidAlert(bid);
   } catch (err) {
     console.error('Bid alert email failed:', err?.message || err);
   }
@@ -1158,6 +1160,8 @@ app.post('/api/customer-bid', async (req, res) => {
     // Check if customer already exists by email
     let customer = await Customer.findOne({ email });
 
+    let status = 201;
+    let payload;
     if (customer) {
       // Customer exists, add new project to existing customer.
       // A later bid does not change how the customer was first obtained.
@@ -1169,13 +1173,14 @@ app.post('/api/customer-bid', async (req, res) => {
         createdAt: new Date()
       });
       await customer.save();
-      res.json({ 
+      status = 200;
+      payload = {
         msg: 'Bid request submitted successfully! We found your existing account and added this project to it.',
         customer: {
           name: customer.name,
           email: customer.email
         }
-      });
+      };
     } else {
       // Create new customer with the project
       const newCustomer = new Customer({
@@ -1193,18 +1198,18 @@ app.post('/api/customer-bid', async (req, res) => {
         }]
       });
       await newCustomer.save();
-      res.status(201).json({ 
+      payload = {
         msg: 'Bid request submitted successfully! We will contact you soon.',
         customer: {
           name: newCustomer.name,
           email: newCustomer.email
         }
-      });
+      };
     }
 
-    // Notify saved staff addresses. Runs after the response is sent so a mail
-    // problem cannot turn a stored bid into a failed request.
-    notifyStaffOfBid({
+    // The customer is already stored. Finish the email before responding:
+    // Vercel stops the function when the response is sent.
+    await notifyStaffOfBid({
       name,
       email,
       phone,
@@ -1212,6 +1217,8 @@ app.post('/api/customer-bid', async (req, res) => {
       projectName: String(projectName ?? '').trim(),
       projectDescription: String(projectDescription ?? '').trim(),
     });
+
+    res.status(status).json(payload);
 
     // Server-side Meta Conversions API Lead event. The browser pixel is often
     // blocked, so this is the more reliable conversion signal. Deliberately not
