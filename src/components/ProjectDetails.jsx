@@ -1701,11 +1701,8 @@ export default function ProjectDetails() {
 
   return (
     <div className="p-4 sm:p-6 text-black max-w-6xl mx-auto min-w-0 overflow-x-hidden">
-      <div data-testid="project-top-actions" className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 mb-4">
+      <div data-testid="project-top-actions" className="mb-4">
         <Link to="/customers" className="btn-staff text-center">Back to Customers</Link>
-        <Link to="/dashboard" className="btn-staff text-center">
-          Dashboard
-        </Link>
       </div>
       <h1 className="text-2xl sm:text-3xl leading-tight break-words font-bold mb-6 text-black">
         {editingProjectInfo

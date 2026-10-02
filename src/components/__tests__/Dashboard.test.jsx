@@ -87,17 +87,17 @@ describe('Dashboard Component', () => {
     });
   });
 
-  test('should show logout button in bottom footer', async () => {
+  test('leaves Logout to the staff header', async () => {
     axios.get.mockResolvedValue({ data: mockCustomers });
 
     render(<BrowserRouter><Dashboard /></BrowserRouter>);
 
     await waitFor(() => {
-      expect(screen.getByText('Logout')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
     });
 
-    const footer = screen.getByTestId('page-footer');
-    expect(within(footer).getByText('Logout')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('page-footer')).not.toBeInTheDocument();
   });
 
   test('should use compact centered page layout', async () => {

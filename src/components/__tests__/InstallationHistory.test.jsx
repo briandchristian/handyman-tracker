@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import axios from 'axios';
 import InstallationHistory from '../InstallationHistory';
@@ -23,7 +23,7 @@ describe('InstallationHistory Component', () => {
     });
   });
 
-  test('should show logout button in bottom footer', async () => {
+  test('leaves Dashboard and Logout to the staff header', async () => {
     render(
       <BrowserRouter>
         <InstallationHistory />
@@ -34,23 +34,9 @@ describe('InstallationHistory Component', () => {
       expect(screen.getByText('Installation & Service History')).toBeInTheDocument();
     });
 
-    const footer = screen.getByTestId('page-footer');
-    expect(within(footer).getByText('Logout')).toBeInTheDocument();
-    expect(within(footer).getByText('Dashboard')).toBeInTheDocument();
-  });
-
-  test('should only render one dashboard button', async () => {
-    render(
-      <BrowserRouter>
-        <InstallationHistory />
-      </BrowserRouter>
-    );
-
-    await waitFor(() => {
-      const dashboardLinks = screen.getAllByRole('link', { name: 'Dashboard' });
-      expect(dashboardLinks).toHaveLength(1);
-      expect(dashboardLinks[0]).toHaveAttribute('href', '/dashboard');
-    });
+    expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('page-footer')).not.toBeInTheDocument();
   });
 });
 

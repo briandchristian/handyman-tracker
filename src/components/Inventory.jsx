@@ -48,12 +48,6 @@ export default function Inventory() {
     fetchCustomers();
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('userRole');
-    window.location.href = '/login';
-  };
-
   const fetchSuppliers = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -595,24 +589,6 @@ export default function Inventory() {
         />
       )}
 
-      {/* Bottom-right page footer actions */}
-      <div
-        data-testid="page-footer"
-        className="mt-8 flex justify-end items-center gap-3"
-      >
-        <Link
-          to="/dashboard"
-          className="btn-staff"
-        >
-          Dashboard
-        </Link>
-        <button
-          onClick={handleLogout}
-          className="btn-danger"
-        >
-          Logout
-        </button>
-      </div>
     </div>
   );
 }

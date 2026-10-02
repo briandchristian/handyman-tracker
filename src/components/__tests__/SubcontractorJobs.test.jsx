@@ -67,7 +67,9 @@ describe('SubcontractorJobs', () => {
     renderPage();
 
     expect(await screen.findByText(/no brinks work orders/i)).toBeInTheDocument();
-    expect(screen.getAllByRole('heading', { name: /subcontractor/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: /subcontractor/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
   });
 
   test('lists work orders with completion number and amount due', async () => {

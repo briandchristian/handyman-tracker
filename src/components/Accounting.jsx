@@ -3,7 +3,7 @@
  * Source documents stay on jobs, expenses, and labor — this page summarizes them.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
 import { COST_CENTERS } from '../constants/costCenters';
@@ -273,14 +273,8 @@ export default function Accounting() {
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto text-slate-900">
-      <div className="hidden lg:flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Accounting</h1>
-        <Link to="/dashboard" className="btn-staff text-sm">
-          Dashboard
-        </Link>
-      </div>
-      <div className="lg:hidden mb-4">
-        <h1 className="text-2xl font-bold">Accounting</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl md:text-3xl font-bold">Accounting</h1>
       </div>
 
       <div className="card-surface p-4 mb-6">

@@ -75,6 +75,8 @@ describe('CustomerDetail', () => {
     });
     expect(screen.getByText('555-123-4567')).toBeInTheDocument();
     expect(screen.getByText('123 Main St')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Customers' })).toHaveAttribute('href', '/customers');
     expect(screen.getByTestId('job-row-p1')).toHaveTextContent('J-1001 · Kitchen Remodel');
     expect(screen.getByTestId('job-row-p2')).toHaveTextContent('J-1002 · Panel');
     expect(within(screen.getByTestId('job-row-p1')).getByRole('link', { name: 'Open' })).toHaveAttribute(

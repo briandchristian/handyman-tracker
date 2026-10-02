@@ -125,12 +125,6 @@ export default function InstallationHistory() {
 
   const downloadOne = (id) => downloadCsv([id]);
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('userRole');
-    window.location.href = '/login';
-  };
-
   if (loading && entries.length === 0) {
     return (
       <div className="p-4 md:p-6">
@@ -295,24 +289,6 @@ export default function InstallationHistory() {
         </div>
       )}
 
-      {/* Bottom-right page footer actions */}
-      <div
-        data-testid="page-footer"
-        className="mt-8 flex justify-end items-center gap-3"
-      >
-        <Link
-          to="/dashboard"
-          className="btn-staff"
-        >
-          Dashboard
-        </Link>
-        <button
-          onClick={handleLogout}
-          className="btn-danger"
-        >
-          Logout
-        </button>
-      </div>
     </div>
   );
 }

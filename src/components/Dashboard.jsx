@@ -38,12 +38,6 @@ export default function Dashboard() {
     fetchAllProjects();
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('userRole');
-    window.location.href = '/login';
-  };
-
   const fetchAllProjects = async () => {
     try {
       const res = await axios.get(`${API_BASE_URL}/api/customers`, {
@@ -380,14 +374,6 @@ export default function Dashboard() {
         )}
       </div>
 
-      <div data-testid="page-footer" className="mt-8 flex justify-end items-center">
-        <button
-          onClick={handleLogout}
-          className="btn-danger"
-        >
-          Logout
-        </button>
-      </div>
     </div>
   );
 }

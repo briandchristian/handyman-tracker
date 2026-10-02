@@ -607,16 +607,16 @@ describe('Inventory Component - Phase 2C', () => {
     });
   });
 
-  test('should show logout button in bottom footer', async () => {
+  test('leaves Dashboard and Logout to the staff header', async () => {
     render(<BrowserRouter><Inventory /></BrowserRouter>);
 
     await waitFor(() => {
-      expect(screen.getByText('Logout')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Inventory Management' })).toBeInTheDocument();
     });
 
-    const footer = screen.getByTestId('page-footer');
-    expect(within(footer).getByText('Logout')).toBeInTheDocument();
-    expect(within(footer).getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('page-footer')).not.toBeInTheDocument();
   });
 
   test('should offer a count-on-hand option and preview the shortage', async () => {
@@ -752,15 +752,6 @@ describe('Inventory Component - Phase 2C', () => {
     expect(screen.getByRole('option', { name: /Camera run/i })).toBeInTheDocument();
   });
 
-  test('should only render one dashboard button', async () => {
-    render(<BrowserRouter><Inventory /></BrowserRouter>);
-
-    await waitFor(() => {
-      const dashboardLinks = screen.getAllByRole('link', { name: 'Dashboard' });
-      expect(dashboardLinks).toHaveLength(1);
-      expect(dashboardLinks[0]).toHaveAttribute('href', '/dashboard');
-    });
-  });
 
   test('should use compact centered page layout', async () => {
     const { container } = render(<BrowserRouter><Inventory /></BrowserRouter>);

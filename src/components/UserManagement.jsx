@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
 import { format } from 'date-fns';
@@ -205,12 +204,6 @@ export default function UserManagement() {
     return badges[status] || 'bg-gray-400 text-white';
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('userRole');
-    window.location.href = '/login';
-  };
-
   if (loading) {
     return (
       <div className="p-8 text-black max-w-6xl mx-auto">
@@ -226,9 +219,6 @@ export default function UserManagement() {
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
           {error}
         </div>
-        <Link to="/dashboard" className="btn-staff inline-block">
-          Dashboard
-        </Link>
       </div>
     );
   }
@@ -430,24 +420,6 @@ export default function UserManagement() {
         </div>
       )}
 
-      {/* Bottom-right page footer actions */}
-      <div
-        data-testid="page-footer"
-        className="mt-8 flex justify-end items-center gap-3"
-      >
-        <Link
-          to="/dashboard"
-          className="btn-staff"
-        >
-          Dashboard
-        </Link>
-        <button
-          onClick={handleLogout}
-          className="btn-danger"
-        >
-          Logout
-        </button>
-      </div>
     </div>
   );
 }

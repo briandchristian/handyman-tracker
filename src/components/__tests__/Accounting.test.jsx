@@ -51,6 +51,8 @@ describe('Accounting', () => {
     expect(screen.getByText('Jane')).toBeInTheDocument();
     expect(screen.getByText('Alarm')).toBeInTheDocument();
     expect(screen.getAllByText('$160.00').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
   });
 
   test('shows Direct vs Indirect totals and accepts an overhead expense', async () => {

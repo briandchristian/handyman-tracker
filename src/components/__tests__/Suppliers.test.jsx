@@ -888,26 +888,16 @@ describe('Suppliers Component - Phase 1 & Catalog Management (Phase 2D)', () => 
     }, { timeout: 3000 });
   });
 
-  test('should show logout button in bottom footer', async () => {
+  test('leaves Dashboard and Logout to the staff header', async () => {
     render(<BrowserRouter><Suppliers /></BrowserRouter>);
 
     await waitFor(() => {
-      expect(screen.getByText('Logout')).toBeInTheDocument();
+      expect(screen.getByText('Suppliers & Materials')).toBeInTheDocument();
     });
 
-    const footer = screen.getByTestId('page-footer');
-    expect(within(footer).getByText('Logout')).toBeInTheDocument();
-    expect(within(footer).getByText('Dashboard')).toBeInTheDocument();
-  });
-
-  test('should only render one dashboard button', async () => {
-    render(<BrowserRouter><Suppliers /></BrowserRouter>);
-
-    await waitFor(() => {
-      const dashboardLinks = screen.getAllByRole('link', { name: 'Dashboard' });
-      expect(dashboardLinks).toHaveLength(1);
-      expect(dashboardLinks[0]).toHaveAttribute('href', '/dashboard');
-    });
+    expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('page-footer')).not.toBeInTheDocument();
   });
 
   test('should use compact centered page layout', async () => {

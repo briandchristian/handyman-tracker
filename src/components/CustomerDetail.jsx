@@ -272,7 +272,6 @@ export default function CustomerDetail() {
             <p className="text-sm font-medium text-emerald-800">Obtained from the Request a Bid page</p>
           )}
         </div>
-        <Link to="/dashboard" className="btn-staff">Dashboard</Link>
       </div>
 
       <section className="card-surface p-4 md:p-6 mb-6" aria-label="Contact">

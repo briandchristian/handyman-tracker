@@ -35,6 +35,8 @@ describe('BidAlertSettings', () => {
     expect(await screen.findByDisplayValue('office@example.com')).toBeInTheDocument();
     expect(screen.getByDisplayValue('boss@example.com')).toBeInTheDocument();
     expect(screen.getByText(/smtp is not configured/i)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
     expect(axios.get).toHaveBeenCalledWith(
       expect.stringContaining('/api/settings/bid-alerts'),
       expect.objectContaining({

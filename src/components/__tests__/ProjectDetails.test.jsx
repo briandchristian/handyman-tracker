@@ -121,17 +121,18 @@ describe('ProjectDetails Component', () => {
       });
     });
 
-    test('Dashboard link goes to /dashboard, not the public home', async () => {
+    test('keeps Back to Customers and leaves Dashboard to the staff header', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
 
       renderWithRouter('cust123', 'proj456');
 
       await waitFor(() => {
-        expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute(
+        expect(screen.getByRole('link', { name: 'Back to Customers' })).toHaveAttribute(
           'href',
-          '/dashboard'
+          '/customers'
         );
       });
+      expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
     });
 
     test('should show loading state', () => {
@@ -1473,7 +1474,8 @@ describe('ProjectDetails Component', () => {
         expect(screen.getByTestId('project-top-actions')).toBeInTheDocument();
       });
 
-      expect(screen.getByTestId('project-top-actions').className).toContain('flex-col');
+      expect(screen.getByRole('link', { name: 'Back to Customers' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
       expect(screen.getByTestId('bid-form-row').className).toContain('flex-col');
       expect(screen.getByTestId('bill-form-row').className).toContain('flex-col');
       expect(screen.getByTestId('schedule-form-row').className).toContain('flex-col');

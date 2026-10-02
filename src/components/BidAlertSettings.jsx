@@ -7,7 +7,6 @@
  * are never entered or displayed here.
  */
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
@@ -160,20 +159,14 @@ export default function BidAlertSettings() {
       <div className="p-4 md:p-8 text-slate-900 max-w-2xl mx-auto">
         <h1 className="text-2xl font-bold mb-4">Bid alert emails</h1>
         <FormStatus message={loadError} tone="error" />
-        <Link to="/dashboard" className="btn-secondary text-sm">
-          Dashboard
-        </Link>
       </div>
     );
   }
 
   return (
     <div data-testid="bid-alert-settings" className="p-4 md:p-8 text-slate-900 max-w-2xl mx-auto">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-6">
         <h1 className="text-2xl md:text-3xl font-bold">Bid alert emails</h1>
-        <Link to="/dashboard" className="btn-secondary text-sm">
-          Dashboard
-        </Link>
       </div>
 
       <p className="text-slate-600 mb-4">

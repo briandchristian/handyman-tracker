@@ -63,11 +63,6 @@ export default function Customers() {
     fetchCustomers();
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    window.location.href = '/login';
-  };
-
   const formatPhoneNumber = (value) => {
     const phoneNumber = value.replace(/\D/g, '');
     if (phoneNumber.length <= 3) return phoneNumber;
@@ -88,12 +83,8 @@ export default function Customers() {
 
   return (
     <div className="p-4 md:p-6 text-black min-h-screen flex flex-col max-w-6xl mx-auto">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
-        <h1 className="text-2xl md:text-2xl text-black">Customers</h1>
-        <div className="flex gap-2 w-full sm:w-auto">
-          <Link to="/dashboard" className="btn-staff flex-1 sm:flex-none">Dashboard</Link>
-          <button onClick={handleLogout} className="btn-danger flex-1 sm:flex-none">Logout</button>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-2xl text-black">Customers</h1>
       </div>
 
       <div className="flex-1 overflow-auto mb-6">

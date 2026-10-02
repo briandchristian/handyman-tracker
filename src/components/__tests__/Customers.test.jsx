@@ -97,25 +97,14 @@ describe('Customers Component', () => {
       });
     });
 
-    test('should display navigation links', () => {
+    test('leaves Dashboard and Logout to the staff header', () => {
       axios.get.mockResolvedValue({ data: [] });
 
       renderWithRouter(<Customers />);
 
-      expect(screen.getByText('Dashboard')).toBeInTheDocument();
-      expect(screen.getByText('Customers')).toBeInTheDocument();
-    });
-
-    test('should place dashboard next to logout in header', async () => {
-      axios.get.mockResolvedValue({ data: [] });
-
-      renderWithRouter(<Customers />);
-
-      await waitFor(() => {
-        expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
-        expect(screen.getByRole('button', { name: 'Logout' })).toBeInTheDocument();
-        expect(screen.queryByTestId('page-footer')).not.toBeInTheDocument();
-      });
+      expect(screen.getByRole('heading', { name: 'Customers' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
     });
 
     test('should use compact centered page layout', async () => {
@@ -368,19 +357,6 @@ describe('Customers Component', () => {
         expect(screen.getAllByRole('link', { name: 'Open' })[0]).toHaveAttribute('href', '/customers/1');
       });
       expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Logout', () => {
-    test('should logout and redirect to login', async () => {
-      axios.get.mockResolvedValue({ data: [] });
-
-      renderWithRouter(<Customers />);
-
-      await userEvent.click(screen.getByText('Logout'));
-
-      expect(localStorage.getItem('token')).toBeNull();
-      // Component sets window.location.href = '/login'
     });
   });
 

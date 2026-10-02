@@ -3,7 +3,6 @@
  * Tickets are source documents of their own — not CSS customer jobs.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
 import {
@@ -232,14 +231,8 @@ export default function SubcontractorJobs() {
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto text-slate-900">
-      <div className="hidden lg:flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Subcontractor</h1>
-        <Link to="/dashboard" className="btn-staff text-sm">
-          Dashboard
-        </Link>
-      </div>
-      <div className="lg:hidden mb-4">
-        <h1 className="text-2xl font-bold">Subcontractor</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl md:text-3xl font-bold">Subcontractor</h1>
       </div>
       <p className="text-sm text-slate-600 mb-6">
         Brinks work-order tracker. These tickets are not Christian Security customer jobs
