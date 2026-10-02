@@ -1,28 +1,15 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import {
+  STAFF_NAV_ITEMS,
+  isStaffNavActive,
+  logoutStaff,
+  staffNavLabel,
+} from '../constants/staffNav';
 
 export default function MobileNav() {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
-
-  const navigation = [
-    { name: 'Dashboard', path: '/dashboard', icon: '🏠' },
-    { name: 'Customers', path: '/customers', icon: '👥' },
-    { name: 'Installation History', path: '/installation-history', icon: '📜' },
-    { name: 'Inventory', path: '/inventory', icon: '📦' },
-    { name: 'Suppliers', path: '/suppliers', icon: '🏪' },
-    { name: 'Part price', path: '/inventory#adi-price', icon: '💲' },
-    { name: 'Purchase Orders', path: '/purchase-orders', icon: '📋' },
-    { name: 'Accounting', path: '/accounting', icon: '💵' },
-    { name: 'Subcontractor', path: '/subcontractor', icon: '🛠️' },
-    { name: 'Users', path: '/admin/users', icon: '👤' },
-  ];
-
-  const isActive = (path) => {
-    if (path === '/dashboard' && location.pathname === '/dashboard') return true;
-    if (path !== '/dashboard' && location.pathname.startsWith(path)) return true;
-    return false;
-  };
 
   return (
     <>
@@ -66,31 +53,29 @@ export default function MobileNav() {
             data-testid="mobile-nav-drawer"
             className="lg:hidden fixed top-[65px] right-0 bottom-0 w-64 bg-white shadow-xl z-[70] overflow-y-auto"
           >
-            <nav className="p-4" aria-label="Staff">
-              {navigation.map((item) => (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setIsOpen(false)}
-                  className={`flex items-center gap-3 p-4 md:p-3 rounded-lg mb-2 min-h-[44px] text-base md:text-sm ${
-                    isActive(item.path)
-                      ? 'bg-slate-900 text-white font-semibold'
-                      : 'text-slate-800 hover:bg-slate-100'
-                  }`}
-                >
-                  <span className="text-xl">{item.icon}</span>
-                  <span>{item.name}</span>
-                </Link>
-              ))}
+            <nav className="p-4 flex flex-col gap-2" aria-label="Staff">
+              {STAFF_NAV_ITEMS.map((item) => {
+                const active = isStaffNavActive(item.path, location);
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={() => setIsOpen(false)}
+                    aria-current={active ? 'page' : undefined}
+                    className={`btn-secondary w-full justify-start gap-3 text-sm${
+                      active ? ' ring-2 ring-slate-900' : ''
+                    }`}
+                  >
+                    <span className="text-xl" aria-hidden="true">{item.icon}</span>
+                    <span>{staffNavLabel(item)}</span>
+                  </Link>
+                );
+              })}
               <button
-                onClick={() => {
-                  localStorage.removeItem('token');
-                  localStorage.removeItem('userRole');
-                  window.location.href = '/login';
-                }}
-                className="flex items-center gap-3 p-4 md:p-3 rounded-lg mt-4 w-full text-left text-red-700 hover:bg-red-50 min-h-[44px] text-base md:text-sm font-medium"
+                onClick={logoutStaff}
+                className="btn-secondary w-full justify-start gap-3 text-sm"
               >
-                <span className="text-xl">🚪</span>
+                <span className="text-xl" aria-hidden="true">🚪</span>
                 <span>Logout</span>
               </button>
             </nav>

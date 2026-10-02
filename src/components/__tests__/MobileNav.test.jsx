@@ -82,6 +82,7 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
       expect(screen.getByText('Accounting')).toBeInTheDocument();
       expect(screen.getByText('Subcontractor')).toBeInTheDocument();
       expect(screen.getByText('Users')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Bid alerts/ })).toHaveAttribute('href', '/admin/bid-alerts');
     });
   });
 
@@ -197,8 +198,8 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
       const links = screen.getAllByRole('link');
       const customersLink = links.find(link => link.textContent.includes('Customers'));
       
-      // Should have active styling (bg-blue-500)
-      expect(customersLink).toHaveClass('bg-slate-900');
+      expect(customersLink).toHaveAttribute('aria-current', 'page');
+      expect(customersLink.className).toContain('btn-secondary');
     });
   });
 
@@ -215,8 +216,8 @@ describe('MobileNav Component - Phase 2E Mobile Features', () => {
       const links = screen.getAllByRole('link');
       const dashboardLink = links.find(link => link.textContent.includes('Dashboard'));
       
-      // Should have active styling
-      expect(dashboardLink).toHaveClass('bg-slate-900');
+      expect(dashboardLink).toHaveAttribute('aria-current', 'page');
+      expect(dashboardLink.className).toContain('btn-secondary');
     });
   });
 

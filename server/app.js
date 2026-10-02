@@ -17,6 +17,13 @@ import { fetchAdiOrderGeneration } from './lib/suppliers/adiOrderGeneration.js';
 import { fetchAdiOrderInquiry } from './lib/suppliers/adiOrderInquiry.js';
 import { sendMetaLeadEvent } from './lib/metaCapi.js';
 import {
+  MAX_BID_ALERT_RECIPIENTS,
+  bidAlertSentRecord,
+  getSmtpConfig,
+  parseRecipientEmails,
+  sendBidAlert,
+} from './lib/bidNotify.js';
+import {
   applyJobUsageToProject,
   applyStockChange,
   isDuplicateKeyError,
@@ -389,6 +396,75 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
+
+// Who is emailed when the public Request a Bid form is submitted. One document.
+const BID_ALERT_SETTINGS_KEY = 'bid-alerts';
+const bidAlertSettingsSchema = new mongoose.Schema({
+  key: { type: String, required: true, unique: true, default: BID_ALERT_SETTINGS_KEY },
+  recipients: { type: [String], default: [] },
+});
+const BidAlertSettings = mongoose.model('BidAlertSettings', bidAlertSettingsSchema);
+
+// One row per email that was actually sent. Fields match the message body.
+const bidAlertSentSchema = new mongoose.Schema({
+  sentAt: { type: Date, default: Date.now },
+  recipients: { type: [String], default: [] },
+  subject: String,
+  name: String,
+  email: String,
+  phone: String,
+  address: String,
+  projectName: String,
+  projectDescription: String,
+});
+const BidAlertSent = mongoose.model('BidAlertSent', bidAlertSentSchema);
+
+async function loadBidAlertRecipients() {
+  const settings = await BidAlertSettings.findOne({ key: BID_ALERT_SETTINGS_KEY }).lean();
+  return Array.isArray(settings?.recipients) ? settings.recipients : [];
+}
+
+async function loadSentBidAlerts() {
+  const docs = await BidAlertSent.find().sort({ sentAt: -1 }).limit(100).lean();
+  return docs.map((doc) => ({
+    id: String(doc._id),
+    sentAt: doc.sentAt,
+    recipients: doc.recipients || [],
+    subject: doc.subject || '',
+    name: doc.name || '',
+    email: doc.email || '',
+    phone: doc.phone || '',
+    address: doc.address || '',
+    projectName: doc.projectName || '',
+    projectDescription: doc.projectDescription || '',
+  }));
+}
+
+/** Fire-and-forget. A mail failure must not change the bid response. */
+function notifyStaffOfBid(bid) {
+  try {
+    Promise.resolve(deliverStaffBidAlert(bid)).catch((err) => {
+      console.error('Bid alert email failed:', err?.message || err);
+    });
+  } catch (err) {
+    console.error('Bid alert email failed:', err?.message || err);
+  }
+}
+
+async function deliverStaffBidAlert(bid) {
+  const recipients = await loadBidAlertRecipients();
+  const result = await sendBidAlert({ recipients, bid });
+  if (result?.sent) {
+    const record = result.record || bidAlertSentRecord(bid, result.recipients);
+    await BidAlertSent.create(record);
+  }
+  if (result?.reason === 'smtp-not-configured') {
+    console.warn('Bid alert skipped: SMTP is not configured (set SMTP_HOST and SMTP_FROM).');
+  } else if (result && !result.sent && result.reason !== 'no-recipients') {
+    console.error('Bid alert email failed:', result.reason, result.error || '');
+  }
+  return result;
+}
 
 // Supplier Schema
 const supplierSchema = new mongoose.Schema({
@@ -983,6 +1059,76 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// Staff-editable list of addresses emailed on Request a Bid.
+app.get('/api/settings/bid-alerts', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const recipients = await loadBidAlertRecipients();
+    const sent = await loadSentBidAlerts();
+    res.json({
+      recipients,
+      sent,
+      smtpConfigured: getSmtpConfig(process.env).enabled,
+    });
+  } catch (err) {
+    console.error('Error loading bid alert settings:', err);
+    res.status(500).json({ msg: 'Server error loading bid alert emails' });
+  }
+});
+
+app.put('/api/settings/bid-alerts', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const parsed = parseRecipientEmails(req.body?.recipients);
+    if (parsed.invalid.length > 0) {
+      return res.status(400).json({
+        msg: `Invalid email: ${parsed.invalid.join(', ')}`,
+        invalid: parsed.invalid,
+      });
+    }
+    if (parsed.recipients.length > MAX_BID_ALERT_RECIPIENTS) {
+      return res.status(400).json({
+        msg: `You can save at most ${MAX_BID_ALERT_RECIPIENTS} notification emails.`,
+      });
+    }
+    const settings = await BidAlertSettings.findOneAndUpdate(
+      { key: BID_ALERT_SETTINGS_KEY },
+      { key: BID_ALERT_SETTINGS_KEY, recipients: parsed.recipients },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    res.json({
+      recipients: settings.recipients,
+      smtpConfigured: getSmtpConfig(process.env).enabled,
+      msg: parsed.recipients.length
+        ? 'Bid alert emails saved.'
+        : 'Bid alert emails cleared. No notification will be sent until you add an address.',
+    });
+  } catch (err) {
+    console.error('Error saving bid alert settings:', err);
+    res.status(500).json({ msg: 'Server error saving bid alert emails' });
+  }
+});
+
+// Remove chosen sent-email records. Does not delete the customer those emails described.
+app.delete('/api/settings/bid-alerts/sent', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((id) => String(id)) : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ msg: 'Select a sent email to delete.' });
+    }
+    const objectIds = ids.filter((id) => mongoose.Types.ObjectId.isValid(id));
+    if (objectIds.length > 0) {
+      await BidAlertSent.deleteMany({ _id: { $in: objectIds } });
+    }
+    const sent = await loadSentBidAlerts();
+    res.json({
+      sent,
+      msg: ids.length === 1 ? 'Sent email deleted.' : 'Sent emails deleted.',
+    });
+  } catch (err) {
+    console.error('Error deleting sent bid alerts:', err);
+    res.status(500).json({ msg: 'Server error deleting sent emails' });
+  }
+});
+
 // Public Customer Bid Route (no authentication required)
 app.post('/api/customer-bid', async (req, res) => {
   try {
@@ -1055,6 +1201,17 @@ app.post('/api/customer-bid', async (req, res) => {
         }
       });
     }
+
+    // Notify saved staff addresses. Runs after the response is sent so a mail
+    // problem cannot turn a stored bid into a failed request.
+    notifyStaffOfBid({
+      name,
+      email,
+      phone,
+      address: String(address ?? '').trim(),
+      projectName: String(projectName ?? '').trim(),
+      projectDescription: String(projectDescription ?? '').trim(),
+    });
 
     // Server-side Meta Conversions API Lead event. The browser pixel is often
     // blocked, so this is the more reliable conversion signal. Deliberately not

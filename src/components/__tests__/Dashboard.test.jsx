@@ -53,7 +53,7 @@ describe('Dashboard Component', () => {
     });
   });
 
-  test('should render navigation links', async () => {
+  test('leaves section links to the staff bar instead of a crowded header', async () => {
     axios.get.mockResolvedValue({ data: [] });
 
     render(<BrowserRouter><Dashboard /></BrowserRouter>);
@@ -62,9 +62,9 @@ describe('Dashboard Component', () => {
       expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
     });
 
-    expect(screen.getByText('Customers')).toBeInTheDocument();
-    expect(screen.getByText('Subcontractor')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Part price' })).toHaveAttribute('href', '/inventory#adi-price');
+    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Bid alerts' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Part price' })).not.toBeInTheDocument();
   });
 
   test('should handle empty projects', async () => {

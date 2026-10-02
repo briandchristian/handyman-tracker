@@ -13,6 +13,15 @@ function jobCountLabel(count) {
   return count === 1 ? '1 job' : `${count} jobs`;
 }
 
+/** Same check as job removal: materials, a bid worksheet, payments, or a bid amount. */
+function projectHasRecordedWork(project) {
+  return (project?.materials?.length || 0) > 0
+    || (project?.bidMaterials?.length || 0) > 0
+    || (project?.payments?.length || 0) > 0
+    || Number(project?.paidToDate) > 0
+    || Number(project?.bidAmount) > 0;
+}
+
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '', address: '', accountNumber: '' });
@@ -43,8 +52,14 @@ export default function Customers() {
     }
   };
 
-  const deleteCustomer = async (id) => {
-    await axios.delete(`${API_BASE_URL}/api/customers/${id}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+  const deleteCustomer = async (customer) => {
+    const label = customer.name || 'this customer';
+    const hasRecordedWork = (customer.projects || []).some(projectHasRecordedWork);
+    const message = hasRecordedWork
+      ? `This customer has a job with materials, a bid worksheet, payments, or a bid amount. Remove ${label} anyway?`
+      : `Remove ${label}?`;
+    if (!window.confirm(message)) return;
+    await axios.delete(`${API_BASE_URL}/api/customers/${customer._id}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
     fetchCustomers();
   };
 
@@ -208,7 +223,7 @@ export default function Customers() {
                     </div>
                     <div className="flex gap-2 shrink-0">
                       <Link to={`/customers/${cust._id}`} className="btn-row btn-row-secondary">Open</Link>
-                      <button onClick={() => deleteCustomer(cust._id)} className="btn-row btn-row-danger">Delete</button>
+                      <button onClick={() => deleteCustomer(cust)} className="btn-row btn-row-danger">Delete</button>
                     </div>
                   </div>
                 </article>

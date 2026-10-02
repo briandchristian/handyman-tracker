@@ -24,7 +24,7 @@
     @apply inline-flex justify-center items-center min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-800 transition hover:bg-slate-50;
   }
   .btn-staff {
-    @apply inline-flex justify-center items-center min-h-[44px] rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white transition hover:bg-slate-800;
+    @apply inline-flex justify-center items-center min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-800 transition hover:bg-slate-50;
   }
   /* One height for buttons that sit beside a description. Matches the hero: slate, emerald, rounded-lg. */
   .btn-row {

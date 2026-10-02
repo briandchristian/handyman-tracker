@@ -8,12 +8,14 @@ import Customers from './components/Customers';
 import CustomerDetail from './components/CustomerDetail';
 import ProjectDetails from './components/ProjectDetails';
 import UserManagement from './components/UserManagement';
+import BidAlertSettings from './components/BidAlertSettings';
 import Suppliers from './components/Suppliers';
 import PurchaseOrders from './components/PurchaseOrders';
 import Inventory from './components/Inventory';
 import Accounting from './components/Accounting';
 import SubcontractorJobs from './components/SubcontractorJobs';
 import MobileNav from './components/MobileNav';
+import StaffNav from './components/StaffNav';
 import CustomerMyInfo from './components/CustomerMyInfo';
 import InstallationHistory from './components/InstallationHistory';
 import { isPublicPath } from './constants/publicRoutes';
@@ -27,7 +29,12 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {showMobileNav && <MobileNav />}
+      {showMobileNav && (
+        <>
+          <StaffNav />
+          <MobileNav />
+        </>
+      )}
       <Routes>
         <Route path="/" element={<MarketingHome />} />
         <Route path="/bid" element={<RequestBid />} />
@@ -122,6 +129,20 @@ function App() {
             token ? (
               !isCustomer ? (
                 <UserManagement />
+              ) : (
+                <Navigate to="/customer" />
+              )
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
+        />
+        <Route
+          path="/admin/bid-alerts"
+          element={
+            token ? (
+              !isCustomer ? (
+                <BidAlertSettings />
               ) : (
                 <Navigate to="/customer" />
               )

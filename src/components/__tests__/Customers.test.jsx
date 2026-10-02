@@ -250,7 +250,8 @@ describe('Customers Component', () => {
   });
 
   describe('Deleting Customers', () => {
-    test('should delete customer', async () => {
+    test('should delete customer after confirmation', async () => {
+      global.confirm = jest.fn(() => true);
       axios.get.mockResolvedValue({ data: mockCustomers });
       axios.delete.mockResolvedValue({});
 
@@ -265,12 +266,52 @@ describe('Customers Component', () => {
       
       await userEvent.click(deleteButtons[0]);
 
+      expect(global.confirm).toHaveBeenCalledWith('Remove John Doe?');
       await waitFor(() => {
         expect(axios.delete).toHaveBeenCalledWith(
           expect.stringContaining('/api/customers/1'),
           expect.any(Object)
         );
       });
+    });
+
+    test('does not delete a customer when the confirmation is cancelled', async () => {
+      global.confirm = jest.fn(() => false);
+      axios.get.mockResolvedValue({ data: mockCustomers });
+
+      renderWithRouter(<Customers />);
+
+      await waitFor(() => {
+        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getAllByText('Delete')[0]);
+
+      expect(global.confirm).toHaveBeenCalledWith('Remove John Doe?');
+      expect(axios.delete).not.toHaveBeenCalled();
+    });
+
+    test('warns before deleting a customer whose job has recorded work', async () => {
+      global.confirm = jest.fn(() => true);
+      axios.get.mockResolvedValue({
+        data: [{
+          ...mockCustomers[0],
+          projects: [{ _id: 'p1', name: 'Kitchen Remodel', bidAmount: 1500 }],
+        }],
+      });
+      axios.delete.mockResolvedValue({});
+
+      renderWithRouter(<Customers />);
+
+      await waitFor(() => {
+        expect(screen.getAllByText('John Doe')[0]).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getAllByText('Delete')[0]);
+
+      expect(global.confirm).toHaveBeenCalledWith(
+        'This customer has a job with materials, a bid worksheet, payments, or a bid amount. Remove John Doe anyway?'
+      );
     });
   });
 

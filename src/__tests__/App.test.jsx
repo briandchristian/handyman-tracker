@@ -49,6 +49,12 @@ jest.mock('../components/UserManagement', () => {
   };
 });
 
+jest.mock('../components/BidAlertSettings', () => {
+  return function MockBidAlertSettings() {
+    return <div data-testid="bid-alert-settings-component">Bid Alert Settings</div>;
+  };
+});
+
 jest.mock('../components/Suppliers', () => {
   return function MockSuppliers() {
     return <div data-testid="suppliers-component">Suppliers Component</div>;
@@ -193,6 +199,7 @@ describe('App Component', () => {
         '/customers',
         '/projects/123/456',
         '/admin/users',
+        '/admin/bid-alerts',
         '/suppliers',
         '/purchase-orders',
         '/inventory',
@@ -220,6 +227,7 @@ describe('App Component', () => {
         { path: '/customers', testId: 'customers-component' },
         { path: '/projects/123/456', testId: 'project-details-component' },
         { path: '/admin/users', testId: 'user-management-component' },
+        { path: '/admin/bid-alerts', testId: 'bid-alert-settings-component' },
         { path: '/suppliers', testId: 'suppliers-component' },
         { path: '/purchase-orders', testId: 'purchase-orders-component' },
         { path: '/inventory', testId: 'inventory-component' },

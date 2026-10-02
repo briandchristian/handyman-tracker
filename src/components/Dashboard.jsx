@@ -108,41 +108,8 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 md:p-6 text-slate-900 max-w-6xl mx-auto">
-      <div className="hidden lg:flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
-        <div className="flex gap-2 flex-wrap">
-          <Link to="/inventory" className="btn-staff text-sm">
-            Inventory
-          </Link>
-          <Link to="/inventory#adi-price" className="btn-staff text-sm">
-            Part price
-          </Link>
-          <Link to="/purchase-orders" className="btn-staff text-sm">
-            Orders
-          </Link>
-          <Link to="/suppliers" className="btn-staff text-sm">
-            Suppliers
-          </Link>
-          <Link to="/accounting" className="btn-staff text-sm">
-            Accounting
-          </Link>
-          <Link to="/subcontractor" className="btn-staff text-sm">
-            Subcontractor
-          </Link>
-          <Link to="/admin/users" className="btn-staff text-sm">
-            Users
-          </Link>
-          <Link to="/customers" className="btn-staff text-sm">
-            Customers
-          </Link>
-          <Link to="/installation-history" className="btn-staff text-sm">
-            History
-          </Link>
-        </div>
-      </div>
-
-      <div className="lg:hidden mb-4">
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Dashboard</h1>
       </div>
 
       {bidNotices.length > 0 && (
