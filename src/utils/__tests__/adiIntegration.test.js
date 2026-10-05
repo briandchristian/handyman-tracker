@@ -12,6 +12,7 @@ import {
   splitCatalogSku,
   applyAdiPriceInventory,
   buildAdiGenerateOrderPayload,
+  adiTrackingSummary,
   collectAdiCarts,
   collectAdiShipments,
   deriveAdiInquiryStatus,
@@ -275,6 +276,80 @@ describe('adiIntegration', () => {
         'Order 1234567890 created successfully'
       )
     ).toBe('1234567890');
+  });
+
+  test('summarizes an ADI tracking reply for display', () => {
+    expect(adiTrackingSummary({
+      ReturnCode: '00',
+      ReturnMessage: ' ',
+      ADIOrderNumber: '18066584',
+      CustomerNumber: '451278',
+      CustomerSuffix: '000',
+      OrderStatus: '',
+      OrderLineHead: {
+        DropShipmentName: 'Brinks Order',
+        DropShipmentAddress1: '54 PURCEL RD.',
+        DropShipmentCity: 'LEOMA',
+        DropShipmentStateProvince: 'TN',
+        DropShipmentZip: '38468',
+        DropShipmentCountryCode: 'US',
+        MaterialTotal: 801.14,
+        Freight: 0,
+        Tax: 78.11,
+        TotalAmount: 879.25,
+        PONumber: 'PO-2026-0004',
+        OrderLineShipmentUnitHeadList: [{
+          ShipmentStatus: '',
+          ShipmentUnitDate: '',
+          DistributionCenterDescription: 'ADI Atlanta DC',
+          ShippingMethod: 'UPS Ground',
+          OrderLineItemList: [
+            {
+              ItemNumber: 'LA-ADCV731B',
+              ItemDescription: 'Alarm.com 4MP Indoor/Outdoor Battery',
+              ItemQuantity: '1',
+              ItemPrice: 196.46,
+              ItemExtendedPrice: 196.46,
+            },
+            {
+              ItemNumber: 'LA-ADCV730',
+              ItemDescription: '4MP OUTDOOR WI-FI SPOTLIGHT CAMERA',
+              ItemQuantity: '3',
+              ItemPrice: 201.56,
+              ItemExtendedPrice: 604.68,
+            },
+          ],
+        }],
+      },
+    })).toEqual({
+      orderNumber: '18066584',
+      poNumber: 'PO-2026-0004',
+      customerNumber: '451278',
+      customerSuffix: '000',
+      status: 'Submitted, not shipped',
+      shipTo: ['Brinks Order', '54 PURCEL RD.', 'LEOMA, TN 38468', 'US'],
+      shipments: [{ warehouse: 'ADI Atlanta DC', method: 'UPS Ground', status: '', date: '' }],
+      lines: [
+        {
+          itemNumber: 'LA-ADCV731B',
+          description: 'Alarm.com 4MP Indoor/Outdoor Battery',
+          quantity: '1',
+          price: '196.46',
+          extended: '196.46',
+        },
+        {
+          itemNumber: 'LA-ADCV730',
+          description: '4MP OUTDOOR WI-FI SPOTLIGHT CAMERA',
+          quantity: '3',
+          price: '201.56',
+          extended: '604.68',
+        },
+      ],
+      material: '801.14',
+      freight: '0.00',
+      tax: '78.11',
+      total: '879.25',
+    });
   });
 
   test('reads inquiry status from the order header when the top level has none', () => {

@@ -13,6 +13,7 @@ import {
   adiAllowedLabel,
   adiItemNumberFromSku,
   adiSupportCode,
+  adiTrackingSummary,
   applyAdiPriceInventory,
   buildAdiGenerateOrderPayload,
   collectAdiCarts,
@@ -1305,9 +1306,57 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
               </div>
             </div>
 
-            {(adiGenerateReturnCode || adiGenerateReturnMessage || adiOrderNumber.trim() || adiShipments.length > 0 || adiInquirySnapshot.status) && (
+            {(adiGenerateReturnCode || adiGenerateReturnMessage || adiOrderNumber.trim() || adiShipments.length > 0 || adiInquirySnapshot.status || adiInquiryReply) && (
               <div className="mt-4">
-                {(adiGenerateReturnCode || adiGenerateReturnMessage || adiInquirySnapshot.status) && (
+                {adiTrackingSummary(adiInquiryReply) && (
+                  <div role="region" aria-label="ADI order summary" className="mt-2 text-sm text-black">
+                    {(() => {
+                      const tracking = adiTrackingSummary(adiInquiryReply);
+                      return (
+                        <>
+                          <p className="font-medium">ADI order {tracking.orderNumber || adiOrderNumber}</p>
+                          {tracking.poNumber && <p>PO {tracking.poNumber}</p>}
+                          {tracking.status && <p>Status: {tracking.status}</p>}
+                          {tracking.shipTo.length > 0 && <p>Ship to {tracking.shipTo.join(', ')}</p>}
+                          {tracking.shipments.map((unit, index) => (
+                            <p key={`${unit.warehouse}-${index}`}>
+                              Ships from {unit.warehouse || 'ADI'}{unit.method ? ` by ${unit.method}` : ''}
+                            </p>
+                          ))}
+                          {tracking.lines.length > 0 && (
+                            <table aria-label="ADI order lines" className="w-full mt-2">
+                              <thead>
+                                <tr className="border-b border-indigo-200 text-left">
+                                  <th className="p-2">Item</th>
+                                  <th className="p-2">Description</th>
+                                  <th className="p-2">Qty</th>
+                                  <th className="p-2">Price</th>
+                                  <th className="p-2">Extended</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {tracking.lines.map((line, index) => (
+                                  <tr key={`${line.itemNumber}-${index}`} className="border-b border-indigo-100">
+                                    <td className="p-2">{line.itemNumber}</td>
+                                    <td className="p-2">{line.description}</td>
+                                    <td className="p-2">{line.quantity}</td>
+                                    <td className="p-2">{line.price ? `$${line.price}` : ''}</td>
+                                    <td className="p-2">{line.extended ? `$${line.extended}` : ''}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                          <p className="mt-2">Materials ${tracking.material || '0.00'}</p>
+                          <p>Freight ${tracking.freight || '0.00'}</p>
+                          <p>Tax ${tracking.tax || '0.00'}</p>
+                          <p className="font-medium">Total ${tracking.total || '0.00'}</p>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+                {!adiTrackingSummary(adiInquiryReply) && (adiGenerateReturnCode || adiGenerateReturnMessage || adiInquirySnapshot.status) && (
                   <div className="mt-2 text-sm text-gray-700">
                     {adiInquirySnapshot.status && (
                       <p><span className="font-medium">ADI status:</span> {adiInquirySnapshot.status}</p>
@@ -1324,15 +1373,18 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
                     {adiInquirySnapshot.message && adiInquirySnapshot.message !== adiGenerateReturnMessage && (
                       <p>{plainAdiItemMessage(adiInquirySnapshot.message)}</p>
                     )}
-                    {adiInquiryReply && (
-                      <pre
-                        aria-label="ADI tracking reply"
-                        className="mt-2 p-2 bg-white border border-indigo-200 rounded overflow-auto text-xs text-black"
-                      >
-                        {JSON.stringify(adiInquiryReply, null, 2)}
-                      </pre>
-                    )}
                   </div>
+                )}
+                {adiInquiryReply && (
+                  <details className="mt-3">
+                    <summary className="text-sm font-medium text-black cursor-pointer">Technical details</summary>
+                    <pre
+                      aria-label="ADI tracking reply"
+                      className="mt-2 p-2 bg-white border border-indigo-200 rounded overflow-auto text-xs text-black"
+                    >
+                      {JSON.stringify(adiInquiryReply, null, 2)}
+                    </pre>
+                  </details>
                 )}
                 {adiCarts.length > 0 && (
                   <div className="mt-3 overflow-x-auto">

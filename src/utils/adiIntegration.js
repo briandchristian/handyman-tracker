@@ -263,6 +263,76 @@ export function deriveAdiInquiryStatus(inquiryResponse = {}) {
   return 'Unknown';
 }
 
+const moneyText = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(2) : '';
+};
+
+/**
+ * Turns an ADI Order Tracking reply into the lines, ship-to address, and totals
+ * a person can read. An order with no ship date is submitted and not shipped.
+ */
+export function adiTrackingSummary(reply = {}) {
+  if (!reply || typeof reply !== 'object') return null;
+  const head = reply.OrderLineHead || {};
+  const units = Array.isArray(head.OrderLineShipmentUnitHeadList) ? head.OrderLineShipmentUnitHeadList : [];
+  const lines = [];
+  const shipments = units.map((unit) => {
+    const items = Array.isArray(unit?.OrderLineItemList) ? unit.OrderLineItemList : [];
+    items.forEach((item) => {
+      lines.push({
+        itemNumber: text(item?.ItemNumber),
+        description: text(item?.ItemDescription),
+        quantity: text(item?.ItemQuantity),
+        price: moneyText(item?.ItemPrice),
+        extended: moneyText(item?.ItemExtendedPrice),
+      });
+    });
+    return {
+      warehouse: text(unit?.DistributionCenterDescription),
+      method: text(unit?.ShippingMethod),
+      status: text(unit?.ShipmentStatus),
+      date: text(unit?.ShipmentUnitDate),
+    };
+  }).filter((unit) => unit.warehouse || unit.method || unit.status || unit.date);
+
+  const cityLine = [
+    text(head.DropShipmentCity),
+    [text(head.DropShipmentStateProvince), text(head.DropShipmentZip || head.DropShipmentZipcode)].filter(Boolean).join(' '),
+  ].filter(Boolean).join(', ');
+  const shipTo = [
+    text(head.DropShipmentName),
+    text(head.DropShipmentAddress1),
+    text(head.DropShipmentAddress2),
+    text(head.DropShipmentAddress3),
+    cityLine,
+    text(head.DropShipmentCountryCode),
+  ].filter(Boolean);
+
+  if (!text(reply.ADIOrderNumber) && !lines.length && !shipTo.length) return null;
+
+  const explicitStatus = text(reply.OrderStatus) || shipments.map((unit) => unit.status).find(Boolean) || '';
+  let status = explicitStatus;
+  if (!status && text(reply.ADIOrderNumber)) {
+    status = shipments.some((unit) => unit.date) ? 'Shipped' : 'Submitted, not shipped';
+  }
+
+  return {
+    orderNumber: text(reply.ADIOrderNumber),
+    poNumber: text(head.PONumber),
+    customerNumber: text(reply.CustomerNumber),
+    customerSuffix: text(reply.CustomerSuffix),
+    status,
+    shipTo,
+    shipments,
+    lines,
+    material: moneyText(head.MaterialTotal),
+    freight: moneyText(head.Freight),
+    tax: moneyText(head.Tax),
+    total: moneyText(head.TotalAmount),
+  };
+}
+
 const mapTrackingRow = (unit, fields) => {
   const row = {};
   Object.entries(fields).forEach(([name, keys]) => {

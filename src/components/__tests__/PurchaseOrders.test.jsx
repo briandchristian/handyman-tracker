@@ -1156,6 +1156,64 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     );
   });
 
+  test('shows a readable ADI order summary instead of the raw tracking JSON', async () => {
+    inquireAdiOrder.mockResolvedValueOnce({
+      ReturnCode: '00',
+      ReturnMessage: ' ',
+      ADIOrderNumber: '18066584',
+      CustomerNumber: '451278',
+      CustomerSuffix: '000',
+      OrderStatus: '',
+      OrderLineHead: {
+        PONumber: 'PO-2026-0004',
+        DropShipmentName: 'Brinks Order',
+        DropShipmentAddress1: '54 PURCEL RD.',
+        DropShipmentCity: 'LEOMA',
+        DropShipmentStateProvince: 'TN',
+        DropShipmentZip: '38468',
+        DropShipmentCountryCode: 'US',
+        MaterialTotal: 801.14,
+        Freight: 0,
+        Tax: 78.11,
+        TotalAmount: 879.25,
+        OrderLineShipmentUnitHeadList: [{
+          DistributionCenterDescription: 'ADI Atlanta DC',
+          ShippingMethod: 'UPS Ground',
+          ShipmentStatus: '',
+          OrderLineItemList: [{
+            ItemNumber: 'LA-ADCV731B',
+            ItemDescription: 'Alarm.com 4MP Indoor/Outdoor Battery',
+            ItemQuantity: '1',
+            ItemPrice: 196.46,
+            ItemExtendedPrice: 196.46,
+          }],
+        }],
+      },
+    });
+
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      fireEvent.click(screen.getAllByText('PO-2024-001')[0]);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check status' }));
+
+    await waitFor(() => {
+      const summary = screen.getByRole('region', { name: 'ADI order summary' });
+      expect(summary).toHaveTextContent('Submitted, not shipped');
+      expect(summary).toHaveTextContent('Brinks Order');
+      expect(summary).toHaveTextContent('ADI Atlanta DC');
+      expect(summary).toHaveTextContent('UPS Ground');
+      expect(summary).toHaveTextContent('LA-ADCV731B');
+      expect(summary).toHaveTextContent('$879.25');
+      expect(summary).not.toHaveTextContent('OrderLineHead');
+    });
+
+    const details = screen.getByText('Technical details').closest('details');
+    expect(within(details).getByLabelText('ADI tracking reply').textContent).toContain('OrderLineHead');
+  });
+
   test('shows and saves the full ADI tracking reply after inquiry', async () => {
     inquireAdiOrder.mockResolvedValueOnce({
       ReturnCode: '00',
