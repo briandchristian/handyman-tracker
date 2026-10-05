@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
@@ -11,9 +11,12 @@ import {
 } from '../services/adiSupplierApi';
 import {
   adiAllowedLabel,
+  adiCurrentStatusLabel,
   adiItemNumberFromSku,
+  adiOrderAlreadyPlaced,
   adiSupportCode,
   adiTrackingSummary,
+  purchaseOrderStatusFromAdi,
   applyAdiPriceInventory,
   buildAdiGenerateOrderPayload,
   collectAdiCarts,
@@ -405,7 +408,17 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
   const [showCamera, setShowCamera] = useState(false);
   const [attachedPhotos, setAttachedPhotos] = useState([]);
 
-  const [status, setStatus] = useState(po?.status || 'Draft');
+  const [status, setStatus] = useState(() => {
+    const reply = po?.adiIntegration?.lastInquiryReply;
+    const summary = adiTrackingSummary(reply);
+    const placed = adiOrderAlreadyPlaced({
+      orderNumber: po?.adiIntegration?.adiOrderNumber,
+      returnCode: po?.adiIntegration?.lastGenerateReturnCode,
+      returnMessage: po?.adiIntegration?.lastGenerateReturnMessage,
+      reply,
+    });
+    return purchaseOrderStatusFromAdi(summary, po?.status || 'Draft', placed);
+  });
   const [notes, setNotes] = useState(po?.notes || '');
   
   // Safe date formatting
@@ -461,6 +474,46 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
     shipping: po?.shipping || 0,
     total: po?.total || 0,
   });
+
+  const statusSyncStarted = useRef(false);
+
+  // A saved tracking reply can still say Draft. Save the workflow status once on open.
+  useEffect(() => {
+    if (statusSyncStarted.current) return;
+    if (!po?.items || !Array.isArray(po.items)) return;
+    const reply = po.adiIntegration?.lastInquiryReply;
+    if (!reply) return;
+    const summary = adiTrackingSummary(reply);
+    const placed = adiOrderAlreadyPlaced({
+      orderNumber: po.adiIntegration?.adiOrderNumber,
+      returnCode: po.adiIntegration?.lastGenerateReturnCode,
+      returnMessage: po.adiIntegration?.lastGenerateReturnMessage,
+      reply,
+    });
+    const nextStatus = purchaseOrderStatusFromAdi(summary, po.status || 'Draft', placed);
+    if (nextStatus === (po.status || 'Draft')) return;
+    statusSyncStarted.current = true;
+    const inquiryStatus = summary?.status || po.adiIntegration?.lastInquiryStatus || '';
+    const token = localStorage.getItem('token');
+    axios.put(
+      `${API_BASE_URL}/api/purchase-orders/${po._id}`,
+      {
+        adiIntegration: {
+          ...po.adiIntegration,
+          lastInquiryStatus: inquiryStatus,
+          lastInquiryReply: reply,
+        },
+        status: nextStatus,
+      },
+      { headers: { Authorization: `Bearer ${token}` } }
+    ).then(() => {
+      setStatus(nextStatus);
+      setAdiInquirySnapshot((current) => ({ ...current, status: inquiryStatus || current.status }));
+      onSync?.(po._id, { status: nextStatus });
+    }).catch((err) => {
+      console.error('Error saving ADI status:', err);
+    });
+  }, [onSync, po]);
 
   // Safety check after hooks to keep hook order stable across renders.
   if (!po || !po.items || !Array.isArray(po.items)) {
@@ -595,11 +648,11 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
     }
   };
 
-  const persistAdiIntegration = async (adiIntegrationPayload) => {
+  const persistAdiIntegration = async (adiIntegrationPayload, extra = {}) => {
     const token = localStorage.getItem('token');
     await axios.put(
       `${API_BASE_URL}/api/purchase-orders/${po._id}`,
-      { adiIntegration: adiIntegrationPayload },
+      { adiIntegration: adiIntegrationPayload, ...extra },
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (adiIntegrationPayload.lastSyncedAt !== undefined) {
@@ -651,7 +704,44 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
     ...overrides,
   });
 
+  const placedOrder = adiOrderAlreadyPlaced({
+    orderNumber: adiOrderNumber,
+    returnCode: adiGenerateReturnCode,
+    returnMessage: adiGenerateReturnMessage,
+    reply: adiInquiryReply,
+  });
+  const currentStatusLabel = adiCurrentStatusLabel(status, {
+    reply: adiInquiryReply,
+    inquiryStatus: adiInquirySnapshot.status,
+  });
+
+  const saveCheckedStatus = async (reply, integrationOverrides) => {
+    const summary = adiTrackingSummary(reply);
+    const inquiryStatus = summary?.status || deriveAdiInquiryStatus(reply);
+    const payload = buildAdiIntegrationPayload({
+      ...integrationOverrides,
+      lastInquiryStatus: inquiryStatus,
+      lastInquiryReply: reply,
+    });
+    const placed = adiOrderAlreadyPlaced({
+      orderNumber: payload.adiOrderNumber,
+      returnCode: payload.lastGenerateReturnCode,
+      returnMessage: payload.lastGenerateReturnMessage,
+      reply,
+    });
+    const nextStatus = purchaseOrderStatusFromAdi(summary, status, placed);
+    if (nextStatus !== status) setStatus(nextStatus);
+    await persistAdiIntegration(payload, nextStatus !== status ? { status: nextStatus } : {});
+    if (nextStatus !== status) onSync?.(po._id, { status: nextStatus });
+    return { inquiryStatus, nextStatus };
+  };
+
   const handleAdiOrderGeneration = async () => {
+    if (placedOrder) {
+      alert(`ADI order ${adiOrderNumber.trim()} is already placed. Check status instead of sending this purchase order again.`);
+      setOrderConfirmOpen(false);
+      return;
+    }
     if (!ensureAdiCustomerFields()) return;
 
     const orderForm = {
@@ -694,33 +784,31 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
           adiOrderNumber: foundOrderNumber,
         });
         const inquiryMessage = inquiryResponse?.ReturnMessage || 'ADI order inquiry completed.';
-        const inquiryStatus = deriveAdiInquiryStatus(inquiryResponse);
         const inquiryAt = new Date().toISOString();
         const shipments = collectAdiShipments(inquiryResponse);
         const carts = collectAdiCarts(inquiryResponse);
 
-        setAdiInquirySnapshot({
-          status: inquiryStatus,
-          message: inquiryMessage,
-          at: inquiryAt,
-        });
+        setAdiInquiryReply(inquiryResponse);
         setAdiShipments(shipments);
         setAdiCarts(carts);
         setAdiLastSyncedAt(inquiryAt);
-
-        await persistAdiIntegration(buildAdiIntegrationPayload({
+        const { inquiryStatus } = await saveCheckedStatus(inquiryResponse, {
           customerNumber: adiCustomerNumber.trim(),
           customerSuffix: adiCustomerSuffix.trim(),
           adiOrderNumber: foundOrderNumber,
           lastSyncedAt: inquiryAt,
-          lastInquiryStatus: inquiryStatus,
           lastInquiryMessage: inquiryMessage,
           lastInquiryAt: inquiryAt,
           lastGenerateReturnCode: returnCode,
           lastGenerateReturnMessage: message,
           shipments,
           carts,
-        }));
+        });
+        setAdiInquirySnapshot({
+          status: inquiryStatus,
+          message: inquiryMessage,
+          at: inquiryAt,
+        });
 
         setAdiLastMessage(`${message} Inquiry: ${inquiryMessage}`);
       } else {
@@ -778,33 +866,30 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
 
       const response = await inquireAdiOrder(payload);
       const message = response.ReturnMessage || 'ADI order inquiry completed.';
-      const inquiryStatus = deriveAdiInquiryStatus(response);
       const inquiryAt = new Date().toISOString();
       const shipments = collectAdiShipments(response);
       const carts = collectAdiCarts(response);
 
       setAdiLastMessage(message);
       setAdiInquiryReply(response);
+      setAdiShipments(shipments);
+      setAdiCarts(carts);
+      setAdiLastSyncedAt(inquiryAt);
+      const { inquiryStatus } = await saveCheckedStatus(response, {
+        customerNumber: adiCustomerNumber.trim(),
+        customerSuffix: adiCustomerSuffix.trim(),
+        adiOrderNumber: adiOrderNumber.trim(),
+        lastSyncedAt: inquiryAt,
+        lastInquiryMessage: message,
+        lastInquiryAt: inquiryAt,
+        shipments,
+        carts,
+      });
       setAdiInquirySnapshot({
         status: inquiryStatus,
         message,
         at: inquiryAt,
       });
-      setAdiShipments(shipments);
-      setAdiCarts(carts);
-      setAdiLastSyncedAt(inquiryAt);
-      await persistAdiIntegration(buildAdiIntegrationPayload({
-        customerNumber: adiCustomerNumber.trim(),
-        customerSuffix: adiCustomerSuffix.trim(),
-        adiOrderNumber: adiOrderNumber.trim(),
-        lastSyncedAt: inquiryAt,
-        lastInquiryStatus: inquiryStatus,
-        lastInquiryMessage: message,
-        lastInquiryAt: inquiryAt,
-        lastInquiryReply: response,
-        shipments,
-        carts,
-      }));
       alert(`✅ ${message}`);
     } catch (err) {
       const errorInfo = handleApiError(err, 'ADI order inquiry');
@@ -1024,8 +1109,8 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
             <div className="space-y-3">
               <div>
                 <p className="block text-sm font-medium text-black mb-1">Current Status</p>
-                <div className={`p-2 rounded text-center font-medium ${getStatusBadge(status)}`}>
-                  {getStatusIcon(status)} {status}
+                <div aria-label="Current Status" className={`p-2 rounded text-center font-medium ${getStatusBadge(status)}`}>
+                  {getStatusIcon(status)} {currentStatusLabel}
                 </div>
               </div>
               {status === 'Received' || status === 'Paid' ? (
@@ -1161,7 +1246,7 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
               >
                 Update prices from ADI
               </button>
-              {!orderConfirmOpen && (
+              {!orderConfirmOpen && !placedOrder && (
                 <button
                   type="button"
                   onClick={() => setOrderConfirmOpen(true)}
@@ -1173,7 +1258,14 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
               )}
             </div>
 
-            {orderConfirmOpen && (
+            {placedOrder && (
+              <p className="mt-3 text-sm text-black">
+                ADI order {adiOrderNumber.trim() || adiTrackingSummary(adiInquiryReply)?.orderNumber} is already placed.
+                Check status to refresh it. Place order stays off so this purchase order is not sent twice.
+              </p>
+            )}
+
+            {orderConfirmOpen && !placedOrder && (
               <div className="mt-4 p-3 bg-white border border-indigo-200 rounded">
                 <p className="text-sm font-medium text-black mb-2">This sends a real order to ADI.</p>
                 <p className="text-sm text-black mb-2">

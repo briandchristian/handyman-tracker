@@ -799,6 +799,7 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     await waitFor(() => {
       expect(screen.getByText(/ADI status:/i)).toBeInTheDocument();
       expect(document.body.textContent).toMatch(/ADI status:\s*Open/i);
+      expect(screen.getByRole('button', { name: 'Place order with ADI' })).toBeInTheDocument();
     });
   });
 
@@ -1212,6 +1213,41 @@ describe('PurchaseOrders Component - Phase 2B', () => {
 
     const details = screen.getByText('Technical details').closest('details');
     expect(within(details).getByLabelText('ADI tracking reply').textContent).toContain('OrderLineHead');
+
+    expect(screen.getByLabelText('Current Status')).toHaveTextContent('Submitted, not shipped');
+    expect(screen.queryByRole('button', { name: 'Place order with ADI' })).not.toBeInTheDocument();
+    expect(screen.getByText(/already placed/i)).toBeInTheDocument();
+    expect(axios.put).toHaveBeenCalledWith(
+      expect.stringContaining('po1'),
+      expect.objectContaining({
+        status: 'Confirmed',
+        adiIntegration: expect.objectContaining({
+          lastInquiryStatus: 'Submitted, not shipped',
+        }),
+      }),
+      expect.any(Object)
+    );
+  });
+
+  test('keeps Place order off when ADI already accepted this purchase order', () => {
+    const accepted = {
+      ...mockPOData[0],
+      adiIntegration: {
+        ...mockPOData[0].adiIntegration,
+        adiOrderNumber: '18066584',
+        lastGenerateReturnCode: '00',
+        lastGenerateReturnMessage: 'Order - 18066584 submitted successfully',
+      },
+    };
+
+    render(
+      <PODetailModal po={accepted} onClose={jest.fn()} onUpdate={jest.fn()} onSync={jest.fn()} />
+    );
+
+    expect(screen.queryByRole('button', { name: 'Place order with ADI' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send order to ADI' })).not.toBeInTheDocument();
+    expect(screen.getByText(/already placed/i)).toBeInTheDocument();
+    expect(generateAdiOrder).not.toHaveBeenCalled();
   });
 
   test('shows and saves the full ADI tracking reply after inquiry', async () => {

@@ -5,6 +5,7 @@
  * buy-eligibility, sale dates, and national inventory for display.
  * Order generation can pick up or ship, including the optional ADI fields.
  * Order inquiry status prefers a dedicated status field, then shipment and cart rows.
+ * Current Status follows that last check. A successful return keeps Place order from sending the same PO again.
  * ADI inventory items can be priced from the same price call. A failed quote
  * keeps the saved unit price and the item description.
  */
@@ -331,6 +332,64 @@ export function adiTrackingSummary(reply = {}) {
     tax: moneyText(head.Tax),
     total: moneyText(head.TotalAmount),
   };
+}
+
+const returnAccepted = (code) => {
+  const value = text(code);
+  return value === '00' || value === '0';
+};
+
+/**
+ * Current Status follows the last check. A tracking reply supplies the status
+ * even when OrderStatus is blank. Unknown and a pending inquiry do not replace
+ * the purchase-order status.
+ */
+export function adiCurrentStatusLabel(workflowStatus = 'Draft', { reply = null, inquiryStatus = '' } = {}) {
+  const summary = adiTrackingSummary(reply);
+  if (summary?.status) return summary.status;
+  const checked = text(inquiryStatus);
+  if (checked && checked !== 'Unknown' && checked !== 'Pending Manual Inquiry') return checked;
+  return text(workflowStatus) || 'Draft';
+}
+
+const WORKFLOW_STATUSES = new Set(['Draft', 'Sent', 'Confirmed', 'Received', 'Paid', 'Cancelled']);
+
+/**
+ * The last ADI check moves Draft or Sent to Confirmed once the order is accepted.
+ * Paid and Received stay. A cancelled ADI status cancels the purchase order
+ * unless it is already paid.
+ */
+export function purchaseOrderStatusFromAdi(summary, currentStatus = 'Draft', orderAccepted = false) {
+  const current = WORKFLOW_STATUSES.has(currentStatus) ? currentStatus : 'Draft';
+  if (current === 'Paid') return current;
+  const adi = text(summary?.status).toLowerCase();
+  if (/cancel/.test(adi)) return 'Cancelled';
+  if (current === 'Cancelled') return current;
+  if (/\b(received|delivered)\b/.test(adi)) return 'Received';
+  if (current === 'Received') return current;
+  const accepted = orderAccepted || Boolean(text(summary?.orderNumber));
+  if (accepted && (current === 'Draft' || current === 'Sent')) return 'Confirmed';
+  return current;
+}
+
+/**
+ * A purchase order already has an ADI order when the return succeeded and an
+ * order number is known. Place order must not send that purchase order again.
+ */
+export function adiOrderAlreadyPlaced({
+  orderNumber = '',
+  returnCode = '',
+  returnMessage = '',
+  reply = null,
+} = {}) {
+  const number = text(orderNumber)
+    || text(reply?.ADIOrderNumber)
+    || extractAdiOrderNumber({}, returnMessage)
+    || extractAdiOrderNumber(reply || {}, reply?.ReturnMessage);
+  if (!number) return false;
+  if (returnAccepted(returnCode) || /\bsubmitted successfully\b/i.test(text(returnMessage))) return true;
+  return returnAccepted(reply?.ReturnCode)
+    && Boolean(text(reply?.ADIOrderNumber) || adiTrackingSummary(reply)?.orderNumber);
 }
 
 const mapTrackingRow = (unit, fields) => {

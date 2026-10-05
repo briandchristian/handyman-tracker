@@ -12,8 +12,11 @@ import {
   splitCatalogSku,
   applyAdiPriceInventory,
   buildAdiGenerateOrderPayload,
+  adiCurrentStatusLabel,
+  adiOrderAlreadyPlaced,
   adiTrackingSummary,
   collectAdiCarts,
+  purchaseOrderStatusFromAdi,
   collectAdiShipments,
   deriveAdiInquiryStatus,
   extractAdiOrderNumber,
@@ -350,6 +353,60 @@ describe('adiIntegration', () => {
       tax: '78.11',
       total: '879.25',
     });
+  });
+
+  test('shows the tracking status as Current Status after the last check', () => {
+    const reply = {
+      ReturnCode: '00',
+      ADIOrderNumber: '18066584',
+      OrderStatus: '',
+      OrderLineHead: {
+        OrderLineShipmentUnitHeadList: [{ ShipmentStatus: '', ShipmentUnitDate: '' }],
+      },
+    };
+
+    expect(adiCurrentStatusLabel('Draft', { reply, inquiryStatus: 'Unknown' })).toBe('Submitted, not shipped');
+    expect(adiCurrentStatusLabel('Draft', { inquiryStatus: 'Open' })).toBe('Open');
+    expect(adiCurrentStatusLabel('Draft', { inquiryStatus: 'Unknown' })).toBe('Draft');
+    expect(adiCurrentStatusLabel('Draft', { inquiryStatus: 'Pending Manual Inquiry' })).toBe('Draft');
+  });
+
+  test('moves a draft to Confirmed when ADI has accepted the order', () => {
+    const summary = { orderNumber: '18066584', status: 'Submitted, not shipped' };
+
+    expect(purchaseOrderStatusFromAdi(summary, 'Draft', true)).toBe('Confirmed');
+    expect(purchaseOrderStatusFromAdi(summary, 'Sent', true)).toBe('Confirmed');
+    expect(purchaseOrderStatusFromAdi(summary, 'Paid', true)).toBe('Paid');
+    expect(purchaseOrderStatusFromAdi(summary, 'Received', true)).toBe('Received');
+    expect(purchaseOrderStatusFromAdi({ orderNumber: '18066584', status: 'Cancelled' }, 'Confirmed', true)).toBe('Cancelled');
+    expect(purchaseOrderStatusFromAdi(null, 'Draft', false)).toBe('Draft');
+  });
+
+  test('treats a successful ADI return with an order number as already placed', () => {
+    expect(adiOrderAlreadyPlaced({
+      orderNumber: '18066584',
+      returnCode: '00',
+      returnMessage: 'Order - 18066584 submitted successfully',
+    })).toBe(true);
+
+    expect(adiOrderAlreadyPlaced({
+      orderNumber: '9999999999',
+      returnCode: '01',
+      returnMessage: 'Held for review',
+    })).toBe(false);
+
+    expect(adiOrderAlreadyPlaced({
+      returnCode: '00',
+      returnMessage: 'Order created successfully',
+    })).toBe(false);
+
+    expect(adiOrderAlreadyPlaced({
+      reply: {
+        ReturnCode: '00',
+        ADIOrderNumber: '18066584',
+        OrderLineHead: { PONumber: 'PO-2026-0004' },
+      },
+    })).toBe(true);
   });
 
   test('reads inquiry status from the order header when the top level has none', () => {
