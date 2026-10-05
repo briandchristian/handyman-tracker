@@ -395,7 +395,7 @@ const fulfillmentFromIntegration = (source = {}) => ({
   dropShipmentCity: source.dropShipmentCity || '',
   dropShipmentStateProvince: source.dropShipmentStateProvince || '',
   dropShipmentZipcode: source.dropShipmentZipcode || '',
-  dropShipmentCountryCode: source.dropShipmentCountryCode || '',
+  dropShipmentCountryCode: source.dropShipmentCountryCode || 'US',
 });
 
 export function PODetailModal({ po, onClose, onUpdate, onSync }) {
@@ -432,6 +432,8 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
   );
   const [orderConfirmOpen, setOrderConfirmOpen] = useState(false);
   const [adiOrderNumber, setAdiOrderNumber] = useState(po?.adiIntegration?.adiOrderNumber || '');
+  const [adiGenerateReturnCode, setAdiGenerateReturnCode] = useState(po?.adiIntegration?.lastGenerateReturnCode || '');
+  const [adiGenerateReturnMessage, setAdiGenerateReturnMessage] = useState(po?.adiIntegration?.lastGenerateReturnMessage || '');
   const [adiLoading, setAdiLoading] = useState(false);
   const [adiLastMessage, setAdiLastMessage] = useState('');
   const [adiLastSyncedAt, setAdiLastSyncedAt] = useState(po?.adiIntegration?.lastSyncedAt || null);
@@ -625,6 +627,18 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
       adiInquirySnapshot.at ??
       po?.adiIntegration?.lastInquiryAt ??
       null,
+    lastGenerateReturnCode: (
+      overrides.lastGenerateReturnCode ??
+      adiGenerateReturnCode ??
+      po?.adiIntegration?.lastGenerateReturnCode ??
+      ''
+    ).toString(),
+    lastGenerateReturnMessage: (
+      overrides.lastGenerateReturnMessage ??
+      adiGenerateReturnMessage ??
+      po?.adiIntegration?.lastGenerateReturnMessage ??
+      ''
+    ).toString(),
     ...adiFulfillment,
     priceLines: adiPriceLines,
     shipments: adiShipments,
@@ -654,10 +668,13 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
 
       const response = await generateAdiOrder(payload);
       const message = response.ReturnMessage || 'ADI order generation completed.';
+      const returnCode = response.ReturnCode == null ? '' : String(response.ReturnCode);
       setAdiLastMessage(message);
+      setAdiGenerateReturnCode(returnCode);
+      setAdiGenerateReturnMessage(message);
 
       let successAlert = `✅ ${message}`;
-      // Extract 10-digit ADI order number from response/message when present.
+      // Dedicated order-number fields are kept as returned. A message only supplies a 10-digit number.
       const foundOrderNumber = extractAdiOrderNumber(response, message);
       if (foundOrderNumber) {
         setAdiOrderNumber(foundOrderNumber);
@@ -694,6 +711,8 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
           lastInquiryStatus: inquiryStatus,
           lastInquiryMessage: inquiryMessage,
           lastInquiryAt: inquiryAt,
+          lastGenerateReturnCode: returnCode,
+          lastGenerateReturnMessage: message,
           shipments,
           carts,
         }));
@@ -718,12 +737,14 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
             adiOrderNumber: '',
             lastSyncedAt: syncedAt,
             lastInquiryStatus: 'Pending Manual Inquiry',
-            lastInquiryMessage: pendingMessage,
+            lastInquiryMessage: message,
             lastInquiryAt: previousInquiryAt,
+            lastGenerateReturnCode: returnCode,
+            lastGenerateReturnMessage: message,
           })
         );
         setAdiLastMessage(`${message} ${pendingMessage}`);
-        successAlert = `⚠️ ${pendingMessage}`;
+        successAlert = `⚠️ ${message} ${pendingMessage}`;
       }
 
       alert(successAlert);
@@ -1200,12 +1221,10 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
                     <div>
                       <label htmlFor="adi-drop-country" className="block text-sm font-medium text-black mb-1">Drop shipment country</label>
                       <input id="adi-drop-country" type="text" value={adiFulfillment.dropShipmentCountryCode} onChange={(e) => setFulfillmentField('dropShipmentCountryCode', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                      {!/^[A-Za-z]{2}$/.test(adiFulfillment.dropShipmentCountryCode.trim()) && (
+                        <p className="text-xs text-gray-700 mt-1">ADI expects a 2-letter country code such as US.</p>
+                      )}
                     </div>
-                  </div>
-                )}
-                <details className="mb-3">
-                  <summary className="text-sm font-medium text-black cursor-pointer">More options</summary>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                     <div>
                       <label htmlFor="adi-carrier" className="block text-sm font-medium text-black mb-1">Shipment carrier</label>
                       <input id="adi-carrier" type="text" value={adiFulfillment.shipmentCarrier} onChange={(e) => setFulfillmentField('shipmentCarrier', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
@@ -1215,16 +1234,21 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
                       <input id="adi-method" type="text" value={adiFulfillment.shipmentMethod} onChange={(e) => setFulfillmentField('shipmentMethod', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
                     </div>
                     <div>
+                      <label htmlFor="adi-email" className="block text-sm font-medium text-black mb-1">Confirmation email</label>
+                      <input id="adi-email" type="email" value={adiFulfillment.emailAddress} onChange={(e) => setFulfillmentField('emailAddress', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
+                    </div>
+                  </div>
+                )}
+                <details className="mb-3">
+                  <summary className="text-sm font-medium text-black cursor-pointer">More options</summary>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                    <div>
                       <label htmlFor="adi-pickup-dc" className="block text-sm font-medium text-black mb-1">Pickup DC</label>
                       <input id="adi-pickup-dc" type="text" value={adiFulfillment.pickupDC} onChange={(e) => setFulfillmentField('pickupDC', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
                     </div>
                     <div>
                       <label htmlFor="adi-reference" className="block text-sm font-medium text-black mb-1">Reference number</label>
                       <input id="adi-reference" type="text" value={adiFulfillment.referenceNumber} onChange={(e) => setFulfillmentField('referenceNumber', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
-                    </div>
-                    <div>
-                      <label htmlFor="adi-email" className="block text-sm font-medium text-black mb-1">Confirmation email</label>
-                      <input id="adi-email" type="email" value={adiFulfillment.emailAddress} onChange={(e) => setFulfillmentField('emailAddress', e.target.value)} className="w-full p-2 border border-gray-300 rounded text-black bg-white" />
                     </div>
                     <div>
                       <label htmlFor="adi-promo-code" className="block text-sm font-medium text-black mb-1">Promo code</label>
@@ -1252,25 +1276,46 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
               </div>
             )}
 
-            {(adiOrderNumber.trim() || adiShipments.length > 0 || adiInquirySnapshot.status) && (
+            <div className="mt-4">
+              <label htmlFor="adi-order-number" className="block text-sm font-medium text-black mb-1">
+                ADI order number
+              </label>
+              <div className="flex flex-wrap gap-2 items-center">
+                <input
+                  id="adi-order-number"
+                  type="text"
+                  value={adiOrderNumber}
+                  onChange={(e) => setAdiOrderNumber(e.target.value)}
+                  className="w-full md:w-64 p-2 border border-gray-300 rounded text-black bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={handleAdiOrderInquiry}
+                  disabled={adiLoading}
+                  className="bg-white text-indigo-800 border border-indigo-300 px-3 py-2 rounded hover:bg-indigo-100 disabled:opacity-60"
+                >
+                  Check status
+                </button>
+              </div>
+            </div>
+
+            {(adiGenerateReturnCode || adiGenerateReturnMessage || adiOrderNumber.trim() || adiShipments.length > 0 || adiInquirySnapshot.status) && (
               <div className="mt-4">
-                {adiOrderNumber.trim() && (
-                  <p className="text-sm text-black mb-2">ADI order {adiOrderNumber.trim()}</p>
-                )}
-                {adiOrderNumber.trim() && (
-                  <button
-                    type="button"
-                    onClick={handleAdiOrderInquiry}
-                    disabled={adiLoading}
-                    className="bg-white text-indigo-800 border border-indigo-300 px-3 py-2 rounded hover:bg-indigo-100 disabled:opacity-60"
-                  >
-                    Check status
-                  </button>
-                )}
-                {adiInquirySnapshot.status && (
+                {(adiGenerateReturnCode || adiGenerateReturnMessage || adiInquirySnapshot.status) && (
                   <div className="mt-2 text-sm text-gray-700">
-                    <p><span className="font-medium">ADI status:</span> {adiInquirySnapshot.status}</p>
-                    {adiInquirySnapshot.message && (
+                    {adiInquirySnapshot.status && (
+                      <p><span className="font-medium">ADI status:</span> {adiInquirySnapshot.status}</p>
+                    )}
+                    {adiGenerateReturnCode && (
+                      <p>{`ADI return code: ${adiGenerateReturnCode}`}</p>
+                    )}
+                    {adiGenerateReturnMessage && (
+                      <p>{`ADI return message: ${adiGenerateReturnMessage}`}</p>
+                    )}
+                    {adiInquirySnapshot.status === 'Pending Manual Inquiry' && (
+                      <p>No ADI order number was returned. Enter one below and check status.</p>
+                    )}
+                    {adiInquirySnapshot.message && adiInquirySnapshot.message !== adiGenerateReturnMessage && (
                       <p>{plainAdiItemMessage(adiInquirySnapshot.message)}</p>
                     )}
                   </div>

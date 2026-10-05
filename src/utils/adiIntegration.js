@@ -183,6 +183,7 @@ export function buildAdiGenerateOrderPayload(form = {}) {
   };
 
   OPTIONAL_ORDER_FIELDS.forEach((field) => {
+    if (indicator !== 'S' && field.startsWith('dropShipment')) return;
     const value = text(form[field]);
     if (value) payload[field] = field === 'shipmentComplete' ? value.toUpperCase() : value;
   });
@@ -209,23 +210,26 @@ export function validateAdiGenerateOrder(form = {}) {
   return '';
 }
 
+/**
+ * Dedicated order-number fields are kept as ADI sent them.
+ * A return message contributes an order number only when it contains a 10-digit number.
+ */
 export function extractAdiOrderNumber(orderGenerationResponse = {}, fallbackMessage = '') {
-  const candidates = [
-    orderGenerationResponse?.ADIOrderNumber,
-    orderGenerationResponse?.AdiOrderNumber,
-    orderGenerationResponse?.OrderNumber,
-    orderGenerationResponse?.orderNumber,
-    orderGenerationResponse?.OrderNo,
-    orderGenerationResponse?.OrderID,
-    fallbackMessage,
+  const dedicatedKeys = [
+    'ADIOrderNumber',
+    'AdiOrderNumber',
+    'OrderNumber',
+    'orderNumber',
+    'OrderNo',
+    'OrderID',
   ];
 
-  for (const candidate of candidates) {
-    const match = text(candidate).match(/\b\d{10}\b/);
-    if (match?.[0]) return match[0];
+  for (const key of dedicatedKeys) {
+    const value = text(orderGenerationResponse?.[key]);
+    if (value) return value;
   }
 
-  return '';
+  return text(fallbackMessage).match(/\b\d{10}\b/)?.[0] || '';
 }
 
 export function deriveAdiInquiryStatus(inquiryResponse = {}) {

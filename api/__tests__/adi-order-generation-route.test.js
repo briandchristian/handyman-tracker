@@ -9,9 +9,13 @@ import request from 'supertest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 
-jest.mock('../../server/lib/suppliers/adiOrderGeneration.js', () => ({
-  fetchAdiOrderGeneration: jest.fn(),
-}));
+jest.mock('../../server/lib/suppliers/adiOrderGeneration.js', () => {
+  const actual = jest.requireActual('../../server/lib/suppliers/adiOrderGeneration.js');
+  return {
+    ...actual,
+    fetchAdiOrderGeneration: jest.fn(),
+  };
+});
 
 import { fetchAdiOrderGeneration } from '../../server/lib/suppliers/adiOrderGeneration.js';
 
@@ -139,11 +143,49 @@ describe('POST /api/suppliers/adi/order-generation', () => {
       dropShipmentZipcode: undefined,
       dropShipmentCountryCode: undefined,
       orderList: [{ ItemNumber: '12345', Quantity: 2, ItemPrice: 19.99 }],
+      clientRequestId: expect.any(String),
     });
 
     const forwardedArgs = fetchAdiOrderGeneration.mock.calls[0][0];
-    expect(forwardedArgs).not.toHaveProperty('clientRequestId');
+    expect(forwardedArgs.clientRequestId).toEqual(expect.any(String));
+    expect(forwardedArgs.clientRequestId.length).toBeGreaterThan(0);
     expect(forwardedArgs).not.toHaveProperty('timestamp');
+  });
+
+  test('logs the PO, customer, request id, and ADI reply without credentials', async () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    fetchAdiOrderGeneration.mockResolvedValue({
+      ReturnCode: '01',
+      ReturnMessage: 'Country code is invalid',
+    });
+
+    const response = await request(app)
+      .post('/api/suppliers/adi/order-generation')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        customerNumber: 'CUST001',
+        customerSuffix: '000',
+        poNumber: 'PO-2026-0004',
+        clientRequestId: 'req-18064078',
+        shipmentPickupIndicator: 'S',
+        orderList: [{ ItemNumber: 'LA-ADCV730', Quantity: 3, ItemPrice: 201.56 }],
+      });
+
+    expect(response.status).toBe(200);
+    expect(fetchAdiOrderGeneration.mock.calls[0][0].clientRequestId).toBe('req-18064078');
+
+    const line = log.mock.calls
+      .map((call) => call.map(String).join(' '))
+      .find((entry) => entry.includes('[ADI GenerateOrder]'));
+    expect(line).toContain('po=PO-2026-0004');
+    expect(line).toContain('customer=CUST001');
+    expect(line).toContain('requestId=req-18064078');
+    expect(line).toContain('returnCode=01');
+    expect(line).toContain('returnMessage=Country code is invalid');
+    expect(line).not.toContain(process.env.ADI_API_KEY);
+    expect(line).not.toContain(process.env.ADI_API_PASSWORD);
+    expect(line).not.toContain(process.env.ADI_API_SECRET_KEY);
+    log.mockRestore();
   });
 
   test('returns 400 when ADI order request validation fails', async () => {

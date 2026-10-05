@@ -176,6 +176,7 @@ describe('adiIntegration', () => {
         shipmentPickupIndicator: 'P',
         referenceNumber: ' ',
         shipmentCarrier: '',
+        dropShipmentCountryCode: 'US',
         items: [{ sku: 'LUM-2X4', quantity: 50, unitPrice: 5.99 }],
       })
     ).toEqual({
@@ -238,6 +239,33 @@ describe('adiIntegration', () => {
         'Order created successfully'
       )
     ).toBe('2222222222');
+  });
+
+  test('keeps a dedicated order number that is not 10 digits', () => {
+    expect(
+      extractAdiOrderNumber(
+        { ADIOrderNumber: '18064078', ReturnMessage: 'Reference 18064078' },
+        'Reference 18064078'
+      )
+    ).toBe('18064078');
+  });
+
+  test('ignores a short number that appears only in the return message', () => {
+    expect(
+      extractAdiOrderNumber(
+        { ReturnCode: '01', ReturnMessage: 'Item 18064078 is not on the order' },
+        'Item 18064078 is not on the order'
+      )
+    ).toBe('');
+  });
+
+  test('reads a 10-digit order number from the return message when no field is set', () => {
+    expect(
+      extractAdiOrderNumber(
+        { ReturnMessage: 'Order 1234567890 created successfully' },
+        'Order 1234567890 created successfully'
+      )
+    ).toBe('1234567890');
   });
 
   test('reads inquiry status from the order header when the top level has none', () => {

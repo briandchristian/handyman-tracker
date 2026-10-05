@@ -7,6 +7,7 @@
 
 import {
   ADI_ORDER_GENERATION_PATH,
+  adiGenerateOrderLogLine,
   fetchAdiOrderGeneration,
   normalizeAdiOrderGenerationResponse,
 } from '../lib/suppliers/adiOrderGeneration.js';
@@ -108,6 +109,22 @@ describe('ADI Order Generation client', () => {
         httpClient: { post: jest.fn() },
       })
     ).rejects.toThrow('OrderList[0].ItemPrice must be a positive number');
+  });
+
+  test('formats a generate-order log line without credentials', () => {
+    const line = adiGenerateOrderLogLine({
+      at: '2026-10-05T16:16:01.541Z',
+      poNumber: 'PO-2026-0004',
+      customerNumber: '451278',
+      clientRequestId: 'req-1',
+      returnCode: '01',
+      returnMessage: 'Country code is invalid',
+    });
+
+    expect(line).toBe(
+      '[ADI GenerateOrder] time=2026-10-05T16:16:01.541Z po=PO-2026-0004 customer=451278 requestId=req-1 returnCode=01 returnMessage=Country code is invalid'
+    );
+    expect(line).not.toMatch(/apiKey|apiPassword|apiSecret|Authentication-Signature/i);
   });
 
   test('normalizes missing response fields to empty strings', () => {

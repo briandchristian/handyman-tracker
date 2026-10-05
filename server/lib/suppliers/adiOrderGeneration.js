@@ -123,6 +123,20 @@ const firstOrderNumber = (response) => {
   return '';
 };
 
+/**
+ * One line for the Generate Order result. Includes the PO, customer, request id,
+ * return code, and return message. Credentials stay out of this line.
+ */
+export const adiGenerateOrderLogLine = ({
+  at = new Date().toISOString(),
+  poNumber = '',
+  customerNumber = '',
+  clientRequestId = '',
+  returnCode = '',
+  returnMessage = '',
+} = {}) =>
+  `[ADI GenerateOrder] time=${at} po=${poNumber} customer=${customerNumber} requestId=${clientRequestId} returnCode=${returnCode} returnMessage=${returnMessage}`;
+
 export const normalizeAdiOrderGenerationResponse = (response = {}) => ({
   ReturnCode: response.ReturnCode ?? '',
   ReturnMessage: response.ReturnMessage ?? '',
