@@ -9,9 +9,13 @@ import request from 'supertest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 
-jest.mock('../../server/lib/suppliers/adiOrderInquiry.js', () => ({
-  fetchAdiOrderInquiry: jest.fn(),
-}));
+jest.mock('../../server/lib/suppliers/adiOrderInquiry.js', () => {
+  const actual = jest.requireActual('../../server/lib/suppliers/adiOrderInquiry.js');
+  return {
+    ...actual,
+    fetchAdiOrderInquiry: jest.fn(),
+  };
+});
 
 import { fetchAdiOrderInquiry } from '../../server/lib/suppliers/adiOrderInquiry.js';
 
@@ -123,11 +127,49 @@ describe('POST /api/suppliers/adi/order-inquiry', () => {
       customerNumber: 'CUST001',
       customerSuffix: '000',
       adiOrderNumber: '1234567890',
+      clientRequestId: expect.any(String),
     });
 
     const forwardedArgs = fetchAdiOrderInquiry.mock.calls[0][0];
-    expect(forwardedArgs).not.toHaveProperty('clientRequestId');
+    expect(forwardedArgs.clientRequestId).toEqual(expect.any(String));
+    expect(forwardedArgs.clientRequestId.length).toBeGreaterThan(0);
     expect(forwardedArgs).not.toHaveProperty('timestamp');
+  });
+
+  test('logs the full tracking reply without credentials', async () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    fetchAdiOrderInquiry.mockResolvedValue({
+      ReturnCode: '00',
+      ReturnMessage: ' ',
+      ADIOrderNumber: '18066584',
+      HoldReason: 'Credit review',
+      ApiKey: 'API00483',
+    });
+
+    const response = await request(app)
+      .post('/api/suppliers/adi/order-inquiry')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        customerNumber: '451278',
+        customerSuffix: '000',
+        adiOrderNumber: '18066584',
+        clientRequestId: 'req-18066584',
+      });
+
+    expect(response.status).toBe(200);
+    expect(fetchAdiOrderInquiry.mock.calls[0][0].clientRequestId).toBe('req-18066584');
+
+    const line = log.mock.calls
+      .map((call) => call.map(String).join(' '))
+      .find((entry) => entry.includes('[ADI OrderTracking]'));
+    expect(line).toContain('customer=451278');
+    expect(line).toContain('adiOrderNumber=18066584');
+    expect(line).toContain('requestId=req-18066584');
+    expect(line).toContain('Credit review');
+    expect(line).not.toContain(process.env.ADI_API_KEY);
+    expect(line).not.toContain(process.env.ADI_API_PASSWORD);
+    expect(line).not.toContain(process.env.ADI_API_SECRET_KEY);
+    log.mockRestore();
   });
 
   test('returns 400 when ADI inquiry request validation fails', async () => {

@@ -212,7 +212,8 @@ export function validateAdiGenerateOrder(form = {}) {
 
 /**
  * Dedicated order-number fields are kept as ADI sent them.
- * A return message contributes an order number only when it contains a 10-digit number.
+ * A success message such as "Order - 18066584 submitted successfully" supplies that order number.
+ * Any other return message supplies an order number only when it contains a 10-digit number.
  */
 export function extractAdiOrderNumber(orderGenerationResponse = {}, fallbackMessage = '') {
   const dedicatedKeys = [
@@ -229,7 +230,11 @@ export function extractAdiOrderNumber(orderGenerationResponse = {}, fallbackMess
     if (value) return value;
   }
 
-  return text(fallbackMessage).match(/\b\d{10}\b/)?.[0] || '';
+  const message = text(fallbackMessage) || text(orderGenerationResponse?.ReturnMessage);
+  const submitted = message.match(/\border\s*-\s*(\d{5,12})\s+submitted successfully\b/i);
+  if (submitted?.[1]) return submitted[1];
+
+  return message.match(/\b\d{10}\b/)?.[0] || '';
 }
 
 export function deriveAdiInquiryStatus(inquiryResponse = {}) {

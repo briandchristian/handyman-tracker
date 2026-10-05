@@ -7,8 +7,10 @@
 
 import {
   ADI_ORDER_INQUIRY_PATH,
+  adiOrderInquiryLogLine,
   fetchAdiOrderInquiry,
   normalizeAdiOrderInquiryResponse,
+  sanitizeAdiReply,
 } from '../lib/suppliers/adiOrderInquiry.js';
 
 describe('ADI Order Inquiry client', () => {
@@ -92,6 +94,50 @@ describe('ADI Order Inquiry client', () => {
     expect(normalized.OrderLineHead.OrderLineShipmentUnitHeadList).toEqual([]);
     expect(normalized.OrderLineHead.CartShipUnitList).toEqual([]);
     expect(normalized.OrderStatus).toBe('');
+  });
+
+  test('keeps tracking fields that are outside the known header', () => {
+    const normalized = normalizeAdiOrderInquiryResponse({
+      ReturnCode: '00',
+      ReturnMessage: ' ',
+      HoldReason: 'Credit review',
+      OrderHeader: { WebOrderNumber: 'W-99' },
+      ApiKey: 'API00483',
+      nested: { apiPassword: 'secret', Branch: 'Nashville' },
+    });
+
+    expect(normalized.HoldReason).toBe('Credit review');
+    expect(normalized.OrderHeader).toEqual({ WebOrderNumber: 'W-99' });
+    expect(normalized.ReturnMessage).toBe(' ');
+    expect(normalized.ApiKey).toBeUndefined();
+    expect(normalized.nested).toEqual({ Branch: 'Nashville' });
+  });
+
+  test('logs the tracking reply without credentials', () => {
+    const line = adiOrderInquiryLogLine({
+      at: '2026-10-05T17:08:29.820Z',
+      customerNumber: '451278',
+      adiOrderNumber: '18066584',
+      clientRequestId: 'req-1',
+      returnCode: '00',
+      returnMessage: ' ',
+      reply: {
+        ReturnCode: '00',
+        HoldReason: 'Credit review',
+        ApiKey: 'API00483',
+        apiSecretKey: 'hidden',
+      },
+    });
+
+    expect(line).toContain('customer=451278');
+    expect(line).toContain('adiOrderNumber=18066584');
+    expect(line).toContain('requestId=req-1');
+    expect(line).toContain('Credit review');
+    expect(line).not.toContain('API00483');
+    expect(line).not.toContain('hidden');
+    expect(sanitizeAdiReply({ AuthenticationSignature: 'sig', ReturnCode: '00' })).toEqual({
+      ReturnCode: '00',
+    });
   });
 
   test('keeps order status from the header when the top level omits it', () => {

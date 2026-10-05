@@ -259,6 +259,15 @@ describe('adiIntegration', () => {
     ).toBe('');
   });
 
+  test('reads the order number from an ADI submitted-successfully message', () => {
+    expect(
+      extractAdiOrderNumber(
+        { ReturnCode: '00', ReturnMessage: 'Order - 18066584 submitted successfully' },
+        'Order - 18066584 submitted successfully'
+      )
+    ).toBe('18066584');
+  });
+
   test('reads a 10-digit order number from the return message when no field is set', () => {
     expect(
       extractAdiOrderNumber(

@@ -13,6 +13,35 @@ export const ADI_ORDER_INQUIRY_PATH =
 
 const isBlank = (value) => value === undefined || value === null || String(value).trim() === '';
 
+const SECRET_KEY = /api[-_]?key|password|secret|authentication[-_]?signature|authorization|token/i;
+
+/** Drops credential-like fields so a tracking reply can be stored and logged. */
+export const sanitizeAdiReply = (value) => {
+  if (Array.isArray(value)) return value.map(sanitizeAdiReply);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !SECRET_KEY.test(key))
+        .map(([key, entry]) => [key, sanitizeAdiReply(entry)])
+    );
+  }
+  return value;
+};
+
+/**
+ * One line for an Order Tracking result. The reply is included with credential fields removed.
+ */
+export const adiOrderInquiryLogLine = ({
+  at = new Date().toISOString(),
+  customerNumber = '',
+  adiOrderNumber = '',
+  clientRequestId = '',
+  returnCode = '',
+  returnMessage = '',
+  reply = {},
+} = {}) =>
+  `[ADI OrderTracking] time=${at} customer=${customerNumber} adiOrderNumber=${adiOrderNumber} requestId=${clientRequestId} returnCode=${returnCode} returnMessage=${returnMessage} reply=${JSON.stringify(sanitizeAdiReply(reply))}`;
+
 const validateRequest = ({ customerNumber, customerSuffix, adiOrderNumber }) => {
   if (isBlank(customerNumber)) {
     throw new Error('customerNumber is required');
@@ -43,7 +72,8 @@ const firstStatus = (response) => {
   return '';
 };
 
-export const normalizeAdiOrderInquiryResponse = (response = {}) => ({
+export const normalizeAdiOrderInquiryResponse = (response = {}) => sanitizeAdiReply({
+  ...response,
   CustomerNumber: response.CustomerNumber ?? '',
   CustomerSuffix: response.CustomerSuffix ?? '',
   ADIOrderNumber: response.ADIOrderNumber ?? '',

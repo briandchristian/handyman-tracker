@@ -15,7 +15,7 @@ import {
 import { fetchAdiPriceAndInventoryDetails } from './lib/suppliers/adiPriceInventory.js';
 import crypto from 'crypto';
 import { adiGenerateOrderLogLine, fetchAdiOrderGeneration } from './lib/suppliers/adiOrderGeneration.js';
-import { fetchAdiOrderInquiry } from './lib/suppliers/adiOrderInquiry.js';
+import { adiOrderInquiryLogLine, fetchAdiOrderInquiry } from './lib/suppliers/adiOrderInquiry.js';
 import { sendMetaLeadEvent } from './lib/metaCapi.js';
 import {
   MAX_BID_ALERT_RECIPIENTS,
@@ -547,6 +547,7 @@ const purchaseOrderSchema = new mongoose.Schema({
     lastInquiryStatus: String,
     lastInquiryMessage: String,
     lastInquiryAt: Date,
+    lastInquiryReply: { type: mongoose.Schema.Types.Mixed, default: null },
     lastGenerateReturnCode: String,
     lastGenerateReturnMessage: String,
     shipmentPickupIndicator: String,
@@ -2834,6 +2835,19 @@ app.post('/api/suppliers/adi/order-generation', authMiddleware, async (req, res)
  * Uses env-backed ADI credentials and shared signature generation.
  */
 app.post('/api/suppliers/adi/order-inquiry', authMiddleware, async (req, res) => {
+  const body = req.body || {};
+  const clientRequestId = body.clientRequestId || crypto.randomUUID();
+  const logInquiryResult = (reply, returnMessage) => {
+    console.log(adiOrderInquiryLogLine({
+      customerNumber: body.customerNumber,
+      adiOrderNumber: body.adiOrderNumber,
+      clientRequestId,
+      returnCode: reply?.ReturnCode ?? '',
+      returnMessage: returnMessage ?? reply?.ReturnMessage ?? '',
+      reply: reply || { message: returnMessage },
+    }));
+  };
+
   try {
     const credentials = {
       apiKey: process.env.ADI_API_KEY,
@@ -2849,7 +2863,6 @@ app.post('/api/suppliers/adi/order-inquiry', authMiddleware, async (req, res) =>
       customerNumber,
       customerSuffix,
       adiOrderNumber,
-      clientRequestId,
       timestamp,
     } = req.body || {};
 
@@ -2858,15 +2871,17 @@ app.post('/api/suppliers/adi/order-inquiry', authMiddleware, async (req, res) =>
       customerNumber,
       customerSuffix,
       adiOrderNumber,
+      clientRequestId,
     };
-    if (clientRequestId !== undefined) adiRequest.clientRequestId = clientRequestId;
     if (timestamp !== undefined) adiRequest.timestamp = timestamp;
 
     const adiResponse = await fetchAdiOrderInquiry(adiRequest);
+    logInquiryResult(adiResponse);
 
     return res.json(adiResponse);
   } catch (err) {
     const message = err?.message || 'Failed to fetch ADI order inquiry details.';
+    logInquiryResult(null, message);
     const isValidationError = message.includes('required') || message.includes('must be');
 
     if (isValidationError) {

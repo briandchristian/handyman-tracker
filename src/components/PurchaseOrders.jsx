@@ -437,6 +437,7 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
   const [adiLoading, setAdiLoading] = useState(false);
   const [adiLastMessage, setAdiLastMessage] = useState('');
   const [adiLastSyncedAt, setAdiLastSyncedAt] = useState(po?.adiIntegration?.lastSyncedAt || null);
+  const [adiInquiryReply, setAdiInquiryReply] = useState(po?.adiIntegration?.lastInquiryReply || null);
   const [adiInquirySnapshot, setAdiInquirySnapshot] = useState({
     status: po?.adiIntegration?.lastInquiryStatus || '',
     message: po?.adiIntegration?.lastInquiryMessage || '',
@@ -627,6 +628,9 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
       adiInquirySnapshot.at ??
       po?.adiIntegration?.lastInquiryAt ??
       null,
+    lastInquiryReply: overrides.lastInquiryReply !== undefined
+      ? overrides.lastInquiryReply
+      : (adiInquiryReply ?? po?.adiIntegration?.lastInquiryReply ?? null),
     lastGenerateReturnCode: (
       overrides.lastGenerateReturnCode ??
       adiGenerateReturnCode ??
@@ -779,6 +783,7 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
       const carts = collectAdiCarts(response);
 
       setAdiLastMessage(message);
+      setAdiInquiryReply(response);
       setAdiInquirySnapshot({
         status: inquiryStatus,
         message,
@@ -795,6 +800,7 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
         lastInquiryStatus: inquiryStatus,
         lastInquiryMessage: message,
         lastInquiryAt: inquiryAt,
+        lastInquiryReply: response,
         shipments,
         carts,
       }));
@@ -1317,6 +1323,14 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
                     )}
                     {adiInquirySnapshot.message && adiInquirySnapshot.message !== adiGenerateReturnMessage && (
                       <p>{plainAdiItemMessage(adiInquirySnapshot.message)}</p>
+                    )}
+                    {adiInquiryReply && (
+                      <pre
+                        aria-label="ADI tracking reply"
+                        className="mt-2 p-2 bg-white border border-indigo-200 rounded overflow-auto text-xs text-black"
+                      >
+                        {JSON.stringify(adiInquiryReply, null, 2)}
+                      </pre>
                     )}
                   </div>
                 )}

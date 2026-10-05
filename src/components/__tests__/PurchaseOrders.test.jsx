@@ -889,6 +889,30 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     });
   });
 
+  test('runs inquiry when the success message contains the ADI order number', async () => {
+    generateAdiOrder.mockResolvedValueOnce({
+      ReturnCode: '00',
+      ReturnMessage: 'Order - 18066584 submitted successfully',
+    });
+
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      fireEvent.click(screen.getAllByText('PO-2024-001')[0]);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Place order with ADI' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send order to ADI' }));
+
+    await waitFor(() => {
+      expect(inquireAdiOrder).toHaveBeenCalledWith({
+        customerNumber: 'CUST-EXISTING',
+        customerSuffix: '111',
+        adiOrderNumber: '18066584',
+      });
+    });
+  });
+
   test('stores an 8-digit number from the return message without treating it as the order', async () => {
     generateAdiOrder.mockResolvedValueOnce({
       ReturnCode: '01',
@@ -1130,6 +1154,42 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     expect(global.alert).toHaveBeenCalledWith(
       'dropShipmentName is required when shipmentPickupIndicator is S'
     );
+  });
+
+  test('shows and saves the full ADI tracking reply after inquiry', async () => {
+    inquireAdiOrder.mockResolvedValueOnce({
+      ReturnCode: '00',
+      ReturnMessage: ' ',
+      ADIOrderNumber: '18066584',
+      HoldReason: 'Credit review',
+      OrderHeader: { WebOrderNumber: 'W-99' },
+    });
+
+    render(<BrowserRouter><PurchaseOrders /></BrowserRouter>);
+
+    await waitFor(() => {
+      fireEvent.click(screen.getAllByText('PO-2024-001')[0]);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check status' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('ADI tracking reply').textContent).toContain('Credit review');
+      expect(screen.getByLabelText('ADI tracking reply').textContent).toContain('W-99');
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('po1'),
+        expect.objectContaining({
+          adiIntegration: expect.objectContaining({
+            adiOrderNumber: '9999999999',
+            lastInquiryReply: expect.objectContaining({
+              HoldReason: 'Credit review',
+              OrderHeader: { WebOrderNumber: 'W-99' },
+            }),
+          }),
+        }),
+        expect.any(Object)
+      );
+    });
   });
 
   test('should show ADI shipment and cart tracking after inquiry', async () => {
