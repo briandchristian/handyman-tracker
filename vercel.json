@@ -37,7 +37,7 @@
       "destination": "/services/:slug/index.html"
     },
     {
-      "source": "/((?!api/|google6542801e3cca663e\\.html$|sitemap\\.xml$|robots\\.txt$).*)",
+      "source": "/((?!api/|google6542801e3cca663e\\.html$|sitemap\\.xml$|robots\\.txt$|BingSiteAuth\\.xml$).*)",
       "destination": "/index.html"
     }
   ],
