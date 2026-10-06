@@ -8,7 +8,7 @@
       "destination": "/api/catchall?path=$1"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|google6542801e3cca663e\\.html$).*)",
       "destination": "/index.html"
     }
   ],
