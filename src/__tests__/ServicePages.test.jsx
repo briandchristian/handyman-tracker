@@ -63,10 +63,9 @@ describe('public service pages', () => {
 
   test('homepage service cards link to the service pages and the service area', () => {
     renderAt('/');
-    expect(screen.getByRole('link', { name: /burglar alarms/i })).toHaveAttribute(
-      'href',
-      '/services/burglar-alarms'
-    );
+    const burglarCard = screen.getByRole('link', { name: /burglar alarms/i });
+    expect(burglarCard).toHaveAttribute('href', '/services/burglar-alarms');
+    expect(burglarCard).toHaveAccessibleName(/intrusion detection/i);
     expect(screen.getByRole('link', { name: /fire alarms/i })).toHaveAttribute(
       'href',
       '/services/fire-alarms'

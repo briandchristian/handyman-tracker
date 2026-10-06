@@ -20,6 +20,7 @@ import CustomerMyInfo from './components/CustomerMyInfo';
 import InstallationHistory from './components/InstallationHistory';
 import ServiceArea from './components/ServiceArea';
 import ServiceDetail from './components/ServiceDetail';
+import ScrollToTop from './components/ScrollToTop';
 import { isPublicPath } from './constants/publicRoutes';
 
 function readStored(key) {
@@ -36,6 +37,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <ScrollToTop />
       {showMobileNav && (
         <>
           <StaffNav />

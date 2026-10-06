@@ -446,31 +446,31 @@ export default function MarketingHome() {
 
             {SERVICE_LINES.map((service) => (
 
-              <li
+              <li key={service.id} className="flex">
 
-                key={service.id}
+                <Link
 
-                className="group flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:border-emerald-200 hover:shadow-md text-left md:text-center md:items-center"
+                  to={service.path}
 
-              >
+                  className="group flex flex-1 flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:border-emerald-200 hover:shadow-md text-left md:text-center md:items-center"
 
-                <span className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-emerald-400 transition group-hover:bg-emerald-600 group-hover:text-white">
+                >
 
-                  {service.icon}
+                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-emerald-400 transition group-hover:bg-emerald-600 group-hover:text-white">
 
-                </span>
+                    {service.icon}
 
-                <h3 className="mt-4 text-lg font-semibold text-slate-900">
+                  </span>
 
-                  <Link to={service.path}>{service.title}</Link>
+                  <h3 className="mt-4 text-lg font-semibold text-slate-900">{service.title}</h3>
 
-                </h3>
+                  <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600">
 
-                <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600">
+                    {service.summary}
 
-                  {service.summary}
+                  </p>
 
-                </p>
+                </Link>
 
               </li>
 
