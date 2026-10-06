@@ -29,10 +29,20 @@ axios.interceptors.response.use(
   }
 );
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+const rootEl = document.getElementById('root');
+const tree = (
   <React.StrictMode>
     <BrowserRouter>
       <App />
     </BrowserRouter>
   </React.StrictMode>
 );
+
+// Prerendered HTML matches a logged-out visit. A staff session renders on the
+// client so the staff nav is not hydrated into the public markup.
+const hasSession = !!localStorage.getItem('token');
+if (rootEl.hasChildNodes() && !hasSession) {
+  ReactDOM.hydrateRoot(rootEl, tree);
+} else {
+  ReactDOM.createRoot(rootEl).render(tree);
+}

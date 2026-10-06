@@ -18,12 +18,19 @@ import MobileNav from './components/MobileNav';
 import StaffNav from './components/StaffNav';
 import CustomerMyInfo from './components/CustomerMyInfo';
 import InstallationHistory from './components/InstallationHistory';
+import ServiceArea from './components/ServiceArea';
+import ServiceDetail from './components/ServiceDetail';
 import { isPublicPath } from './constants/publicRoutes';
 
+function readStored(key) {
+  if (typeof localStorage === 'undefined') return null;
+  return localStorage.getItem(key);
+}
+
 function App() {
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [token, setToken] = useState(readStored('token'));
   const location = useLocation();
-  const userRole = localStorage.getItem('userRole');
+  const userRole = readStored('userRole');
   const isCustomer = userRole === 'customer';
   const showMobileNav = token && !isPublicPath(location.pathname) && !isCustomer;
 
@@ -38,6 +45,8 @@ function App() {
       <Routes>
         <Route path="/" element={<MarketingHome />} />
         <Route path="/bid" element={<RequestBid />} />
+        <Route path="/service-area" element={<ServiceArea />} />
+        <Route path="/services/:slug" element={<ServiceDetail />} />
         <Route path="/login" element={<Login setToken={setToken} />} />
         <Route
           path="/dashboard"

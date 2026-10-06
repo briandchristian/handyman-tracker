@@ -55,6 +55,9 @@ export default function PublicNav() {
           <Link to="/" className={linkClass('/')}>
             Home
           </Link>
+          <Link to="/service-area" className={linkClass('/service-area')}>
+            Area
+          </Link>
           <Link to="/bid" className={linkClass('/bid')}>
             Bid
           </Link>

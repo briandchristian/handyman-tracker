@@ -1,16 +1,14 @@
 import { Link } from 'react-router-dom';
 
 import PublicNav from './PublicNav';
+import Seo from './Seo';
 
 import {
-
   COMPANY_NAME,
-
   COMPANY_PHONE_DISPLAY,
-
   COMPANY_PHONE_TEL,
-
 } from '../constants/companyContact';
+import { buildLocalBusinessJsonLd } from '../seo/siteMetadata';
 
 
 
@@ -19,6 +17,8 @@ const SERVICE_LINES = [
   {
 
     id: 'burglar',
+
+    path: '/services/burglar-alarms',
 
     title: 'Burglar alarms',
 
@@ -41,6 +41,8 @@ const SERVICE_LINES = [
   {
 
     id: 'fire',
+
+    path: '/services/fire-alarms',
 
     title: 'Fire alarms',
 
@@ -66,6 +68,8 @@ const SERVICE_LINES = [
 
     id: 'cctv',
 
+    path: '/services/cctv',
+
     title: 'CCTV & monitoring',
 
     summary:
@@ -89,6 +93,8 @@ const SERVICE_LINES = [
   {
 
     id: 'access',
+
+    path: '/services/access-control',
 
     title: 'Access control',
 
@@ -137,6 +143,13 @@ export default function MarketingHome() {
   return (
 
     <div data-testid="marketing-page" className="w-full min-h-screen bg-slate-50 text-slate-900">
+
+      <Seo
+        title="Christian Security Services | Middle Tennessee Alarms"
+        description="Licensed alarm contractor for burglar alarms, fire alarms, CCTV, and access control across Middle Tennessee. ID 2622. Call (931) 279-7879 or request a bid."
+        path="/"
+        jsonLd={buildLocalBusinessJsonLd()}
+      />
 
       <PublicNav />
 
@@ -274,6 +287,18 @@ export default function MarketingHome() {
               <p className="text-sm text-slate-400 mt-2">
 
                 ID Number: 2622 Alarm Contracting Company
+
+              </p>
+
+              <p className="mt-3 text-sm text-slate-300">
+
+                <Link to="/service-area" className="font-semibold text-emerald-300 underline decoration-emerald-500/50 underline-offset-4 hover:text-emerald-200">
+
+                  Service area
+
+                </Link>
+
+                {' '}from Selmer and Savannah north to Franklin and Nashville.
 
               </p>
 
@@ -435,7 +460,11 @@ export default function MarketingHome() {
 
                 </span>
 
-                <h3 className="mt-4 text-lg font-semibold text-slate-900">{service.title}</h3>
+                <h3 className="mt-4 text-lg font-semibold text-slate-900">
+
+                  <Link to={service.path}>{service.title}</Link>
+
+                </h3>
 
                 <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600">
 
@@ -527,7 +556,7 @@ export default function MarketingHome() {
 
             <p className="mt-2 text-lg font-medium text-slate-100">
 
-              Licensed alarm contracting across Tennessee
+              Licensed alarm contracting across Middle Tennessee
 
             </p>
 

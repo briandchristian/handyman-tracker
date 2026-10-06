@@ -2,13 +2,42 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "handyman-tracker.vercel.app"
+        }
+      ],
+      "destination": "https://www.christian-security-services.com/:path*",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
       "destination": "/api/catchall?path=$1"
     },
     {
-      "source": "/((?!api/|google6542801e3cca663e\\.html$).*)",
+      "source": "/bid",
+      "destination": "/bid/index.html"
+    },
+    {
+      "source": "/login",
+      "destination": "/login/index.html"
+    },
+    {
+      "source": "/service-area",
+      "destination": "/service-area/index.html"
+    },
+    {
+      "source": "/services/:slug",
+      "destination": "/services/:slug/index.html"
+    },
+    {
+      "source": "/((?!api/|google6542801e3cca663e\\.html$|sitemap\\.xml$|robots\\.txt$).*)",
       "destination": "/index.html"
     }
   ],

@@ -3,6 +3,8 @@ import axios from 'axios';
 import API_BASE_URL from '../config/api';
 import AuthShell from './AuthShell';
 import FormStatus from './FormStatus';
+import Seo from './Seo';
+import { COMPANY_NAME } from '../constants/companyContact';
 import { formatPhoneNumber } from '../utils/phoneFormat';
 
 /**
@@ -60,6 +62,12 @@ export default function RequestBid() {
   };
 
   return (
+    <>
+    <Seo
+      title={`Request a Bid | ${COMPANY_NAME}`}
+      description="Request a bid for alarm, fire, camera, or access control installation in Middle Tennessee. Christian Security Services, license ID 2622."
+      path="/bid"
+    />
     <AuthShell
       eyebrow="Free estimate"
       title="Request a Bid"
@@ -164,5 +172,6 @@ export default function RequestBid() {
         </div>
       </div>
     </AuthShell>
+    </>
   );
 }

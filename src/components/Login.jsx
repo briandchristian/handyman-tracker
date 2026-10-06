@@ -5,6 +5,8 @@ import API_BASE_URL from '../config/api';
 import { formatPhoneNumber } from '../utils/phoneFormat';
 import AuthShell from './AuthShell';
 import FormStatus from './FormStatus';
+import Seo from './Seo';
+import { COMPANY_NAME } from '../constants/companyContact';
 
 /**
  * Sign-in hub at /login — customer first; staff login is collapsed.
@@ -180,6 +182,13 @@ export default function Login({ setToken }) {
   };
 
   return (
+    <>
+    <Seo
+      title={`Sign in | ${COMPANY_NAME}`}
+      description="Customer and staff sign in for Christian Security Services. This page is not for public search."
+      path="/login"
+      noindex
+    />
     <AuthShell
       eyebrow="Customer portal"
       title={showStaff ? 'Staff sign in' : showCustomerRegister ? 'Create account' : 'Sign in'}
@@ -424,5 +433,6 @@ export default function Login({ setToken }) {
         </div>
       )}
     </AuthShell>
+    </>
   );
 }
