@@ -1,4 +1,5 @@
 import { Link, useParams } from 'react-router-dom';
+import NotFound from './NotFound';
 import PublicNav from './PublicNav';
 import Seo from './Seo';
 import {
@@ -10,32 +11,15 @@ import { SERVICES, SITE_ORIGIN, canonicalUrl } from '../seo/siteMetadata';
 
 /**
  * One indexable page per service. Copy is specific to the trade.
- * Unknown slugs are noindex and are not listed in the sitemap.
+ * Unknown slugs use the shared not-found page (noindex, no canonical).
+ * They are not listed in the sitemap, and the host returns 404.html for them.
  */
 export default function ServiceDetail() {
   const { slug } = useParams();
   const service = SERVICES.find((item) => item.slug === slug);
 
   if (!service) {
-    return (
-      <div className="min-h-screen bg-slate-50 text-slate-900">
-        <Seo
-          title={`Page not found | ${COMPANY_NAME}`}
-          description="That service page is not on this site."
-          path="/services/not-found"
-          noindex
-        />
-        <PublicNav />
-        <main className="max-w-3xl mx-auto px-4 py-16">
-          <h1 className="text-3xl font-bold">Page not found</h1>
-          <p className="mt-4 text-slate-600">
-            <Link to="/" className="font-semibold text-emerald-700">
-              Back to the homepage
-            </Link>
-          </p>
-        </main>
-      </div>
-    );
+    return <NotFound />;
   }
 
   const jsonLd = {

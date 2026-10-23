@@ -61,6 +61,30 @@ describe('public service pages', () => {
     expect(screen.getByText(/2622/)).toBeInTheDocument();
   });
 
+  test('an unknown service is a noindex not-found page without a canonical URL', () => {
+    renderAt('/services/not-a-real-service');
+    expect(screen.getByRole('heading', { level: 1, name: /page not found/i })).toBeInTheDocument();
+    expect(document.querySelector('meta[name="robots"]')).toHaveAttribute('content', 'noindex, follow');
+    expect(document.querySelector('link[rel="canonical"]')).toBeNull();
+  });
+
+  test('an old URL renders not-found instead of the homepage', () => {
+    renderAt('/old-handyman-page');
+    expect(screen.getByRole('heading', { level: 1, name: /page not found/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: /security you can trust/i })).not.toBeInTheDocument();
+    expect(document.querySelector('meta[name="robots"]')).toHaveAttribute('content', 'noindex, follow');
+    expect(document.querySelector('link[rel="canonical"]')).toBeNull();
+  });
+
+  test('a published service page stays indexable', () => {
+    renderAt('/services/burglar-alarms');
+    expect(document.querySelector('meta[name="robots"]')).toHaveAttribute('content', 'index, follow');
+    expect(document.querySelector('link[rel="canonical"]')).toHaveAttribute(
+      'href',
+      'https://www.christian-security-services.com/services/burglar-alarms'
+    );
+  });
+
   test('homepage service cards link to the service pages and the service area', () => {
     renderAt('/');
     const burglarCard = screen.getByRole('link', { name: /burglar alarms/i });

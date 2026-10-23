@@ -15,24 +15,33 @@ function upsertMeta(attr, key, content) {
  * Keeps the document title, description, and canonical URL in sync when a
  * visitor moves between public pages without a full reload. The build also
  * writes these tags into the prerendered HTML for the first response.
+ * Not-found pages pass canonical={false} so a previous page's canonical
+ * is removed instead of pointing Google at the homepage.
  */
-export default function Seo({ title, description, path, jsonLd, noindex = false }) {
+export default function Seo({ title, description, path, jsonLd, noindex = false, canonical = true }) {
   useEffect(() => {
     document.title = title;
     upsertMeta('name', 'description', description);
     upsertMeta('name', 'robots', noindex ? 'noindex, follow' : 'index, follow');
     upsertMeta('property', 'og:title', title);
     upsertMeta('property', 'og:description', description);
-    upsertMeta('property', 'og:url', canonicalUrl(path));
 
-    let canonical = document.head.querySelector('link[rel="canonical"]');
-    if (!canonical) {
-      canonical = document.createElement('link');
-      canonical.setAttribute('rel', 'canonical');
-      document.head.appendChild(canonical);
+    const existingCanonical = document.head.querySelector('link[rel="canonical"]');
+    const ogUrl = document.head.querySelector('meta[property="og:url"]');
+    if (canonical) {
+      upsertMeta('property', 'og:url', canonicalUrl(path));
+      let link = existingCanonical;
+      if (!link) {
+        link = document.createElement('link');
+        link.setAttribute('rel', 'canonical');
+        document.head.appendChild(link);
+      }
+      link.setAttribute('href', canonicalUrl(path));
+    } else {
+      existingCanonical?.remove();
+      ogUrl?.remove();
     }
-    canonical.setAttribute('href', canonicalUrl(path));
-  }, [title, description, path, noindex]);
+  }, [title, description, path, noindex, canonical]);
 
   if (!jsonLd) return null;
 

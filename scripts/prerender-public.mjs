@@ -1,7 +1,8 @@
 /**
  * After `vite build`, render each public route to static HTML and write
- * sitemap.xml and robots.txt into dist/. Vercel serves those files as the
- * first response for www.christian-security-services.com.
+ * sitemap.xml, robots.txt, and 404.html into dist/. Vercel serves the public
+ * files as the first response. Unknown URLs miss every rewrite and are
+ * answered with 404.html (HTTP 404, noindex, no app bundle).
  */
 
 process.env.VITE_DEV_NO_HTTPS = '1';
@@ -58,9 +59,16 @@ try {
     }
   }
 
+  const notFoundBody = renderPublicPath('/page-not-found');
+  const notFoundHtml = seo.toStaticNotFoundDocument(template, notFoundBody);
+  if (!notFoundHtml.includes('<h1') || !notFoundHtml.includes('noindex')) {
+    throw new Error('Prerender for 404.html did not include a noindex not-found page');
+  }
+  fs.writeFileSync(path.join(root, 'dist', '404.html'), notFoundHtml);
+
   fs.writeFileSync(path.join(root, 'dist', 'sitemap.xml'), seo.buildSitemapXml());
   fs.writeFileSync(path.join(root, 'dist', 'robots.txt'), seo.buildRobotsTxt());
-  console.log(`Prerendered ${pages.length} public pages and wrote sitemap.xml`);
+  console.log(`Prerendered ${pages.length} public pages, 404.html, and sitemap.xml`);
 } catch (error) {
   exitCode = 1;
   console.error(error);

@@ -4,7 +4,9 @@
  * Canonical host is https://www.christian-security-services.com. The sitemap
  * lists only pages a visitor can read without signing in. Login is prerendered
  * with noindex and is omitted here. Staff and API paths are omitted and
- * blocked in robots.txt. lastmod changes only when this public copy changes.
+ * blocked in robots.txt. Unknown URLs are a separate 404 document: noindex in
+ * the first HTML response, with no canonical pointing at the homepage.
+ * lastmod changes only when this public copy changes.
  */
 
 import { COMPANY_NAME, COMPANY_PHONE_DISPLAY } from '../constants/companyContact';
@@ -136,6 +138,12 @@ export const INDEXABLE_PAGES = [
   })),
 ];
 
+export const NOT_FOUND_PAGE = {
+  title: 'Page not found | Christian Security Services',
+  description: 'That page is not on this site.',
+  robots: 'noindex, follow',
+};
+
 export function canonicalUrl(pathname) {
   if (pathname === '/') return `${SITE_ORIGIN}/`;
   return `${SITE_ORIGIN}${pathname}`;
@@ -212,16 +220,32 @@ export function applySeoTemplate(template, { title, description, canonical, robo
   const headTags = [
     `<title>${escapeHtml(title)}</title>`,
     `<meta name="description" content="${escapeHtml(description)}" />`,
-    `<link rel="canonical" href="${escapeHtml(canonical)}" />`,
+    canonical ? `<link rel="canonical" href="${escapeHtml(canonical)}" />` : '',
     `<meta name="robots" content="${escapeHtml(robots)}" />`,
     `<meta property="og:title" content="${escapeHtml(title)}" />`,
     `<meta property="og:description" content="${escapeHtml(description)}" />`,
-    `<meta property="og:url" content="${escapeHtml(canonical)}" />`,
+    canonical ? `<meta property="og:url" content="${escapeHtml(canonical)}" />` : '',
     `<meta property="og:type" content="website" />`,
     `<meta property="og:image" content="${SITE_ORIGIN}/logo.png" />`,
-  ].join('\n    ');
+  ]
+    .filter(Boolean)
+    .join('\n    ');
 
   const withoutTitle = template.replace(/<title>[\s\S]*?<\/title>/i, '');
   const withHead = withoutTitle.replace('</head>', `    ${headTags}\n  </head>`);
   return withHead.replace('<div id="root"></div>', `<div id="root">${body}</div>`);
+}
+
+/**
+ * Static 404 document. Drops the app bundle so hydration cannot replace this
+ * response with the homepage. The Google tag stays.
+ */
+export function toStaticNotFoundDocument(template, body) {
+  const html = applySeoTemplate(template, {
+    title: NOT_FOUND_PAGE.title,
+    description: NOT_FOUND_PAGE.description,
+    robots: NOT_FOUND_PAGE.robots,
+    body,
+  });
+  return html.replace(/<script type="module"[\s\S]*?<\/script>/gi, '');
 }

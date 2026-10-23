@@ -33,11 +33,71 @@
       "destination": "/service-area/index.html"
     },
     {
-      "source": "/services/:slug",
-      "destination": "/services/:slug/index.html"
+      "source": "/services/burglar-alarms",
+      "destination": "/services/burglar-alarms/index.html"
     },
     {
-      "source": "/((?!api/|google6542801e3cca663e\\.html$|sitemap\\.xml$|robots\\.txt$|BingSiteAuth\\.xml$).*)",
+      "source": "/services/fire-alarms",
+      "destination": "/services/fire-alarms/index.html"
+    },
+    {
+      "source": "/services/cctv",
+      "destination": "/services/cctv/index.html"
+    },
+    {
+      "source": "/services/access-control",
+      "destination": "/services/access-control/index.html"
+    },
+    {
+      "source": "/dashboard",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/customer",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/customers",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/customers/:customerId",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/installation-history",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/projects/:customerId/:projectId",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin/users",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin/bid-alerts",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/suppliers",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/purchase-orders",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/inventory",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/accounting",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/subcontractor",
       "destination": "/index.html"
     }
   ],

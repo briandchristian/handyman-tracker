@@ -13,6 +13,7 @@ import {
   buildRobotsTxt,
   buildSitemapXml,
   applySeoTemplate,
+  toStaticNotFoundDocument,
 } from './siteMetadata';
 
 const CITIES = [
@@ -101,5 +102,20 @@ describe('public search metadata', () => {
     expect(html).toContain('<h1>Burglar alarm installation</h1>');
     expect(html).not.toContain('<title>Old</title>');
     expect(html).not.toContain('<div id="root"></div>');
+  });
+
+  test('the not-found document is noindex, keeps the Google tag, and does not canonicalize to the homepage', () => {
+    const html = toStaticNotFoundDocument(
+      `<html><head><script async src="https://www.googletagmanager.com/gtag/js?id=G-24HYB6KRJX"></script><script type="module" src="/assets/index-abc.js"></script><title>Old</title></head><body><div id="root"></div></body></html>`,
+      '<h1>Page not found</h1>'
+    );
+
+    expect(html).toContain('<meta name="robots" content="noindex, follow" />');
+    expect(html).toContain('<h1>Page not found</h1>');
+    expect(html).toContain('googletagmanager.com/gtag/js');
+    expect(html).not.toContain('rel="canonical"');
+    expect(html).not.toContain('og:url');
+    expect(html).not.toContain('/assets/index-abc.js');
+    expect(html).not.toContain(`${SITE_ORIGIN}/"`);
   });
 });

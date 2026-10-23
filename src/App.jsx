@@ -19,6 +19,7 @@ import StaffNav from './components/StaffNav';
 import CustomerMyInfo from './components/CustomerMyInfo';
 import InstallationHistory from './components/InstallationHistory';
 import ServiceArea from './components/ServiceArea';
+import NotFound from './components/NotFound';
 import ServiceDetail from './components/ServiceDetail';
 import ScrollToTop from './components/ScrollToTop';
 import { isPublicPath } from './constants/publicRoutes';
@@ -232,6 +233,7 @@ function App() {
             )
           }
         />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </div>
   );
