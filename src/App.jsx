@@ -20,6 +20,8 @@ import CustomerMyInfo from './components/CustomerMyInfo';
 import InstallationHistory from './components/InstallationHistory';
 import ServiceArea from './components/ServiceArea';
 import NotFound from './components/NotFound';
+import PrivacyPolicy from './components/PrivacyPolicy';
+import PublicFooter from './components/PublicFooter';
 import ServiceDetail from './components/ServiceDetail';
 import ScrollToTop from './components/ScrollToTop';
 import { isPublicPath } from './constants/publicRoutes';
@@ -35,6 +37,7 @@ function App() {
   const userRole = readStored('userRole');
   const isCustomer = userRole === 'customer';
   const showMobileNav = token && !isPublicPath(location.pathname) && !isCustomer;
+  const showPublicFooter = isPublicPath(location.pathname) || !token;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -51,6 +54,7 @@ function App() {
         <Route path="/service-area" element={<ServiceArea />} />
         <Route path="/services/:slug" element={<ServiceDetail />} />
         <Route path="/login" element={<Login setToken={setToken} />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route
           path="/dashboard"
           element={
@@ -235,6 +239,7 @@ function App() {
         />
         <Route path="*" element={<NotFound />} />
       </Routes>
+      {showPublicFooter ? <PublicFooter /> : null}
     </div>
   );
 }

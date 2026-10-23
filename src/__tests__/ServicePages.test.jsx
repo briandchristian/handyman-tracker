@@ -58,7 +58,7 @@ describe('public service pages', () => {
     for (const city of CITIES) {
       expect(screen.getByText(new RegExp(city))).toBeInTheDocument();
     }
-    expect(screen.getByText(/2622/)).toBeInTheDocument();
+    expect(screen.getAllByText(/2622/).length).toBeGreaterThan(0);
   });
 
   test('an unknown service is a noindex not-found page without a canonical URL', () => {

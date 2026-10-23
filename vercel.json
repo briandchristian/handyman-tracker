@@ -33,6 +33,10 @@
       "destination": "/service-area/index.html"
     },
     {
+      "source": "/privacy-policy",
+      "destination": "/privacy-policy/index.html"
+    },
+    {
       "source": "/services/burglar-alarms",
       "destination": "/services/burglar-alarms/index.html"
     },

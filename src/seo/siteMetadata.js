@@ -12,7 +12,7 @@
 import { COMPANY_NAME, COMPANY_PHONE_DISPLAY } from '../constants/companyContact';
 
 export const SITE_ORIGIN = 'https://www.christian-security-services.com';
-export const CONTENT_UPDATED = '2026-10-06';
+export const CONTENT_UPDATED = '2026-10-23';
 export const LICENSE_ID = '2622';
 export const PHONE_E164 = '+1-931-279-7879';
 
@@ -130,6 +130,12 @@ export const INDEXABLE_PAGES = [
     title: 'Middle Tennessee Service Area | Christian Security Services',
     description:
       'Alarm installation from Selmer, Savannah, and Waynesboro through Columbia and Shelbyville to Franklin and Nashville, including Tullahoma and Winchester.',
+  },
+  {
+    path: '/privacy-policy',
+    title: 'Privacy Policy | Christian Security Services',
+    description:
+      'How Christian Security Services collects and uses personal information, including Google Analytics 4 with Google Signals, and how to exercise Tennessee Information Protection Act rights.',
   },
   ...SERVICES.map((service) => ({
     path: service.path,

@@ -567,32 +567,6 @@ export default function MarketingHome() {
 
       </section>
 
-
-
-      <footer className="border-t border-slate-200 bg-slate-100 px-4 py-8 md:px-8 text-sm text-slate-600">
-
-        <div className="max-w-6xl mx-auto flex flex-col gap-2 md:items-center md:text-center">
-
-          <p>
-
-            © {new Date().getFullYear()} {COMPANY_NAME}. ID 2622 Alarm Contracting Company.
-
-          </p>
-
-          <p className="text-slate-500">
-
-            <Link to="/login" className="font-medium text-slate-700 hover:text-emerald-700">
-
-              Customer &amp; staff sign in
-
-            </Link>
-
-          </p>
-
-        </div>
-
-      </footer>
-
     </div>
 
   );

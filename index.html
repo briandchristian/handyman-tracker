@@ -1,11 +1,45 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      // Consent Mode v2 runs before gtag.js. US/Tennessee default: measure visits
+      // and ads, but deny ad personalization so Google Signals cannot profile them.
+      // A stored footer opt-out denies every consent type before the tag loads.
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){window.dataLayer.push(arguments);}
+
+      var consentGranted = {
+        analytics_storage: 'granted',
+        ad_storage: 'granted',
+        ad_user_data: 'granted',
+        ad_personalization: 'denied'
+      };
+      var consentDenied = {
+        analytics_storage: 'denied',
+        ad_storage: 'denied',
+        ad_user_data: 'denied',
+        ad_personalization: 'denied'
+      };
+
+      var privacyOptedOut = false;
+      try {
+        privacyOptedOut = localStorage.getItem('privacyOptOut') === '1';
+      } catch (error) {}
+
+      gtag('consent', 'default', privacyOptedOut ? consentDenied : consentGranted);
+
+      window.updateUserPrivacyPreferences = function (optedOut) {
+        var denied = !!optedOut;
+        try {
+          if (denied) localStorage.setItem('privacyOptOut', '1');
+          else localStorage.removeItem('privacyOptOut');
+        } catch (error) {}
+        gtag('consent', 'update', denied ? consentDenied : consentGranted);
+      };
+    </script>
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-24HYB6KRJX"></script>
     <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
 
       gtag('config', 'G-24HYB6KRJX');

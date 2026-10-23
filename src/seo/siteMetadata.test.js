@@ -53,6 +53,7 @@ describe('public search metadata', () => {
         `${SITE_ORIGIN}/services/fire-alarms`,
         `${SITE_ORIGIN}/services/cctv`,
         `${SITE_ORIGIN}/services/access-control`,
+        `${SITE_ORIGIN}/privacy-policy`,
       ])
     );
     expect(xml).not.toMatch(/\/login|\/dashboard|\/customers|\/api\//);

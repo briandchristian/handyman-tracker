@@ -37,6 +37,7 @@ describe('canonical host routing', () => {
         '/bid -> /bid/index.html',
         '/login -> /login/index.html',
         '/service-area -> /service-area/index.html',
+        '/privacy-policy -> /privacy-policy/index.html',
         '/services/burglar-alarms -> /services/burglar-alarms/index.html',
         '/services/fire-alarms -> /services/fire-alarms/index.html',
         '/services/cctv -> /services/cctv/index.html',
