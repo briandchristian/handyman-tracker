@@ -2,7 +2,7 @@
  * Subcontractor (Brinks) work-order page: list, status filter, completion number, totals.
  */
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import axios from 'axios';
@@ -48,12 +48,27 @@ const orders = [
   },
 ];
 
-function renderPage() {
-  return render(
+async function renderPage() {
+  const view = render(
     <BrowserRouter>
       <SubcontractorJobs />
     </BrowserRouter>
   );
+  const workOrders = await screen.findByRole('button', { name: 'Work orders' });
+  if (workOrders.getAttribute('aria-expanded') === 'false') {
+    fireEvent.click(workOrders);
+  }
+  const toggle = screen.getByRole('button', { name: 'New work order' });
+  if (toggle.getAttribute('aria-expanded') === 'false') {
+    fireEvent.click(toggle);
+  }
+  for (const name of ['Reimbursable equipment', 'Brinks reconciliation']) {
+    const nested = screen.queryByRole('button', { name });
+    if (nested?.getAttribute('aria-expanded') === 'false') {
+      fireEvent.click(nested);
+    }
+  }
+  return view;
 }
 
 describe('SubcontractorJobs', () => {
@@ -64,7 +79,7 @@ describe('SubcontractorJobs', () => {
 
   test('shows an empty state when there are no work orders', async () => {
     axios.get.mockResolvedValue({ data: [] });
-    renderPage();
+    await renderPage();
 
     expect(await screen.findByText(/no brinks work orders/i)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /subcontractor/i })).toBeInTheDocument();
@@ -74,7 +89,7 @@ describe('SubcontractorJobs', () => {
 
   test('lists work orders with completion number and amount due', async () => {
     axios.get.mockResolvedValue({ data: orders });
-    renderPage();
+    await renderPage();
 
     expect(await screen.findByText('BRK-1001')).toBeInTheDocument();
     expect(screen.getByText('Warehouse 12')).toBeInTheDocument();
@@ -88,7 +103,7 @@ describe('SubcontractorJobs', () => {
   test('records what Brinks actually paid against amount due', async () => {
     axios.get.mockResolvedValue({ data: [] });
     axios.post.mockResolvedValue({ data: { _id: 'new' } });
-    renderPage();
+    await renderPage();
     await screen.findByText(/no brinks work orders/i);
 
     await userEvent.type(screen.getByLabelText(/work order/i), 'BRK-9');
@@ -124,7 +139,7 @@ describe('SubcontractorJobs', () => {
 
   test('filters the list by status', async () => {
     axios.get.mockResolvedValue({ data: orders });
-    renderPage();
+    await renderPage();
     await screen.findByText('BRK-1001');
 
     await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), 'completed');
@@ -136,7 +151,7 @@ describe('SubcontractorJobs', () => {
   test('cannot mark complete without a completion number', async () => {
     axios.get.mockResolvedValue({ data: [] });
     axios.post.mockResolvedValue({ data: { _id: 'new' } });
-    renderPage();
+    await renderPage();
     await screen.findByText(/no brinks work orders/i);
 
     await userEvent.type(screen.getByLabelText(/work order/i), 'BRK-9');
@@ -152,7 +167,7 @@ describe('SubcontractorJobs', () => {
     axios.post.mockResolvedValue({
       data: { _id: 'new', workOrderNumber: 'BRK-9', amountDue: 95 },
     });
-    renderPage();
+    await renderPage();
     await screen.findByText(/no brinks work orders/i);
 
     await userEvent.type(screen.getByLabelText(/work order/i), 'BRK-9');
@@ -189,7 +204,7 @@ describe('SubcontractorJobs', () => {
   test('loads an existing work order for edit', async () => {
     axios.get.mockResolvedValue({ data: orders });
     axios.put.mockResolvedValue({ data: { ...orders[1], notes: 'Done' } });
-    renderPage();
+    await renderPage();
     await screen.findByText('BRK-2002');
 
     const row = screen.getByTestId('work-order-wo2');
@@ -216,7 +231,7 @@ describe('SubcontractorJobs', () => {
     axios.get.mockResolvedValue({ data: orders });
     axios.delete.mockResolvedValue({ data: { msg: 'Work order deleted' } });
     window.confirm = jest.fn(() => true);
-    renderPage();
+    await renderPage();
     await screen.findByText('BRK-1001');
 
     await userEvent.click(screen.getByRole('button', { name: /add equipment line/i }));
@@ -234,7 +249,7 @@ describe('SubcontractorJobs', () => {
 
   test('shows a load error', async () => {
     axios.get.mockRejectedValue({ response: { data: { msg: 'Failed to load work orders' } } });
-    renderPage();
+    await renderPage();
     expect(await screen.findByText(/failed to load work orders/i)).toBeInTheDocument();
   });
 
@@ -243,7 +258,7 @@ describe('SubcontractorJobs', () => {
     axios.post.mockRejectedValue({ response: { data: { msg: 'Failed to save work order' } } });
     axios.delete = jest.fn();
     window.confirm = jest.fn(() => false);
-    renderPage();
+    await renderPage();
     await screen.findByText('BRK-1001');
 
     await userEvent.type(screen.getByLabelText(/work order/i), 'BRK-ERR');
@@ -273,7 +288,7 @@ describe('SubcontractorJobs', () => {
     });
     axios.delete.mockRejectedValue({ response: { data: { msg: 'Failed to delete work order' } } });
     window.confirm = jest.fn(() => true);
-    renderPage();
+    await renderPage();
 
     expect(await screen.findByText('Memphis')).toBeInTheDocument();
     await userEvent.click(within(screen.getByTestId('work-order-wo3')).getByRole('button', { name: /edit/i }));

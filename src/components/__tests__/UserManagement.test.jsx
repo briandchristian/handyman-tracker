@@ -78,6 +78,9 @@ describe('UserManagement Component', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: /All Users/i }));
+    const usersSection = screen.getAllByRole('button', { name: /All Users/i })
+      .find((button) => button.getAttribute('aria-expanded') != null);
+    if (usersSection?.getAttribute('aria-expanded') === 'false') fireEvent.click(usersSection);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Reset Password/i })).toBeInTheDocument();
@@ -92,6 +95,9 @@ describe('UserManagement Component', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: /All Users/i }));
+    const usersSection = screen.getAllByRole('button', { name: /All Users/i })
+      .find((button) => button.getAttribute('aria-expanded') != null);
+    if (usersSection?.getAttribute('aria-expanded') === 'false') fireEvent.click(usersSection);
 
     await waitFor(() => {
       expect(screen.getByText('targetuser')).toBeInTheDocument();

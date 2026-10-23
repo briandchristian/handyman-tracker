@@ -390,6 +390,7 @@ describe('Inventory Component - Phase 2C', () => {
     const search = screen.getByLabelText('Search');
     expect(priceCheck.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
+    fireEvent.click(within(priceCheck).getByRole('button', { name: 'Check a part price' }));
     fireEvent.change(within(priceCheck).getByLabelText('Part number'), { target: { value: 'MX922 | 3W-MX922' } });
     fireEvent.click(within(priceCheck).getByRole('button', { name: 'Check price' }));
 
@@ -1007,7 +1008,9 @@ describe('Inventory Component - Phase 2C', () => {
     });
 
     fireEvent.click(screen.getAllByText('Edit')[0]);
-    expect(await screen.findByRole('region', { name: 'Price history' })).toBeInTheDocument();
+    const history = await screen.findByRole('button', { name: 'Price history' });
+    if (history.getAttribute('aria-expanded') === 'false') fireEvent.click(history);
+    expect(screen.getByRole('region', { name: 'Price history' })).toBeInTheDocument();
     expect(screen.getByText('+$2.00')).toBeInTheDocument();
     expect(screen.getByText('+$10.00')).toBeInTheDocument();
 

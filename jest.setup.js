@@ -224,6 +224,7 @@ const originalLog = console.log;
 // Suppress console.error and console.warn during tests (but allow in test files if needed)
 beforeEach(() => {
   localStorageMock.clear();
+  sessionStorage.clear();
   
   // Suppress console.error and console.warn to reduce noise in test output
   // These are often expected when testing error scenarios

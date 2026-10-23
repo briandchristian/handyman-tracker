@@ -4,7 +4,7 @@
  * and new ones can be added. SMTP credentials are not shown or saved here.
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import axios from 'axios';
@@ -12,12 +12,20 @@ import BidAlertSettings from '../BidAlertSettings';
 
 jest.mock('axios');
 
-const renderPage = () =>
-  render(
+const renderPage = async () => {
+  const view = render(
     <MemoryRouter>
       <BidAlertSettings />
     </MemoryRouter>
   );
+  const heading = await screen.findByRole('button', { name: 'Notification addresses' }).catch(() => null);
+  if (!heading) return view;
+  for (const name of ['Notification addresses', 'Sent emails']) {
+    const button = screen.queryByRole('button', { name });
+    if (button?.getAttribute('aria-expanded') === 'false') fireEvent.click(button);
+  }
+  return view;
+};
 
 describe('BidAlertSettings', () => {
   beforeEach(() => {
@@ -30,7 +38,7 @@ describe('BidAlertSettings', () => {
       data: { recipients: ['office@example.com', 'boss@example.com'], smtpConfigured: false },
     });
 
-    renderPage();
+    await renderPage();
 
     expect(await screen.findByDisplayValue('office@example.com')).toBeInTheDocument();
     expect(screen.getByDisplayValue('boss@example.com')).toBeInTheDocument();
@@ -50,7 +58,7 @@ describe('BidAlertSettings', () => {
       data: { recipients: ['office@example.com'], smtpConfigured: true },
     });
 
-    renderPage();
+    await renderPage();
 
     expect(await screen.findByText(/email sending is configured/i)).toBeInTheDocument();
   });
@@ -68,7 +76,7 @@ describe('BidAlertSettings', () => {
     });
 
     const user = userEvent.setup();
-    renderPage();
+    await renderPage();
 
     const first = await screen.findByLabelText('Notification email 1');
     await user.clear(first);
@@ -101,7 +109,7 @@ describe('BidAlertSettings', () => {
     });
 
     const user = userEvent.setup();
-    renderPage();
+    await renderPage();
 
     await screen.findByDisplayValue('drop@example.com');
     await user.click(screen.getByRole('button', { name: 'Remove notification email 2' }));
@@ -122,7 +130,7 @@ describe('BidAlertSettings', () => {
     });
 
     const user = userEvent.setup();
-    renderPage();
+    await renderPage();
 
     const input = await screen.findByLabelText('Notification email 1');
     await user.type(input, 'not-an-email');
@@ -141,7 +149,7 @@ describe('BidAlertSettings', () => {
     });
 
     const user = userEvent.setup();
-    renderPage();
+    await renderPage();
 
     await screen.findByDisplayValue('office@example.com');
     await user.click(screen.getByRole('button', { name: 'Save' }));
@@ -173,7 +181,7 @@ describe('BidAlertSettings', () => {
       },
     });
 
-    renderPage();
+    await renderPage();
 
     const configure = await screen.findByRole('heading', { name: 'Notification addresses' });
     const sent = screen.getByRole('list', { name: 'Sent emails' });
@@ -193,7 +201,7 @@ describe('BidAlertSettings', () => {
       data: { recipients: ['office@example.com'], smtpConfigured: true, sent: [] },
     });
 
-    renderPage();
+    await renderPage();
 
     expect(await screen.findByText(/no bid alert emails have been sent/i)).toBeInTheDocument();
   });
@@ -249,7 +257,7 @@ describe('BidAlertSettings', () => {
     });
 
     const user = userEvent.setup();
-    renderPage();
+    await renderPage();
 
     const deleteButton = await screen.findByRole('button', { name: 'Delete' });
     expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1);
@@ -309,7 +317,7 @@ describe('BidAlertSettings', () => {
     const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     const user = userEvent.setup();
-    renderPage();
+    await renderPage();
 
     await user.click(await screen.findByRole('button', { name: 'Export CSV' }));
 
@@ -332,7 +340,7 @@ describe('BidAlertSettings', () => {
   test('shows an error when the list cannot be loaded', async () => {
     axios.get.mockRejectedValue(new Error('network'));
 
-    renderPage();
+    await renderPage();
 
     expect(await screen.findByText(/failed to load bid alert emails/i)).toBeInTheDocument();
   });

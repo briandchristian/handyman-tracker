@@ -1,3 +1,5 @@
+import { clearSectionToggles } from './sectionToggles';
+
 /**
  * Staff sections, in the order people move through a job.
  * Daily sections stay in the desktop bar. Occasional tools stay in More,
@@ -44,5 +46,6 @@ export function isStaffNavActive(path, location) {
 export function logoutStaff() {
   localStorage.removeItem('token');
   localStorage.removeItem('userRole');
+  clearSectionToggles();
   window.location.href = '/login';
 }

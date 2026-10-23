@@ -1,4 +1,4 @@
-import { buildAccountingSummary, materialCost, bidWorksheetTotal } from '../lib/accountingSummary.js';
+import { buildAccountingSummary, materialCost, bidWorksheetTotal, serviceJobForAccounting } from '../lib/accountingSummary.js';
 
 describe('accountingSummary', () => {
   test('computes material cost as qty × unit cost', () => {
@@ -279,5 +279,78 @@ describe('accountingSummary', () => {
       materialCost: 40,
       profit: 7360,
     });
+  });
+
+  test('a paid service-job ticket is revenue and cash, and an open quote is not', () => {
+    const ticket = serviceJobForAccounting(
+      {
+        _id: 'job-ticket',
+        name: 'Replace keypad',
+        jobNumber: 'A-1044-J0001',
+        workType: 'service',
+        status: 'scheduled',
+        amountDue: 160,
+        paidAmount: 160,
+        paidDate: '2026-10-23',
+        chargeLines: [{ description: 'Keypad', quantity: 1, price: 85 }],
+      },
+      { _id: 'cust', name: 'Fashion Exchange', accountNumber: 'A-1044' }
+    );
+    const summary = buildAccountingSummary({
+      projects: [
+        ticket,
+        {
+          name: 'Cameras',
+          jobNumber: 'A-1044-B0001',
+          status: 'Pending',
+          bidAmount: 9100,
+          billAmount: 0,
+        },
+      ],
+    });
+
+    expect(ticket).toMatchObject({
+      billAmount: 160,
+      paidToDate: 160,
+      status: 'Billed',
+      customerName: 'Fashion Exchange',
+    });
+    expect(summary.jobs.find((job) => job.jobNumber === 'A-1044-J0001')).toMatchObject({
+      billed: 160,
+      paid: 160,
+      balance: 0,
+      quoted: 0,
+    });
+    expect(summary.period.revenue).toBe(160);
+    expect(summary.ar).toEqual({ billed: 160, paid: 160, balance: 0 });
+    expect(summary.jobs.find((job) => job.jobNumber === 'A-1044-B0001')).toMatchObject({
+      billed: 0,
+      quoted: 9100,
+    });
+  });
+
+  test('a scheduled ticket with no payment stays off the books', () => {
+    expect(serviceJobForAccounting({
+      name: 'Future visit',
+      status: 'scheduled',
+      amountDue: 80,
+      paidAmount: null,
+    })).toBeNull();
+  });
+
+  test('status paid with no amount entered counts the ticket total as collected', () => {
+    const summary = buildAccountingSummary({
+      projects: [
+        serviceJobForAccounting({
+          name: 'Panel',
+          jobNumber: 'A-1044-J0002',
+          status: 'paid',
+          amountDue: 80,
+          paidAmount: null,
+        }),
+      ],
+    });
+    expect(summary.jobs[0]).toMatchObject({ billed: 80, paid: 80, balance: 0 });
+    expect(summary.ar.balance).toBe(0);
   });
 });

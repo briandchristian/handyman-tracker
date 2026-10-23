@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
 import FormStatus from './FormStatus';
+import SectionToggle from './SectionToggle';
 import {
   MAX_BID_ALERT_RECIPIENTS,
   parseRecipientEmails,
@@ -185,8 +186,7 @@ export default function BidAlertSettings() {
         </p>
       )}
 
-      <h2 className="text-lg font-semibold mb-3">Notification addresses</h2>
-      <div className="card-surface p-5 space-y-3">
+      <SectionToggle title="Notification addresses">
         <FormStatus message={status.message} tone={status.tone} />
         {rows.map((value, index) => (
           <div key={index} className="flex gap-2 items-end">
@@ -223,11 +223,12 @@ export default function BidAlertSettings() {
             {saving ? 'Saving...' : 'Save'}
           </button>
         </div>
-      </div>
+      </SectionToggle>
 
-      <div className="mt-8 mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Sent emails</h2>
-        {sent.length > 0 && (
+      <SectionToggle
+        title="Sent emails"
+        className="mt-8"
+        actions={sent.length > 0 ? (
           <div className="flex shrink-0 gap-2">
             <button
               type="button"
@@ -245,8 +246,8 @@ export default function BidAlertSettings() {
               {deleting ? 'Deleting...' : 'Delete'}
             </button>
           </div>
-        )}
-      </div>
+        ) : null}
+      >
       <FormStatus message={sentStatus.message} tone={sentStatus.tone} />
       {sent.length === 0 ? (
         <p className="text-slate-600">No bid alert emails have been sent.</p>
@@ -283,6 +284,7 @@ export default function BidAlertSettings() {
           })}
         </ul>
       )}
+      </SectionToggle>
     </div>
   );
 }

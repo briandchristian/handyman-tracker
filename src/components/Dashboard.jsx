@@ -12,6 +12,7 @@ import {
   nextStatusFilter,
 } from '../utils/dashboardProjects';
 import { formatCustomerLabel, formatJobLabel } from '../constants/jobIdentity';
+import SectionToggle from './SectionToggle';
 
 const SORT_LABELS = {
   newest: 'Newest first',
@@ -190,13 +191,9 @@ export default function Dashboard() {
         </select>
       </div>
 
-      <div className="card-surface p-4 md:p-6">
-        <h2 className="text-xl md:text-2xl font-semibold mb-4 text-slate-900">
-          {FILTER_LABELS[statusFilter]} ({SORT_LABELS[sort]})
-          {visibleProjects.length !== projects.length
-            ? ` — ${visibleProjects.length} of ${projects.length}`
-            : ''}
-        </h2>
+      <SectionToggle
+        title={`${FILTER_LABELS[statusFilter]} (${SORT_LABELS[sort]})${visibleProjects.length !== projects.length ? ` — ${visibleProjects.length} of ${projects.length}` : ''}`}
+      >
 
         {projects.length === 0 ? (
           <p className="text-gray-500 text-center py-8 text-base md:text-sm">
@@ -372,7 +369,7 @@ export default function Dashboard() {
             </div>
           </>
         )}
-      </div>
+      </SectionToggle>
 
     </div>
   );

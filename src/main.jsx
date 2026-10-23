@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import axios from 'axios';
 import App from './App.jsx';
+import { clearSectionToggles } from './constants/sectionToggles';
 import './index.css';
 
 // On 401, clear auth and redirect to login so expired/invalid tokens don't leave the app stuck.
@@ -15,6 +16,7 @@ axios.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('userRole');
+      clearSectionToggles();
       const loginPath = '/login';
       const url = window.location.pathname === loginPath
         ? loginPath

@@ -40,5 +40,30 @@ describe('PublicNav', () => {
 
     expect(screen.getByTestId('public-nav-bar')).toHaveClass('md:flex-row');
   });
+
+  test('desktop brand matches the hero card and stays off the phone row', () => {
+    render(
+      <MemoryRouter>
+        <PublicNav />
+      </MemoryRouter>
+    );
+
+    const badge = screen.getByTestId('brand-lockup');
+    expect(badge).toHaveTextContent('Christian Security Services');
+    expect(badge).toHaveAttribute('href', '/');
+    expect(badge.querySelector('span').className).toContain('uppercase');
+    expect(badge.querySelector('img').className).toContain('h-12');
+    expect(badge.parentElement).toHaveClass('hidden');
+    expect(badge.parentElement).toHaveClass('lg:block');
+
+    const bar = screen.getByTestId('public-nav');
+    expect(bar.className).toContain('lg:!bg-white');
+    expect(bar.className).not.toContain('bg-slate-950');
+
+    expect(screen.getByRole('link', { name: /^home$/i }).className).toContain('md:!bg-white');
+    expect(screen.getByRole('link', { name: /^home$/i }).className).toContain('md:!text-slate-900');
+    expect(screen.getByRole('link', { name: /^sign in$/i }).className).toContain('md:!bg-slate-900');
+    expect(screen.getByRole('link', { name: /^area$/i }).className).toContain('md:!bg-white');
+  });
 });
 

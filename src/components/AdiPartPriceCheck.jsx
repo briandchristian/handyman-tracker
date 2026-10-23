@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchAdiPriceInventory } from '../services/adiSupplierApi';
 import { handleApiError, formatErrorAlert } from '../utils/errorHandler';
+import SectionToggle from './SectionToggle';
 import {
   adiAllowedLabel,
   adiItemNumberFromSku,
@@ -79,9 +80,14 @@ export default function AdiPartPriceCheck({ suppliers = [], purchaseOrders = [] 
   };
 
   return (
-    <section id="adi-price" aria-label="Check a part price" className="mb-6 bg-white border border-gray-300 rounded-lg p-4">
-      <h2 className="text-xl font-bold text-black">Check a part price</h2>
-      <p className="text-sm text-gray-600 mt-1 mb-3">
+    <SectionToggle
+      id="adi-price"
+      ariaLabel="Check a part price"
+      title="Check a part price"
+      defaultOpen={false}
+      className="mb-6"
+    >
+      <p className="text-sm text-gray-600 mb-3">
         Look up an ADI price and stock level. This does not create an order.
       </p>
 
@@ -187,6 +193,6 @@ export default function AdiPartPriceCheck({ suppliers = [], purchaseOrders = [] 
           )}
         </div>
       )}
-    </section>
+    </SectionToggle>
   );
 }

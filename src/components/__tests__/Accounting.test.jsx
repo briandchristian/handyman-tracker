@@ -7,6 +7,21 @@ import { currentMonthRange } from '../../../server/lib/dateRange.js';
 
 jest.mock('axios');
 
+async function renderAccounting(ui = (
+  <BrowserRouter>
+    <Accounting />
+  </BrowserRouter>
+)) {
+  const view = render(ui);
+  const period = await screen.findByRole('button', { name: 'Period' }).catch(() => null);
+  if (!period) return view;
+  for (const name of ['Period', 'Period P&L lite', 'Indirect by cost center', 'Period ledger', 'Job profit']) {
+    const button = screen.queryByRole('button', { name });
+    if (button?.getAttribute('aria-expanded') === 'false') fireEvent.click(button);
+  }
+  return view;
+}
+
 describe('Accounting', () => {
   beforeEach(() => {
     localStorage.setItem('token', 'test-token');
@@ -32,11 +47,7 @@ describe('Accounting', () => {
       },
     });
 
-    render(
-      <BrowserRouter>
-        <Accounting />
-      </BrowserRouter>
-    );
+    await renderAccounting();
 
     await waitFor(() => {
       expect(axios.get).toHaveBeenCalledWith(
@@ -104,17 +115,14 @@ describe('Accounting', () => {
     });
     axios.post.mockResolvedValue({ data: { _id: 'exp1' } });
 
-    render(
-      <BrowserRouter>
-        <Accounting />
-      </BrowserRouter>
-    );
+    await renderAccounting();
 
     expect(await screen.findByText('Direct costs')).toBeInTheDocument();
     expect(screen.getByText('Indirect costs')).toBeInTheDocument();
     expect(screen.getAllByText('Office overhead').length).toBeGreaterThan(0);
     expect(screen.getByText('Period P&L lite')).toBeInTheDocument();
 
+    await userEvent.click(screen.getByRole('button', { name: 'Record expense' }));
     await userEvent.type(screen.getByLabelText('Amount'), '120');
     await userEvent.click(screen.getByRole('button', { name: 'Save expense' }));
 
@@ -148,11 +156,7 @@ describe('Accounting', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <BrowserRouter>
-        <Accounting />
-      </BrowserRouter>
-    );
+    await renderAccounting();
 
     expect(await screen.findByText('Install job')).toBeInTheDocument();
     expect(screen.getByText('Service job')).toBeInTheDocument();
@@ -180,11 +184,7 @@ describe('Accounting', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <BrowserRouter>
-        <Accounting />
-      </BrowserRouter>
-    );
+    await renderAccounting();
 
     expect(await screen.findByText('Legacy install')).toBeInTheDocument();
     expect(screen.getByText('Blank type')).toBeInTheDocument();
@@ -234,11 +234,7 @@ describe('Accounting', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <BrowserRouter>
-        <Accounting />
-      </BrowserRouter>
-    );
+    await renderAccounting();
 
     expect(await screen.findByText('Quoted')).toBeInTheDocument();
     expect(screen.getAllByText('Billed').length).toBeGreaterThan(0);
@@ -273,13 +269,9 @@ describe('Accounting', () => {
     });
     axios.post.mockResolvedValue({ data: { _id: 'lab1' } });
 
-    render(
-      <BrowserRouter>
-        <Accounting />
-      </BrowserRouter>
-    );
+    await renderAccounting();
 
-    await screen.findByText('Record overhead time');
+    await userEvent.click(await screen.findByRole('button', { name: 'Record overhead time' }));
     await userEvent.type(screen.getByLabelText('Hours'), '3');
     await userEvent.type(screen.getByLabelText('Hourly cost'), '40');
     await userEvent.click(screen.getByRole('button', { name: 'Save time' }));
@@ -348,11 +340,7 @@ describe('Accounting', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <BrowserRouter>
-        <Accounting />
-      </BrowserRouter>
-    );
+    await renderAccounting();
 
     expect(await screen.findByText('Period ledger')).toBeInTheDocument();
     expect(screen.getByText('Shell')).toBeInTheDocument();
@@ -385,11 +373,7 @@ describe('Accounting', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <BrowserRouter>
-        <Accounting />
-      </BrowserRouter>
-    );
+    await renderAccounting();
 
     const costCenter = await screen.findByLabelText('Cost center');
     expect(Array.from(costCenter.options).map((option) => option.value)).toContain('MISC');
@@ -426,11 +410,7 @@ describe('Accounting', () => {
 
   test('Apply range is a button, not a submitting form control', async () => {
     mockEmptyAccountingApis();
-    render(
-      <BrowserRouter>
-        <Accounting />
-      </BrowserRouter>
-    );
+    await renderAccounting();
 
     const apply = await screen.findByRole('button', { name: 'Apply range' });
     expect(apply).toHaveAttribute('type', 'button');
@@ -439,7 +419,7 @@ describe('Accounting', () => {
 
   test('keeps a non-current From/To after Apply and writes ?from=&to=', async () => {
     mockEmptyAccountingApis();
-    render(
+    await renderAccounting(
       <MemoryRouter initialEntries={['/accounting']}>
         <SearchProbe />
         <Accounting />
@@ -473,11 +453,7 @@ describe('Accounting', () => {
 
   test('does not snap From/To back to today when a date input blurs empty', async () => {
     mockEmptyAccountingApis();
-    render(
-      <BrowserRouter>
-        <Accounting />
-      </BrowserRouter>
-    );
+    await renderAccounting();
 
     const fromInput = await screen.findByLabelText('From date');
     const toInput = screen.getByLabelText('To date');
@@ -496,7 +472,7 @@ describe('Accounting', () => {
 
   test('hydrates From/To from the query string after a remount', async () => {
     mockEmptyAccountingApis();
-    render(
+    await renderAccounting(
       <MemoryRouter initialEntries={['/accounting?from=2025-11-01&to=2025-11-30']}>
         <Accounting />
       </MemoryRouter>

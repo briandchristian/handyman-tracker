@@ -4,7 +4,7 @@
  * button as the Dashboard link on Bid alert emails.
  */
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import StaffNav from '../StaffNav';
@@ -43,6 +43,26 @@ describe('StaffNav', () => {
     expect(screen.getByRole('link', { name: 'Subcontractor' })).toHaveAttribute('href', '/subcontractor');
     expect(screen.getByRole('link', { name: 'History' })).toHaveAttribute('href', '/installation-history');
     expect(screen.getByRole('link', { name: 'Users' })).toHaveAttribute('href', '/admin/users');
+  });
+
+  test('uses the hero badge and keeps every action in the right-hand group', () => {
+    renderBar();
+
+    const badge = screen.getByTestId('brand-lockup');
+    expect(badge).toHaveTextContent('Christian Security Services');
+    expect(badge).toHaveAttribute('href', '/dashboard');
+    expect(badge.querySelector('span').className).toContain('uppercase');
+    expect(badge.querySelector('img').className).toContain('h-12');
+
+    const nav = screen.getByRole('navigation', { name: 'Staff' });
+    expect(nav.className).toContain('ml-auto');
+    expect(nav.className).toContain('gap-2');
+    expect(within(nav).getByRole('button', { name: 'Logout' })).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: 'Dashboard' }).className).not.toContain('!px-2.5');
+
+    const bar = screen.getByTestId('staff-nav');
+    expect(bar.className).toContain('bg-white');
+    expect(bar.className).not.toContain('bg-slate-950');
   });
 
   test('uses the outlined Dashboard button style for every destination', async () => {

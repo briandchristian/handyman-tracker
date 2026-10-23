@@ -7,6 +7,8 @@ import axios from 'axios';
 import { Link } from 'react-router-dom';
 import API_BASE_URL from '../config/api';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
+import { CUSTOMER_KINDS, customerKindLabel } from '../constants/customerPeople';
+import SectionToggle from './SectionToggle';
 
 function jobCountLabel(count) {
   if (!count) return 'No jobs';
@@ -24,13 +26,15 @@ function projectHasRecordedWork(project) {
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
-  const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '', address: '', accountNumber: '' });
-  const [searchQuery, setSearchQuery] = useState('');
-  const [mobileSections, setMobileSections] = useState({
-    customerManagement: true,
-    addCustomer: false,
-    customerList: true,
+  const [newCustomer, setNewCustomer] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    accountNumber: '',
+    kind: '',
   });
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     fetchCustomers();
@@ -44,7 +48,7 @@ export default function Customers() {
   const addCustomer = async () => {
     try {
       await axios.post(`${API_BASE_URL}/api/customers`, newCustomer, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-      setNewCustomer({ name: '', email: '', phone: '', address: '', accountNumber: '' });
+      setNewCustomer({ name: '', email: '', phone: '', address: '', accountNumber: '', kind: '' });
       fetchCustomers();
     } catch (err) {
       console.error('Error adding customer:', err);
@@ -70,14 +74,11 @@ export default function Customers() {
     return `${phoneNumber.slice(0, 3)}-${phoneNumber.slice(3, 6)}-${phoneNumber.slice(6, 10)}`;
   };
 
-  const toggleMobileSection = (sectionKey) => {
-    setMobileSections((prev) => ({ ...prev, [sectionKey]: !prev[sectionKey] }));
-  };
-
   const query = searchQuery.trim().toLowerCase();
   const visibleCustomers = customers.filter((customer) => {
     if (!query) return true;
     return [customer.name, customer.email, customer.phone, customer.accountNumber]
+      .concat((customer.people || []).flatMap((person) => [person.name, person.role, person.email, person.phone]))
       .some((value) => String(value || '').toLowerCase().includes(query));
   });
 
@@ -88,29 +89,8 @@ export default function Customers() {
       </div>
 
       <div className="flex-1 overflow-auto mb-6">
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
-          <h2 className="text-xl font-semibold mb-4 text-black hidden md:block">Customer Management</h2>
-          <button
-            type="button"
-            aria-expanded={mobileSections.customerManagement}
-            onClick={() => toggleMobileSection('customerManagement')}
-            className="md:hidden w-full text-left bg-gray-100 border border-gray-300 rounded-lg px-4 py-3 mb-3 font-semibold text-black"
-          >
-            Customer Management
-          </button>
-
-          <div className={`${mobileSections.customerManagement ? 'block' : 'hidden'} md:block`}>
-            <div className="mb-6 pb-4 border-b border-gray-200">
-              <h3 className="text-lg md:text-lg font-medium mb-3 text-black hidden md:block">Add New Customer</h3>
-              <button
-                type="button"
-                aria-expanded={mobileSections.addCustomer}
-                onClick={() => toggleMobileSection('addCustomer')}
-                className="md:hidden w-full text-left bg-gray-50 border border-gray-300 rounded px-4 py-3 mb-3 font-medium text-black"
-              >
-                Add New Customer
-              </button>
-              <div className={`${mobileSections.addCustomer ? 'block' : 'hidden'} md:block`}>
+        <SectionToggle title="Customer Management">
+            <SectionToggle title="Add New Customer" defaultOpen={false} nested>
                 <AlignedFormGrid testId="add-customer-grid">
                   <AlignedFormField label="Name" htmlFor="new-customer-name" className="col-span-12 md:col-span-3">
                     <input
@@ -158,16 +138,28 @@ export default function Customers() {
                       className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
                     />
                   </AlignedFormField>
+                  <AlignedFormField label="Customer type" htmlFor="new-customer-kind" className="col-span-12 sm:col-span-6 md:col-span-2">
+                    <select
+                      id="new-customer-kind"
+                      value={newCustomer.kind}
+                      onChange={(e) => setNewCustomer({ ...newCustomer, kind: e.target.value })}
+                      className="w-full p-3 md:p-2 border border-gray-300 rounded bg-gray-100 text-black text-base md:text-sm"
+                    >
+                      <option value="">Choose</option>
+                      {CUSTOMER_KINDS.map((kind) => (
+                        <option key={kind.value} value={kind.value}>{kind.label}</option>
+                      ))}
+                    </select>
+                  </AlignedFormField>
                   <div className="col-span-12 md:col-span-2">
                     <button onClick={addCustomer} className="w-full bg-green-500 text-white px-4 py-3 md:py-2 rounded hover:bg-green-600 text-base md:text-sm font-medium">
                       Add Customer
                     </button>
                   </div>
                 </AlignedFormGrid>
-              </div>
-            </div>
+            </SectionToggle>
 
-            <div className="mb-3">
+            <div className="mb-3 mt-4">
               <label className="block text-gray-700 mb-2 font-medium text-base md:text-sm" htmlFor="customer-directory-search">
                 Find a customer
               </label>
@@ -181,17 +173,8 @@ export default function Customers() {
               />
             </div>
 
-            <div className="mb-3 md:hidden">
-              <button
-                type="button"
-                aria-expanded={mobileSections.customerList}
-                onClick={() => toggleMobileSection('customerList')}
-                className="w-full text-left bg-gray-50 border border-gray-300 rounded px-4 py-3 font-medium text-black"
-              >
-                Customer List
-              </button>
-            </div>
-            <div className={`${mobileSections.customerList ? 'block' : 'hidden'} md:block space-y-3`}>
+            <SectionToggle title="Customer List" nested>
+            <div className="space-y-3">
               {visibleCustomers.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">
                   {query ? 'No customers match this search' : 'No customers yet'}
@@ -204,6 +187,14 @@ export default function Customers() {
                         <Link to={`/customers/${cust._id}`} className="text-emerald-700 underline">{cust.name}</Link>
                       </h3>
                       <p className="text-sm text-black">Account: {cust.accountNumber || '—'}</p>
+                      {customerKindLabel(cust.kind) ? (
+                        <p className="text-sm font-medium text-slate-700">{customerKindLabel(cust.kind)}</p>
+                      ) : null}
+                      {cust.kind === 'business' && (cust.people || []).length > 0 ? (
+                        <p className="text-sm text-slate-600">
+                          {(cust.people || []).length === 1 ? '1 person' : `${cust.people.length} people`}
+                        </p>
+                      ) : null}
                       <p className="text-sm text-black">{cust.email}</p>
                       <p className="text-sm text-black">{cust.phone}</p>
                       <p className="text-sm text-black">{cust.address || '—'}</p>
@@ -220,8 +211,8 @@ export default function Customers() {
                 </article>
               ))}
             </div>
-          </div>
-        </div>
+            </SectionToggle>
+        </SectionToggle>
       </div>
     </div>
   );

@@ -18,6 +18,8 @@ import { PROJECT_WORK_TYPES, DEFAULT_PROJECT_WORK_TYPE, normalizeProjectWorkType
 import { getLastIssuedBidQuoteNumber, getNextBidQuoteNumber } from '../utils/bidQuoteSequence';
 import { moveBidMaterial } from '../utils/bidMaterialsOrder';
 import { bidPartLinkTone, inventoryPartKeySet } from '../utils/inventoryFromBid';
+import SectionToggle from './SectionToggle';
+import { clearSectionToggles } from '../constants/sectionToggles';
 import { fetchAdiPriceInventory } from '../services/adiSupplierApi';
 import {
   adiAccountFromSuppliers,
@@ -278,6 +280,7 @@ export default function ProjectDetails() {
       if (err.response?.status === 401) {
         setError('Authentication failed. Please login again.');
         localStorage.removeItem('token');
+        clearSectionToggles();
         window.location.href = '/login';
       } else if (err.response?.status === 404) {
         const errorData = err.response?.data;
@@ -1710,40 +1713,39 @@ export default function ProjectDetails() {
           : formatJobLabel(project)}
       </h1>
       
-      {/* Project Information */}
-      <div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
-        <div className="flex flex-wrap justify-between items-start gap-2 mb-4">
-          <h2 className="text-lg sm:text-xl font-semibold">Job information</h2>
-          {!editingProjectInfo ? (
+      <SectionToggle
+        title="Job information"
+        className="mb-6"
+        actions={!editingProjectInfo ? (
+          <button
+            type="button"
+            data-testid="edit-project-info"
+            onClick={startEditProjectInfo}
+            className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 shrink-0"
+          >
+            Edit
+          </button>
+        ) : (
+          <div className="flex flex-wrap gap-2 shrink-0">
             <button
               type="button"
-              data-testid="edit-project-info"
-              onClick={startEditProjectInfo}
-              className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 shrink-0"
+              data-testid="save-project-info"
+              onClick={saveProjectInfo}
+              className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
             >
-              Edit
+              Save
             </button>
-          ) : (
-            <div className="flex flex-wrap gap-2 shrink-0">
-              <button
-                type="button"
-                data-testid="save-project-info"
-                onClick={saveProjectInfo}
-                className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
-              >
-                Save
-              </button>
-              <button
-                type="button"
-                data-testid="cancel-project-info"
-                onClick={cancelEditProjectInfo}
-                className="bg-gray-200 text-black px-3 py-1 rounded hover:bg-gray-300"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-        </div>
+            <button
+              type="button"
+              data-testid="cancel-project-info"
+              onClick={cancelEditProjectInfo}
+              className="bg-gray-200 text-black px-3 py-1 rounded hover:bg-gray-300"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {customer && (
             <>
@@ -1912,11 +1914,9 @@ export default function ProjectDetails() {
             </p>
           </div>
         </div>
-      </div>
-      
-      {/* Actions Section */}
-      <div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
-        <h2 className="text-lg sm:text-xl font-semibold mb-4">Update Project</h2>
+      </SectionToggle>
+
+      <SectionToggle title="Update Project" defaultOpen={false} className="mb-6">
         
         {/* Bid Form */}
         <div className="mb-4">
@@ -2008,8 +2008,8 @@ export default function ProjectDetails() {
             {project.status === 'Completed' ? '✓ Project Completed' : 'Mark as Completed'}
           </button>
         </div>
-      </div>
-      
+      </SectionToggle>
+
       {/* Materials List */}
       {proposedSystemStatement && (
         <div className="bg-white border border-gray-300 rounded-lg p-4 mb-4">
@@ -2017,8 +2017,8 @@ export default function ProjectDetails() {
           <p className="text-black mt-1" data-testid="proposed-system-text">{proposedSystemStatement}</p>
         </div>
       )}
-      <h2 className="text-lg sm:text-xl mt-6 text-black">Bid worksheet</h2>
-      <p className="text-sm text-slate-600 mt-1 mb-2">
+      <SectionToggle title="Bid worksheet" plain className="mt-6" testId="bid-worksheet">
+      <p className="text-sm text-slate-600 mb-2">
         Equipment you proposed on the quote. This does not affect Job Profit. Bid Amount is still the customer quote.
         Drag a line to change its order. Add an ADI part number to check price and stock. Checking does not place an order.
       </p>
@@ -2249,9 +2249,9 @@ export default function ProjectDetails() {
           </div>
         )}
       </div>
+      </SectionToggle>
 
-      <div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
-        <h3 className="text-lg font-semibold mb-3 text-black">Add to bid worksheet</h3>
+      <SectionToggle title="Add to bid worksheet" defaultOpen={false} className="mb-6">
         <AlignedFormGrid testId="bid-worksheet-grid">
           <AlignedFormField label="Worksheet item" htmlFor="bid-worksheet-item" className="col-span-12 md:col-span-6">
             <input
@@ -2306,12 +2306,11 @@ export default function ProjectDetails() {
             Send worksheet to inventory
           </button>
         </div>
-      </div>
+      </SectionToggle>
 
-      <section data-testid="job-lines" className="mt-6">
+      <SectionToggle title="Job lines" plain className="mt-6" testId="job-lines">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-2">
           <div>
-            <h2 className="text-lg sm:text-xl text-black">Job lines</h2>
             <p className="text-sm text-slate-600">
               Additive materials, time, and expenses on this job. The bid worksheet above is quote-only.
             </p>
@@ -2327,8 +2326,8 @@ export default function ProjectDetails() {
             </p>
           </div>
         </div>
-      <h2 className="text-lg sm:text-xl mt-4 text-black">Materials used</h2>
-      <p className="text-sm text-slate-600 mt-1 mb-2">
+      <SectionToggle nested title="Materials used">
+      <p className="text-sm text-slate-600 mb-2">
         Actual materials on the job. Qty × cost is Job Profit material cost. Leave empty on labor-only jobs.
       </p>
 
@@ -2483,10 +2482,9 @@ export default function ProjectDetails() {
           </div>
         )}
       </div>
+      </SectionToggle>
 
-      {/* Add Material Form */}
-      <div className="mt-4 bg-white border border-gray-300 rounded-lg p-4">
-        <h3 className="text-lg font-semibold mb-3 text-black">Add New Material</h3>
+      <SectionToggle nested title="Add New Material" defaultOpen={false}>
         <div className="mb-3">
           <button
             type="button"
@@ -2578,10 +2576,9 @@ export default function ProjectDetails() {
             </button>
           </div>
         </AlignedFormGrid>
-      </div>
+      </SectionToggle>
 
-      <div className="mt-6 bg-white border border-gray-300 rounded-lg p-4">
-        <h2 className="text-lg sm:text-xl font-semibold mb-2 text-black">Job expenses</h2>
+      <SectionToggle nested title="Job expenses">
         <p className="text-sm text-gray-600 mb-3">Direct costs on this job (fuel, permits, consumables charged here).</p>
         {jobExpenses.length > 0 ? (
           <div className="mb-4 space-y-3">
@@ -2742,10 +2739,9 @@ export default function ProjectDetails() {
             </button>
           </div>
         </AlignedFormGrid>
-      </div>
+      </SectionToggle>
 
-      <div className="mt-6 bg-white border border-gray-300 rounded-lg p-4">
-        <h2 className="text-lg sm:text-xl font-semibold mb-2 text-black">Job hours</h2>
+      <SectionToggle nested title="Job hours">
         <p className="text-sm text-gray-600 mb-3">Install, service, consult, and warranty time on this job. Bidding time is recorded in Accounting.</p>
         <p data-testid="job-hours-hourly-cost-help" className="text-sm text-gray-600 mb-3">
           Billed labor is already on Bill Amount. This field is your internal cost for contribution, not the customer labor rate.
@@ -2915,12 +2911,10 @@ export default function ProjectDetails() {
             </button>
           </div>
         </AlignedFormGrid>
-      </div>
-      </section>
+      </SectionToggle>
+      </SectionToggle>
 
-      {/* Notes */}
-      <div className="mt-6 bg-white border border-gray-300 rounded-lg p-4">
-        <h2 className="text-xl font-semibold mb-4 text-black">Notes</h2>
+      <SectionToggle title="Notes" className="mt-6">
         {project.notes && project.notes.length > 0 ? (
           <ul className="space-y-2 mb-4">
             {project.notes.map((note, i) => (
@@ -2996,7 +2990,7 @@ export default function ProjectDetails() {
             Add Note
           </button>
         </div>
-      </div>
+      </SectionToggle>
       
       <button onClick={deleteProject} className="mt-6 bg-red-500 text-white p-2 rounded">Delete Project</button>
     </div>

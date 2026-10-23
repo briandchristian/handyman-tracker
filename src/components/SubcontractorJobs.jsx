@@ -17,6 +17,7 @@ import {
   validateWorkOrder,
 } from '../constants/subcontractorWorkOrders';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
+import SectionToggle from './SectionToggle';
 
 const money = (value) =>
   `$${(Number(value) || 0).toLocaleString('en-US', {
@@ -115,6 +116,7 @@ export default function SubcontractorJobs() {
   const [statusFilter, setStatusFilter] = useState('');
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
+  const [formOpen, setFormOpen] = useState(false);
 
   const loadOrders = async () => {
     const res = await axios.get(`${API_BASE_URL}/api/subcontractor-work-orders`, authHeaders());
@@ -176,6 +178,7 @@ export default function SubcontractorJobs() {
     setEditingId(null);
     setForm(emptyForm());
     setFormError('');
+    setFormOpen(false);
   };
 
   const saveOrder = async (event) => {
@@ -207,6 +210,7 @@ export default function SubcontractorJobs() {
     setEditingId(order._id);
     setForm(formFromOrder(order));
     setFormError('');
+    setFormOpen(true);
   };
 
   const deleteOrder = async (order) => {
@@ -240,9 +244,8 @@ export default function SubcontractorJobs() {
       </p>
       {error ? <p className="text-red-700 mb-4">{error}</p> : null}
 
-      <div className="card-surface p-4 mb-6">
+      <SectionToggle title="Work orders" className="mb-6">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-4">
-          <h2 className="text-lg font-semibold">Work orders</h2>
           <AlignedFormField label="Filter by status" htmlFor="wo-status-filter">
             <select
               id="wo-status-filter"
@@ -305,12 +308,14 @@ export default function SubcontractorJobs() {
             ))}
           </div>
         )}
-      </div>
+      </SectionToggle>
 
-      <form className="card-surface p-4 md:p-6" onSubmit={saveOrder}>
-        <h2 className="text-lg font-semibold mb-4">
-          {editingId ? 'Edit work order' : 'New work order'}
-        </h2>
+      <SectionToggle
+        title={editingId ? 'Edit work order' : 'New work order'}
+        open={formOpen}
+        onOpenChange={setFormOpen}
+      >
+      <form onSubmit={saveOrder}>
         {formError ? <p role="alert" className="text-red-700 mb-3">{formError}</p> : null}
         <AlignedFormGrid className="mb-4">
           <AlignedFormField label="Principal" htmlFor="wo-principal" className="col-span-12 md:col-span-3">
@@ -438,7 +443,7 @@ export default function SubcontractorJobs() {
           </AlignedFormField>
         </AlignedFormGrid>
 
-        <h3 className="font-medium mb-2">Reimbursable equipment</h3>
+        <SectionToggle nested title="Reimbursable equipment">
         {form.equipmentLines.map((line, index) => (
           <AlignedFormGrid key={`eq-${index}`} className="mb-2">
             <AlignedFormField label="Equipment description" htmlFor={`wo-eq-desc-${index}`} className="col-span-12 md:col-span-4">
@@ -497,6 +502,7 @@ export default function SubcontractorJobs() {
         <button type="button" className="btn-staff text-sm mb-4" onClick={addEquipmentLine}>
           Add equipment line
         </button>
+        </SectionToggle>
 
         <AlignedFormField label="Notes" htmlFor="wo-notes" className="mb-4">
           <textarea
@@ -527,7 +533,7 @@ export default function SubcontractorJobs() {
           </div>
         </div>
 
-        <h3 className="font-medium mb-1">Brinks reconciliation</h3>
+        <SectionToggle nested title="Brinks reconciliation">
         <p className="text-sm text-slate-600 mb-3">
           Amount due is what the work adds up to. Paid by Brinks is what they actually remitted.
           Variance is paid minus due (negative is a short).
@@ -570,6 +576,7 @@ export default function SubcontractorJobs() {
             />
           </AlignedFormField>
         </AlignedFormGrid>
+        </SectionToggle>
 
         <div className="flex gap-2">
           <button type="submit" className="btn-staff">
@@ -582,6 +589,7 @@ export default function SubcontractorJobs() {
           ) : null}
         </div>
       </form>
+      </SectionToggle>
     </div>
   );
 }

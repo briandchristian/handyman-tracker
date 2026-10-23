@@ -8,6 +8,7 @@ import {
   COMPANY_PHONE_DISPLAY,
   COMPANY_PHONE_TEL,
 } from '../constants/companyContact';
+import BrandMark from './BrandMark';
 import { buildLocalBusinessJsonLd } from '../seo/siteMetadata';
 
 
@@ -336,25 +337,7 @@ export default function MarketingHome() {
 
               <div className="absolute -inset-4 rounded-3xl bg-emerald-500/20 blur-3xl" aria-hidden />
 
-              <div className="relative rounded-2xl border border-white/10 bg-white/5 p-8 backdrop-blur-sm shadow-2xl">
-
-                <img
-
-                  src="/logo.png"
-
-                  alt=""
-
-                  className="w-full max-w-sm mx-auto object-contain drop-shadow-lg"
-
-                />
-
-                <p className="mt-6 text-center text-sm font-medium text-slate-300">
-
-                  {COMPANY_NAME}
-
-                </p>
-
-              </div>
+              <BrandMark variant="hero" />
 
             </div>
 

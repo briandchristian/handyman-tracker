@@ -13,6 +13,7 @@ import { asCalendarDay, currentMonthRange, rangeFromSearch } from '../../server/
 import { buildPeriodLedgerRows, filterPeriodLedgerRows } from '../utils/periodLedger';
 import { formatCustomerLabel, formatJobLabel } from '../constants/jobIdentity';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
+import SectionToggle from './SectionToggle';
 
 const money = (value) =>
   `$${(Number(value) || 0).toLocaleString('en-US', {
@@ -277,8 +278,7 @@ export default function Accounting() {
         <h1 className="text-2xl md:text-3xl font-bold">Accounting</h1>
       </div>
 
-      <div className="card-surface p-4 mb-6">
-        <h2 className="text-lg font-semibold mb-3">Period</h2>
+      <SectionToggle title="Period" className="mb-6">
         <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
           <label className="text-sm text-slate-600">
             From
@@ -305,7 +305,7 @@ export default function Accounting() {
           </button>
         </div>
         {error ? <p className="text-red-700 text-sm mt-2">{error}</p> : null}
-      </div>
+      </SectionToggle>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
         <div className="card-surface p-4">
@@ -352,8 +352,7 @@ export default function Accounting() {
         </div>
       </div>
 
-      <div className="card-surface p-4 md:p-6 mb-6">
-        <h2 className="text-xl font-semibold mb-2">Period P&amp;L lite</h2>
+      <SectionToggle title="Period P&L lite" className="mb-6">
         <p className="text-sm text-slate-600 mb-4">
           Overhead rate is for future bid markup. Jobs are not auto-burdened.
         </p>
@@ -377,11 +376,10 @@ export default function Accounting() {
             </p>
           </div>
         </div>
-      </div>
+      </SectionToggle>
 
       {asList(indirect.byCostCenter).length > 0 ? (
-        <div className="card-surface p-4 md:p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">Indirect by cost center</h2>
+        <SectionToggle title="Indirect by cost center" className="mb-6">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
@@ -404,14 +402,13 @@ export default function Accounting() {
               </tbody>
             </table>
           </div>
-        </div>
+        </SectionToggle>
       ) : null}
 
-      <div className="card-surface p-4 md:p-6 mb-6">
+      <SectionToggle title="Period ledger" className="mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <div>
-            <h2 className="text-xl font-semibold">Period ledger</h2>
-            <p className="text-sm text-slate-600 mt-1">
+            <p className="text-sm text-slate-600">
               Source documents for this date range. Totals above are the roll-up; this is the line-item sub-ledger.
             </p>
           </div>
@@ -480,13 +477,12 @@ export default function Accounting() {
             </table>
           </div>
         )}
-      </div>
+      </SectionToggle>
 
-      <div className="card-surface p-4 md:p-6 mb-6">
+      <SectionToggle title="Job profit" className="mb-6">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
           <div>
-            <h2 className="text-xl font-semibold">Job profit</h2>
-            <p className="text-sm text-slate-600 mt-1">
+            <p className="text-sm text-slate-600">
               Billed is invoice revenue. Quoted is the bid and is not used in profit or material cost.
               Material cost is qty × unit cost from material lines on the job — not billed labor or the
               bid total. Profit is billed minus those material lines. A labor-only job with no material
@@ -561,11 +557,11 @@ export default function Accounting() {
             </table>
           </div>
         )}
-      </div>
+      </SectionToggle>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <form className="card-surface p-4 md:p-6" onSubmit={submitExpense}>
-          <h2 className="text-xl font-semibold mb-1">Record expense</h2>
+        <SectionToggle title="Record expense" defaultOpen={false}>
+        <form onSubmit={submitExpense}>
           <p className="text-sm text-slate-600 mb-4">
             Leave job blank for overhead (office, bidding, fuel pool, consumables). Attach a job to make it Direct.
           </p>
@@ -642,9 +638,10 @@ export default function Accounting() {
             Save expense
           </button>
         </form>
+        </SectionToggle>
 
-        <form className="card-surface p-4 md:p-6" onSubmit={submitLabor}>
-          <h2 className="text-xl font-semibold mb-1">Record overhead time</h2>
+        <SectionToggle title="Record overhead time" defaultOpen={false}>
+        <form onSubmit={submitLabor}>
           <p className="text-sm text-slate-600 mb-4">
             Bidding and admin hours are Indirect. Job install/service hours are logged on the project.
           </p>
@@ -710,6 +707,7 @@ export default function Accounting() {
             Save time
           </button>
         </form>
+        </SectionToggle>
       </div>
       {formError ? <p className="text-red-700 mb-4">{formError}</p> : null}
     </div>

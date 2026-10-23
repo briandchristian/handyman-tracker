@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
 import { format } from 'date-fns';
+import SectionToggle from './SectionToggle';
 
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
@@ -248,8 +249,7 @@ export default function UserManagement() {
 
       {/* Pending Users Tab */}
       {activeTab === 'pending' && (
-        <div>
-          <h2 className="text-2xl font-bold text-black mb-4">Pending Admin Requests</h2>
+        <SectionToggle title="Pending Admin Requests">
           {pendingUsers.length === 0 ? (
             <div className="bg-white border border-gray-300 rounded-lg p-8 text-center">
               <p className="text-gray-600">No pending admin requests.</p>
@@ -285,13 +285,12 @@ export default function UserManagement() {
               ))}
             </div>
           )}
-        </div>
+        </SectionToggle>
       )}
 
       {/* All Users Tab */}
       {activeTab === 'all' && (
-        <div>
-          <h2 className="text-2xl font-bold text-black mb-4">All Users</h2>
+        <SectionToggle title="All Users">
           <div className="bg-white border border-gray-300 rounded-lg shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse min-w-[700px]">
@@ -358,7 +357,7 @@ export default function UserManagement() {
             </table>
             </div>
           </div>
-        </div>
+        </SectionToggle>
       )}
 
       {passwordResetUser && (

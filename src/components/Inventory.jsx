@@ -8,6 +8,7 @@ import { findItemBySku, normalizeSkuCode } from '../utils/inventorySkuMatch';
 import { duplicateIdentityGroups, mergedInventoryFields } from '../utils/inventoryIdentity';
 import { filterJobs, jobsFromCustomers } from '../utils/inventoryJobs';
 import { fetchAdiPriceInventory } from '../services/adiSupplierApi';
+import SectionToggle from './SectionToggle';
 import {
   adiAllowedLabel,
   adiItemNumberFromSku,
@@ -1051,9 +1052,13 @@ function ItemModal({ item, items = [], suppliers, categories, onClose, onSave })
                 </div>
               )}
               {priceHistory.length > 0 && (
-                <div role="region" aria-label="Price history" className="mt-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <p className="text-sm font-medium text-black">Price history</p>
+                <SectionToggle
+                  nested
+                  plain
+                  title="Price history"
+                  ariaLabel="Price history"
+                  className="mt-3"
+                  actions={(
                     <div className="flex flex-wrap gap-2">
                       {priceHistory.length > 10 && (
                         <button
@@ -1074,7 +1079,8 @@ function ItemModal({ item, items = [], suppliers, categories, onClose, onSave })
                         </button>
                       )}
                     </div>
-                  </div>
+                  )}
+                >
                   <ul className="space-y-2">
                     {priceHistory.map((record, index) => (
                       <li key={`${record.updatedAt}-${index}`} className="text-sm text-black border border-gray-200 rounded p-2">
@@ -1097,7 +1103,7 @@ function ItemModal({ item, items = [], suppliers, categories, onClose, onSave })
                       </li>
                     ))}
                   </ul>
-                </div>
+                </SectionToggle>
               )}
             </div>
           </div>

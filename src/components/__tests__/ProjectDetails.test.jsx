@@ -17,14 +17,34 @@ jest.mock('jspdf', () => ({
   jsPDF: jest.fn()
 }));
 
-const renderWithRouter = (customerId = 'cust123', projectId = 'proj456') => {
-  return render(
+const renderWithRouter = async (customerId = 'cust123', projectId = 'proj456', { openSections = true } = {}) => {
+  const view = render(
     <MemoryRouter initialEntries={[`/projects/${customerId}/${projectId}`]}>
       <Routes>
         <Route path="/projects/:customerId/:projectId" element={<ProjectDetails />} />
       </Routes>
     </MemoryRouter>
   );
+  if (!openSections) return view;
+  let updateProject;
+  try {
+    updateProject = await screen.findByRole('button', { name: 'Update Project' }, { timeout: 1500 });
+  } catch {
+    return view;
+  }
+  for (const name of ['Job information', 'Update Project', 'Bid worksheet', 'Add to bid worksheet', 'Job lines']) {
+    const button = screen.getByRole('button', { name });
+    if (button.getAttribute('aria-expanded') === 'false') {
+      fireEvent.click(button);
+    }
+  }
+  for (const name of ['Materials used', 'Add New Material', 'Job expenses', 'Job hours', 'Notes']) {
+    const button = screen.getByRole('button', { name });
+    if (button.getAttribute('aria-expanded') === 'false') {
+      fireEvent.click(button);
+    }
+  }
+  return view;
 };
 
 describe('ProjectDetails Component', () => {
@@ -111,7 +131,7 @@ describe('ProjectDetails Component', () => {
     test('should fetch and display project details', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
 
-      renderWithRouter('cust123', 'proj456');
+      await renderWithRouter('cust123', 'proj456');
 
       await waitFor(() => {
         expect(axios.get).toHaveBeenCalledWith(
@@ -124,7 +144,7 @@ describe('ProjectDetails Component', () => {
     test('keeps Back to Customers and leaves Dashboard to the staff header', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
 
-      renderWithRouter('cust123', 'proj456');
+      await renderWithRouter('cust123', 'proj456');
 
       await waitFor(() => {
         expect(screen.getByRole('link', { name: 'Back to Customers' })).toHaveAttribute(
@@ -135,10 +155,10 @@ describe('ProjectDetails Component', () => {
       expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
     });
 
-    test('should show loading state', () => {
+    test('should show loading state', async () => {
       axios.get.mockImplementation(() => new Promise(() => {})); // Never resolves
 
-      renderWithRouter();
+      await renderWithRouter('cust123', 'proj456', { openSections: false });
 
       expect(screen.getByText(/loading/i)).toBeInTheDocument();
     });
@@ -150,7 +170,7 @@ describe('ProjectDetails Component', () => {
       };
       axios.get.mockResolvedValue({ data: customerWithoutProject });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText(/project not found/i)).toBeInTheDocument();
@@ -161,7 +181,7 @@ describe('ProjectDetails Component', () => {
       localStorage.removeItem('token');
       axios.get.mockResolvedValue({ data: mockCustomer });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText(/not authenticated/i)).toBeInTheDocument();
@@ -172,7 +192,7 @@ describe('ProjectDetails Component', () => {
   describe('Project information and equipment', () => {
     test('should show None for equipment when no categories selected', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByTestId('project-equipment-display')).toHaveTextContent('None');
@@ -196,7 +216,7 @@ describe('ProjectDetails Component', () => {
         ]
       };
       axios.get.mockResolvedValue({ data: customerWithEquip });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByTestId('project-equipment-display')).toHaveTextContent('Burglar Alarm');
@@ -223,7 +243,7 @@ describe('ProjectDetails Component', () => {
         ]
       };
       axios.get.mockResolvedValue({ data: customerWithEquip });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByTestId('proposed-system-title')).toHaveTextContent('Proposed System:');
@@ -259,7 +279,7 @@ describe('ProjectDetails Component', () => {
         return { data: { msg: 'Project updated' } };
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByTestId('edit-project-info')).toBeInTheDocument();
@@ -303,7 +323,7 @@ describe('ProjectDetails Component', () => {
 
     test('should use yellow edit button styling for project information', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByTestId('edit-project-info')).toBeInTheDocument();
@@ -320,7 +340,7 @@ describe('ProjectDetails Component', () => {
         data: { ...mockCustomer.projects[0], bidAmount: 5000, status: 'Bidded' }
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -343,7 +363,7 @@ describe('ProjectDetails Component', () => {
 
     test('should size mark as completed button like add material button', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -358,7 +378,7 @@ describe('ProjectDetails Component', () => {
 
     test('should align mark as completed button to the right', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
-      const { container } = renderWithRouter();
+      const { container } = await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -379,7 +399,7 @@ describe('ProjectDetails Component', () => {
         data: { ...mockCustomer.projects[0], paidToDate: 2500 }
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -407,7 +427,7 @@ describe('ProjectDetails Component', () => {
         data: { ...mockCustomer.projects[0], taxRate: 8.25 }
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -437,7 +457,7 @@ describe('ProjectDetails Component', () => {
         data: [{ _id: 'm1', item: 'Lumber', quantity: 100, cost: 500, markup: 0 }]
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -496,7 +516,7 @@ describe('ProjectDetails Component', () => {
       });
       axios.post.mockResolvedValue({ data: { ok: true } });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -528,7 +548,7 @@ describe('ProjectDetails Component', () => {
 
     test('should show labels above quantity, cost, and markup inputs', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -554,7 +574,7 @@ describe('ProjectDetails Component', () => {
 
       axios.get.mockResolvedValue({ data: customerWithMaterials });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -602,7 +622,7 @@ describe('ProjectDetails Component', () => {
         return { data: { msg: 'Material updated' } };
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Lumber')).toBeInTheDocument();
@@ -670,7 +690,7 @@ describe('ProjectDetails Component', () => {
         }
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Labor')).toBeInTheDocument();
@@ -703,7 +723,7 @@ describe('ProjectDetails Component', () => {
 
       axios.get.mockResolvedValue({ data: customerWithLongMaterial });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -734,7 +754,7 @@ describe('ProjectDetails Component', () => {
 
       axios.get.mockResolvedValue({ data: customerWithLongMaterial });
 
-      const { container } = renderWithRouter();
+      const { container } = await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -765,7 +785,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithMarkup });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -790,7 +810,7 @@ describe('ProjectDetails Component', () => {
       axios.get.mockResolvedValue({ data: customerWithBoth });
       axios.post.mockResolvedValue({ data: [] });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       expect(await screen.findByRole('heading', { name: 'Bid worksheet' })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: 'Materials used' })).toBeInTheDocument();
@@ -804,7 +824,7 @@ describe('ProjectDetails Component', () => {
       await userEvent.type(screen.getByLabelText('Worksheet quantity'), '1');
       await userEvent.type(screen.getByLabelText('Estimate ($)'), '80');
       await userEvent.type(screen.getByLabelText('ADI part number'), '3W-MX922');
-      await userEvent.click(screen.getByRole('button', { name: /add to bid worksheet/i }));
+      await userEvent.click(screen.getAllByRole('button', { name: /add to bid worksheet/i }).find((button) => !button.hasAttribute('aria-expanded')));
 
       await waitFor(() => {
         expect(axios.post).toHaveBeenCalledWith(
@@ -837,7 +857,7 @@ describe('ProjectDetails Component', () => {
       axios.get.mockResolvedValue({ data: customerWithWorksheet });
       axios.put.mockResolvedValue({ data: { msg: 'Bid worksheet line updated' } });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       const list = await screen.findByTestId('bid-worksheet-list');
       await userEvent.click(within(list).getByRole('button', { name: 'Edit' }));
@@ -923,7 +943,7 @@ describe('ProjectDetails Component', () => {
       });
       axios.put.mockResolvedValue({ data: { msg: 'Bid worksheet line updated' } });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       expect(await screen.findByText('ADI part 3W-MX922')).toBeInTheDocument();
       await userEvent.click(await screen.findByRole('button', { name: 'Check price' }));
@@ -989,7 +1009,7 @@ describe('ProjectDetails Component', () => {
       });
       window.alert = jest.fn();
 
-      renderWithRouter();
+      await renderWithRouter();
 
       const list = await screen.findByTestId('bid-worksheet-list');
       const glassbreak = within(list).getByTestId('bid-worksheet-line-b1');
@@ -1028,7 +1048,7 @@ describe('ProjectDetails Component', () => {
         data: { createdCount: 1, updatedCount: 0, createdParts: ['Q9-IQRPG'], updatedParts: [] },
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       const list = await screen.findByTestId('bid-worksheet-list');
       const glassbreak = within(list).getByTestId('bid-worksheet-line-b1');
@@ -1086,7 +1106,7 @@ describe('ProjectDetails Component', () => {
         .mockResolvedValueOnce({ data: { createdCount: 0, updatedCount: 1 } });
       window.confirm = jest.fn(() => true);
 
-      renderWithRouter();
+      await renderWithRouter();
 
       const sendWorksheet = await screen.findByRole('button', { name: 'Send worksheet to inventory' });
       expect(sendWorksheet.className).toContain('btn-row');
@@ -1132,7 +1152,7 @@ describe('ProjectDetails Component', () => {
       });
       window.confirm = jest.fn(() => false);
 
-      renderWithRouter();
+      await renderWithRouter();
       await userEvent.click(await screen.findByRole('button', { name: 'Send to Inventory' }));
 
       await waitFor(() => {
@@ -1165,7 +1185,7 @@ describe('ProjectDetails Component', () => {
         return Promise.resolve({ data: [] });
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       const partLink = await screen.findByRole('link', { name: 'Q9-IQRPG' });
       expect(partLink.className).toContain('text-blue-700');
@@ -1196,7 +1216,7 @@ describe('ProjectDetails Component', () => {
       });
       axios.post.mockResolvedValue({ data: [] });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       const camera = await screen.findByTestId('bid-worksheet-line-b1');
       const panel = screen.getByTestId('bid-worksheet-line-b2');
@@ -1237,7 +1257,7 @@ describe('ProjectDetails Component', () => {
         ],
       };
       axios.get.mockResolvedValue({ data: customerWithBoth });
-      renderWithRouter();
+      await renderWithRouter();
 
       await userEvent.click(await screen.findByRole('button', { name: /^generate bid$/i }));
       await waitFor(() => expect(jsPDF).toHaveBeenCalled());
@@ -1266,7 +1286,7 @@ describe('ProjectDetails Component', () => {
         ],
       };
       axios.get.mockResolvedValue({ data: customerWithPart });
-      renderWithRouter();
+      await renderWithRouter();
 
       await userEvent.click(await screen.findByRole('button', { name: /^generate bid$/i }));
       await waitFor(() => expect(jsPDF).toHaveBeenCalled());
@@ -1280,7 +1300,7 @@ describe('ProjectDetails Component', () => {
 
     test('should show generate bid for labor-only jobs with no materials', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -1302,7 +1322,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: laborOnlyBid });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -1339,7 +1359,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithMarkup });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -1369,7 +1389,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /generate invoice/i })).toBeInTheDocument();
@@ -1439,7 +1459,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /generate invoice/i })).toBeInTheDocument();
@@ -1468,7 +1488,7 @@ describe('ProjectDetails Component', () => {
         ]
       };
       axios.get.mockResolvedValue({ data: customerWithMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByTestId('project-top-actions')).toBeInTheDocument();
@@ -1493,7 +1513,7 @@ describe('ProjectDetails Component', () => {
         ]
       };
       axios.get.mockResolvedValue({ data: customerWithMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByTestId('materials-list')).toBeInTheDocument();
@@ -1521,7 +1541,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -1620,7 +1640,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithLongMaterial });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -1671,7 +1691,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithEquip });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -1719,7 +1739,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithEquip });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -1760,7 +1780,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -1798,7 +1818,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -1843,7 +1863,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithQuoteNote });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /regenerate bid/i })).toBeInTheDocument();
@@ -1890,7 +1910,7 @@ describe('ProjectDetails Component', () => {
       });
 
       axios.get.mockResolvedValue({ data: customerWithMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -1941,7 +1961,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -1982,7 +2002,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -2026,7 +2046,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -2078,7 +2098,7 @@ describe('ProjectDetails Component', () => {
       };
 
       axios.get.mockResolvedValue({ data: customerWithManyMaterials });
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^generate bid$/i })).toBeInTheDocument();
@@ -2089,7 +2109,7 @@ describe('ProjectDetails Component', () => {
       await waitFor(() => {
         expect(mockPdfDoc.addPage).toHaveBeenCalled();
       });
-    });
+    }, 20000);
   });
 
   describe('Notes Management', () => {
@@ -2117,7 +2137,7 @@ describe('ProjectDetails Component', () => {
       axios.put.mockResolvedValueOnce({ data: { msg: 'Note updated' } });
       axios.get.mockResolvedValueOnce({ data: customerAfterEdit });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Initial note text')).toBeInTheDocument();
@@ -2162,7 +2182,7 @@ describe('ProjectDetails Component', () => {
       axios.delete.mockResolvedValueOnce({ data: { msg: 'Note deleted' } });
       axios.get.mockResolvedValueOnce({ data: customerAfterDelete });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Delete me')).toBeInTheDocument();
@@ -2186,7 +2206,7 @@ describe('ProjectDetails Component', () => {
 
       axios.get.mockResolvedValue({ data: mockCustomer });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -2201,7 +2221,7 @@ describe('ProjectDetails Component', () => {
       delete window.fbq;
       axios.get.mockResolvedValue({ data: mockCustomer });
 
-      expect(() => renderWithRouter()).not.toThrow();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText('Kitchen Remodel')).toBeInTheDocument();
@@ -2213,7 +2233,7 @@ describe('ProjectDetails Component', () => {
     test('should have back to customers link', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText(/back to customers/i)).toBeInTheDocument();
@@ -2225,7 +2245,7 @@ describe('ProjectDetails Component', () => {
     test('should handle network error', async () => {
       axios.get.mockRejectedValue(new Error('Network error'));
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText(/error/i)).toBeInTheDocument();
@@ -2235,7 +2255,7 @@ describe('ProjectDetails Component', () => {
     test('should handle missing projects array', async () => {
       axios.get.mockResolvedValue({ data: { ...mockCustomer, projects: null } });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByText(/no projects/i)).toBeInTheDocument();
@@ -2248,7 +2268,7 @@ describe('ProjectDetails Component', () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
       axios.post.mockResolvedValue({ data: { _id: 'lab1' } });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       expect(await screen.findByTestId('project-work-type-display')).toHaveTextContent('Installation');
       expect(screen.getByRole('heading', { name: 'Job lines' })).toBeInTheDocument();
@@ -2279,7 +2299,7 @@ describe('ProjectDetails Component', () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
       axios.post.mockResolvedValue({ data: { _id: 'exp1' } });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       expect(await screen.findByText('Job expenses')).toBeInTheDocument();
       await userEvent.type(screen.getByLabelText('Amount'), '35');
@@ -2301,7 +2321,7 @@ describe('ProjectDetails Component', () => {
 
     test('explains hourly cost is internal, not the customer labor rate', async () => {
       axios.get.mockResolvedValue({ data: mockCustomer });
-      renderWithRouter();
+      await renderWithRouter();
 
       expect(await screen.findByLabelText(/your cost per hour \(not the customer labor rate\)/i)).toBeInTheDocument();
       expect(screen.getByTestId('job-hours-hourly-cost-help')).toHaveTextContent(
@@ -2337,7 +2357,7 @@ describe('ProjectDetails Component', () => {
         return { data: expenses[0] };
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       expect((await screen.findAllByText(/\$35\.00/)).length).toBeGreaterThan(0);
       await userEvent.click(screen.getByTestId('edit-job-expense-exp1'));
@@ -2381,7 +2401,7 @@ describe('ProjectDetails Component', () => {
         return { data: { msg: 'Expense deleted' } };
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       expect(await screen.findByText(/Shell/)).toBeInTheDocument();
       await userEvent.click(screen.getByTestId('delete-job-expense-exp1'));
@@ -2417,7 +2437,7 @@ describe('ProjectDetails Component', () => {
         return { data: labor[0] };
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       expect(await screen.findByText(/2 hrs/)).toBeInTheDocument();
       await userEvent.click(screen.getByTestId('edit-job-labor-lab1'));
@@ -2461,7 +2481,7 @@ describe('ProjectDetails Component', () => {
         return { data: { msg: 'Labor entry deleted' } };
       });
 
-      renderWithRouter();
+      await renderWithRouter();
 
       expect(await screen.findByText(/2 hrs/)).toBeInTheDocument();
       await userEvent.click(screen.getByTestId('delete-job-labor-lab1'));

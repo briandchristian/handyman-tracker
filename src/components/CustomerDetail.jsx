@@ -1,30 +1,18 @@
 /**
  * Staff page for one customer.
- * Contact (name, email, phone, address, account) is edited here.
- * Jobs already on the customer are listed as rows that can be opened, edited, or removed.
- * New jobs are added on this page, so staff do not search for the customer again.
- * Customers created from the public Request a Bid page show that source here.
+ * Contact is edited here. Jobs, bids, and projects are separate lists.
+ * Older combined records stay reachable from Earlier job records.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
-import {
-  EQUIPMENT_CATEGORY_OPTIONS,
-  emptyEquipmentCategories,
-  normalizeEquipmentCategories,
-} from '../constants/equipmentCategories';
-import { PROJECT_WORK_TYPES, DEFAULT_PROJECT_WORK_TYPE, normalizeProjectWorkType } from '../constants/projectWorkTypes';
 import { formatJobLabel } from '../constants/jobIdentity';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
-
-const emptyJobForm = () => ({
-  name: '',
-  description: '',
-  jobNumber: '',
-  equipmentCategories: emptyEquipmentCategories(),
-  workType: DEFAULT_PROJECT_WORK_TYPE,
-});
+import CustomerWork from './CustomerWork';
+import CustomerPeople from './CustomerPeople';
+import { CUSTOMER_KINDS, customerKindLabel } from '../constants/customerPeople';
+import SectionToggle from './SectionToggle';
 
 function formatPhoneNumber(value) {
   const phoneNumber = String(value || '').replace(/\D/g, '');
@@ -33,30 +21,20 @@ function formatPhoneNumber(value) {
   return `${phoneNumber.slice(0, 3)}-${phoneNumber.slice(3, 6)}-${phoneNumber.slice(6, 10)}`;
 }
 
-function jobHasRecordedWork(project) {
-  return (project.materials?.length || 0) > 0
-    || (project.bidMaterials?.length || 0) > 0
-    || (project.payments?.length || 0) > 0
-    || Number(project.paidToDate) > 0
-    || Number(project.bidAmount) > 0;
-}
-
-function money(value) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount) || amount === 0) return '—';
-  return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-}
-
 export default function CustomerDetail() {
   const { customerId } = useParams();
   const [customer, setCustomer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [editingContact, setEditingContact] = useState(false);
-  const [contact, setContact] = useState({ name: '', email: '', phone: '', address: '', accountNumber: '' });
-  const [newJob, setNewJob] = useState(emptyJobForm);
-  const [editingJobId, setEditingJobId] = useState(null);
-  const [editJob, setEditJob] = useState(emptyJobForm);
+  const [contact, setContact] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    accountNumber: '',
+    kind: '',
+  });
 
   const auth = { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } };
 
@@ -89,6 +67,7 @@ export default function CustomerDetail() {
       phone: customer.phone || '',
       address: customer.address || '',
       accountNumber: customer.accountNumber || '',
+      kind: customer.kind || '',
     });
     setEditingContact(true);
   };
@@ -105,6 +84,7 @@ export default function CustomerDetail() {
         phone: contact.phone.trim(),
         address: contact.address.trim(),
         accountNumber: contact.accountNumber.trim(),
+        kind: contact.kind,
       }, auth);
       setEditingContact(false);
       await loadCustomer();
@@ -112,139 +92,6 @@ export default function CustomerDetail() {
       alert('Failed to update customer: ' + (err.response?.data?.msg || err.message));
     }
   };
-
-  const addJob = async () => {
-    if (!newJob.name.trim()) {
-      alert('Please provide a job name');
-      return;
-    }
-    try {
-      await axios.post(`${API_BASE_URL}/api/customers/${customerId}/projects`, {
-        name: newJob.name.trim(),
-        description: newJob.description.trim(),
-        jobNumber: newJob.jobNumber.trim(),
-        status: 'Pending',
-        equipmentCategories: { ...newJob.equipmentCategories },
-        workType: newJob.workType || DEFAULT_PROJECT_WORK_TYPE,
-      }, auth);
-      setNewJob(emptyJobForm());
-      await loadCustomer();
-    } catch (err) {
-      alert('Failed to add job: ' + (err.response?.data?.msg || err.message));
-    }
-  };
-
-  const startEditJob = (project) => {
-    setEditingJobId(project._id);
-    setEditJob({
-      name: project.name || '',
-      description: project.description || '',
-      jobNumber: project.jobNumber || '',
-      equipmentCategories: normalizeEquipmentCategories(project.equipmentCategories),
-      workType: normalizeProjectWorkType(project.workType),
-    });
-  };
-
-  const saveJob = async (projectId) => {
-    if (!editJob.name.trim()) {
-      alert('Please enter a job name');
-      return;
-    }
-    try {
-      await axios.put(`${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}`, {
-        name: editJob.name.trim(),
-        description: editJob.description.trim(),
-        jobNumber: editJob.jobNumber.trim(),
-        equipmentCategories: { ...editJob.equipmentCategories },
-        workType: editJob.workType || DEFAULT_PROJECT_WORK_TYPE,
-      }, auth);
-      setEditingJobId(null);
-      setEditJob(emptyJobForm());
-      await loadCustomer();
-    } catch (err) {
-      alert('Failed to update job: ' + (err.response?.data?.msg || err.message));
-    }
-  };
-
-  const removeJob = async (project) => {
-    const label = formatJobLabel(project);
-    const message = jobHasRecordedWork(project)
-      ? `This job has materials, a bid worksheet, payments, or a bid amount. Remove ${label} anyway?`
-      : `Remove ${label}?`;
-    if (!window.confirm(message)) return;
-    try {
-      await axios.delete(`${API_BASE_URL}/api/customers/${customerId}/projects/${project._id}`, auth);
-      if (editingJobId === project._id) setEditingJobId(null);
-      await loadCustomer();
-    } catch (err) {
-      alert('Failed to remove job: ' + (err.response?.data?.msg || err.message));
-    }
-  };
-
-  const equipmentFields = (form, setForm, idPrefix) => (
-    <div className="col-span-12">
-      <p className="block text-sm font-medium text-gray-700 mb-2">Equipment categories</p>
-      <div className="flex flex-wrap gap-4">
-        {EQUIPMENT_CATEGORY_OPTIONS.map(({ key, label }) => (
-          <label key={key} htmlFor={`${idPrefix}-${key}`} className="flex items-center gap-2 cursor-pointer text-black text-sm">
-            <input
-              id={`${idPrefix}-${key}`}
-              type="checkbox"
-              checked={!!form.equipmentCategories[key]}
-              onChange={(e) => setForm({
-                ...form,
-                equipmentCategories: { ...form.equipmentCategories, [key]: e.target.checked },
-              })}
-              className="rounded border-gray-300"
-            />
-            {label}
-          </label>
-        ))}
-      </div>
-    </div>
-  );
-
-  const jobFields = (form, setForm, idPrefix) => (
-    <AlignedFormGrid>
-      <AlignedFormField label="Job name" htmlFor={`${idPrefix}-name`} className="col-span-12 md:col-span-4">
-        <input
-          id={`${idPrefix}-name`}
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          className="field"
-        />
-      </AlignedFormField>
-      <AlignedFormField label="Job number" htmlFor={`${idPrefix}-number`} className="col-span-12 md:col-span-3">
-        <input
-          id={`${idPrefix}-number`}
-          value={form.jobNumber}
-          onChange={(e) => setForm({ ...form, jobNumber: e.target.value })}
-          className="field"
-        />
-      </AlignedFormField>
-      <AlignedFormField label="Description" htmlFor={`${idPrefix}-description`} className="col-span-12 md:col-span-5">
-        <input
-          id={`${idPrefix}-description`}
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-          className="field"
-        />
-      </AlignedFormField>
-      <AlignedFormField label="Work type" htmlFor={`${idPrefix}-work-type`} className="col-span-12 md:col-span-4">
-        <select
-          id={`${idPrefix}-work-type`}
-          value={form.workType || DEFAULT_PROJECT_WORK_TYPE}
-          onChange={(e) => setForm({ ...form, workType: e.target.value })}
-          className="field"
-        >
-          {PROJECT_WORK_TYPES.map((type) => (
-            <option key={type.value} value={type.value}>{type.label}</option>
-          ))}
-        </select>
-      </AlignedFormField>
-      {equipmentFields(form, setForm, idPrefix)}
-    </AlignedFormGrid>
-  );
 
   if (loading) {
     return <div className="p-6 max-w-6xl mx-auto text-slate-900">Loading customer...</div>;
@@ -259,7 +106,7 @@ export default function CustomerDetail() {
     );
   }
 
-  const jobs = customer.projects || [];
+  const earlier = customer.projects || [];
 
   return (
     <div className="p-4 md:p-6 text-slate-900 max-w-6xl mx-auto">
@@ -268,19 +115,22 @@ export default function CustomerDetail() {
           <Link to="/customers" className="text-sm text-emerald-700 font-medium">Customers</Link>
           <h1 className="text-2xl md:text-3xl font-bold">{customer.name}</h1>
           <p className="text-slate-600">{customer.accountNumber || 'No account number'}</p>
+          <p className="text-sm font-medium text-slate-700">
+            {customerKindLabel(customer.kind) || 'Choose business or private individual'}
+          </p>
           {customer.obtainedVia === 'hero-bid' && (
             <p className="text-sm font-medium text-emerald-800">Obtained from the Request a Bid page</p>
           )}
         </div>
       </div>
 
-      <section className="card-surface p-4 md:p-6 mb-6" aria-label="Contact">
-        <div className="flex justify-between items-center mb-4 gap-3">
-          <h2 className="text-xl font-semibold">Contact</h2>
-          {!editingContact && (
-            <button type="button" onClick={startEditContact} className="btn-secondary">Edit contact</button>
-          )}
-        </div>
+      <SectionToggle
+        title="Contact"
+        className="mb-6"
+        actions={!editingContact ? (
+          <button type="button" onClick={startEditContact} className="btn-secondary">Edit contact</button>
+        ) : null}
+      >
         {editingContact ? (
           <div className="space-y-3">
             <AlignedFormGrid>
@@ -305,6 +155,14 @@ export default function CustomerDetail() {
               <AlignedFormField label="Account number" htmlFor="contact-account" className="col-span-12 md:col-span-4">
                 <input id="contact-account" value={contact.accountNumber} onChange={(e) => setContact({ ...contact, accountNumber: e.target.value })} className="field" />
               </AlignedFormField>
+              <AlignedFormField label="Customer type" htmlFor="contact-kind" className="col-span-12 md:col-span-4">
+                <select id="contact-kind" value={contact.kind} onChange={(e) => setContact({ ...contact, kind: e.target.value })} className="field">
+                  <option value="">Choose</option>
+                  {CUSTOMER_KINDS.map((kind) => (
+                    <option key={kind.value} value={kind.value}>{kind.label}</option>
+                  ))}
+                </select>
+              </AlignedFormField>
             </AlignedFormGrid>
             <div className="flex gap-2">
               <button type="button" onClick={saveContact} className="btn-primary">Save contact</button>
@@ -317,55 +175,43 @@ export default function CustomerDetail() {
             <div><dt className="text-slate-500">Phone</dt><dd>{customer.phone || '—'}</dd></div>
             <div><dt className="text-slate-500">Address</dt><dd>{customer.address || '—'}</dd></div>
             <div><dt className="text-slate-500">Account</dt><dd>{customer.accountNumber || '—'}</dd></div>
+            <div>
+              <dt className="text-slate-500">Type</dt>
+              <dd>
+                {customerKindLabel(customer.kind) || '—'}
+                {customer.kind === 'individual' ? ' — a person and their home' : ''}
+              </dd>
+            </div>
           </dl>
         )}
-      </section>
+      </SectionToggle>
 
-      <section className="card-surface p-4 md:p-6 mb-6" aria-label="Jobs">
-        <h2 className="text-xl font-semibold mb-4">Jobs</h2>
-        {jobs.length === 0 ? (
-          <p className="text-slate-500 mb-2">No jobs yet. Add one below.</p>
-        ) : (
-          <div className="space-y-3 mb-2">
-            {jobs.map((project) => (
-              <article key={project._id} data-testid={`job-row-${project._id}`} className="border border-slate-200 rounded-xl p-4">
-                {editingJobId === project._id ? (
-                  <div className="space-y-3">
-                    {jobFields(editJob, setEditJob, `edit-job-${project._id}`)}
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => saveJob(project._id)} className="btn-row btn-row-primary">Save job</button>
-                      <button type="button" onClick={() => setEditingJobId(null)} className="btn-row btn-row-secondary">Cancel</button>
-                    </div>
+      {customer.kind === 'business' && (
+        <CustomerPeople customer={customer} onSaved={loadCustomer} />
+      )}
+
+      <CustomerWork customer={customer} onSaved={loadCustomer} />
+
+      {earlier.length > 0 && (
+        <SectionToggle title="Earlier job records" defaultOpen={false} className="mt-6">
+          <p className="text-sm text-slate-600 mb-4">
+            These are the previous combined pages. New work is a job ticket above.
+          </p>
+          <div className="space-y-3">
+            {earlier.map((project) => (
+              <article key={project._id} data-testid={`earlier-job-${project._id}`} className="border border-slate-200 rounded-xl p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold">{formatJobLabel(project)}</h3>
+                    <p className="text-sm text-slate-600">{project.status || 'Pending'}</p>
                   </div>
-                ) : (
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="font-semibold break-words">{formatJobLabel(project)}</h3>
-                      <p className="text-sm text-slate-600">
-                        {project.status || 'Pending'}
-                        {' · '}
-                        Bid {money(project.bidAmount)}
-                        {project.description ? ` · ${project.description}` : ''}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <Link to={`/projects/${customer._id}/${project._id}`} className="btn-row btn-row-secondary">Open</Link>
-                      <button type="button" onClick={() => startEditJob(project)} className="btn-row btn-row-secondary">Edit</button>
-                      <button type="button" onClick={() => removeJob(project)} className="btn-row btn-row-danger">Remove</button>
-                    </div>
-                  </div>
-                )}
+                  <Link to={`/projects/${customer._id}/${project._id}`} className="btn-row btn-row-secondary">Open</Link>
+                </div>
               </article>
             ))}
           </div>
-        )}
-      </section>
-
-      <section className="card-surface p-4 md:p-6" aria-label="Add job">
-        <h2 className="text-xl font-semibold mb-4">Add job</h2>
-        {jobFields(newJob, setNewJob, 'new-job')}
-        <button type="button" onClick={addJob} className="btn-primary mt-3">Add job</button>
-      </section>
+        </SectionToggle>
+      )}
     </div>
   );
 }

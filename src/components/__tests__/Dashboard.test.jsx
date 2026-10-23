@@ -2,13 +2,28 @@
  * Tests for Dashboard Component
  */
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import axios from 'axios';
 import Dashboard from '../Dashboard';
 
 jest.mock('axios');
+
+async function renderDashboard() {
+  const view = render(
+    <BrowserRouter>
+      <Dashboard />
+    </BrowserRouter>
+  );
+  await waitFor(() => {
+    expect(screen.queryByText(/loading projects/i)).not.toBeInTheDocument();
+  });
+  screen.getAllByRole('button').forEach((button) => {
+    if (button.getAttribute('aria-expanded') === 'false') fireEvent.click(button);
+  });
+  return view;
+}
 
 describe('Dashboard Component', () => {
   const mockCustomers = [
@@ -29,7 +44,7 @@ describe('Dashboard Component', () => {
   test('should render dashboard and fetch projects', async () => {
     axios.get.mockResolvedValue({ data: mockCustomers });
 
-    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+    await renderDashboard();
 
     await waitFor(() => {
       expect(axios.get).toHaveBeenCalledWith(
@@ -42,7 +57,7 @@ describe('Dashboard Component', () => {
   test('should display projects from all customers', async () => {
     axios.get.mockResolvedValue({ data: mockCustomers });
 
-    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+    await renderDashboard();
 
     await waitFor(() => {
       // Use getAllByText since Project 1 and Customer 1 appear in both mobile and desktop views
@@ -56,7 +71,7 @@ describe('Dashboard Component', () => {
   test('leaves section links to the staff bar instead of a crowded header', async () => {
     axios.get.mockResolvedValue({ data: [] });
 
-    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+    await renderDashboard();
 
     await waitFor(() => {
       expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
@@ -70,7 +85,7 @@ describe('Dashboard Component', () => {
   test('should handle empty projects', async () => {
     axios.get.mockResolvedValue({ data: [] });
 
-    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+    await renderDashboard();
 
     await waitFor(() => {
       expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
@@ -80,7 +95,7 @@ describe('Dashboard Component', () => {
   test('should handle fetch error', async () => {
     axios.get.mockRejectedValue(new Error('Network error'));
 
-    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+    await renderDashboard();
 
     await waitFor(() => {
       expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
@@ -90,7 +105,7 @@ describe('Dashboard Component', () => {
   test('leaves Logout to the staff header', async () => {
     axios.get.mockResolvedValue({ data: mockCustomers });
 
-    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+    await renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
@@ -102,7 +117,7 @@ describe('Dashboard Component', () => {
 
   test('should use compact centered page layout', async () => {
     axios.get.mockResolvedValue({ data: mockCustomers });
-    const { container } = render(<BrowserRouter><Dashboard /></BrowserRouter>);
+    const { container } = await renderDashboard();
 
     await waitFor(() => {
       expect(screen.getAllByText('Dashboard').length).toBeGreaterThan(0);
@@ -128,11 +143,7 @@ describe('Dashboard Component', () => {
       ],
     });
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    );
+    await renderDashboard();
 
     await waitFor(() => {
       expect(screen.getAllByText('Alarm A').length).toBeGreaterThan(0);
@@ -152,7 +163,7 @@ describe('Dashboard Component', () => {
   test('links each job back to its customer', async () => {
     axios.get.mockResolvedValue({ data: mockCustomers });
 
-    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+    await renderDashboard();
 
     await waitFor(() => {
       expect(screen.getAllByRole('link', { name: 'Customer 1' }).length).toBeGreaterThan(0);
@@ -182,7 +193,7 @@ describe('Dashboard Component', () => {
     });
     axios.put.mockResolvedValue({ data: { heroBidUnread: false } });
 
-    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+    await renderDashboard();
 
     const notices = await screen.findByTestId('hero-bid-notices');
     const notice = within(notices).getByRole('link', { name: 'New Customer Bid!' });
@@ -206,7 +217,7 @@ describe('Dashboard Component', () => {
   test('does not show New Customer Bid when no hero bid is unread', async () => {
     axios.get.mockResolvedValue({ data: mockCustomers });
 
-    render(<BrowserRouter><Dashboard /></BrowserRouter>);
+    await renderDashboard();
 
     await waitFor(() => {
       expect(screen.getAllByText('Customer 1').length).toBeGreaterThan(0);

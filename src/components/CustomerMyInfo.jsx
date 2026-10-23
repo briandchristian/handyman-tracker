@@ -8,6 +8,9 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
+import { clearSectionToggles } from '../constants/sectionToggles';
+import BrandMark from './BrandMark';
+import SectionToggle from './SectionToggle';
 
 export default function CustomerMyInfo() {
   const navigate = useNavigate();
@@ -75,6 +78,7 @@ export default function CustomerMyInfo() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userRole');
+    clearSectionToggles();
     window.location.href = '/login';
   };
 
@@ -117,13 +121,16 @@ export default function CustomerMyInfo() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-md">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
+      <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-md lg:!border-slate-200 lg:!bg-white lg:!shadow-sm">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3 lg:max-w-6xl lg:px-6">
+          <div className="flex items-center gap-2 min-w-0 lg:hidden">
             <img src="/logo.png" alt="" className="h-10 w-10 object-contain" />
             <p className="text-sm font-bold uppercase truncate">My account</p>
           </div>
-          <button type="button" onClick={handleLogout} className="btn-link text-sm">
+          <div className="hidden lg:block">
+            <BrandMark to="/customer" />
+          </div>
+          <button type="button" onClick={handleLogout} className="btn-link text-sm lg:ml-auto">
             Sign out
           </button>
         </div>
@@ -137,18 +144,16 @@ export default function CustomerMyInfo() {
           Your account details below. You can only edit your preferred contact phone and address (these do not change what admins see in Customer Management).
         </p>
 
-        <section className="mb-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-2">Account (read-only)</h2>
+        <SectionToggle title="Account (read-only)" className="mb-6">
           <dl className="space-y-2 text-sm">
             <div><dt className="text-gray-500">Name</dt><dd className="font-medium">{customer.name}</dd></div>
             <div><dt className="text-gray-500">Email</dt><dd className="font-medium">{customer.email}</dd></div>
             <div><dt className="text-gray-500">Phone (on file)</dt><dd className="font-medium">{customer.phone || '—'}</dd></div>
             <div><dt className="text-gray-500">Address (on file)</dt><dd className="font-medium">{customer.address || '—'}</dd></div>
           </dl>
-        </section>
+        </SectionToggle>
 
-        <section className="mb-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-2">My preferred contact (editable)</h2>
+        <SectionToggle title="My preferred contact (editable)" className="mb-6">
           {editing ? (
             <div className="space-y-3">
               <input
@@ -185,10 +190,9 @@ export default function CustomerMyInfo() {
               </button>
             </>
           )}
-        </section>
+        </SectionToggle>
 
-        <section className="mb-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-2">Request for Service / New Bid</h2>
+        <SectionToggle title="Request for Service / New Bid" defaultOpen={false} className="mb-6">
           <p className="text-gray-600 text-sm mb-3">
             Submit a new project request. Your name and email are already on file.
           </p>
@@ -252,11 +256,10 @@ export default function CustomerMyInfo() {
               {submittingBid ? 'Submitting...' : 'New Service / New Bid'}
             </button>
           </div>
-        </section>
+        </SectionToggle>
 
         {customer.projects && customer.projects.length > 0 && (
-          <section>
-            <h2 className="text-lg font-semibold text-gray-800 mb-2">Projects</h2>
+          <SectionToggle title="Projects">
             <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
               {customer.projects.map((p, i) => (
                 <li key={i}>
@@ -267,7 +270,7 @@ export default function CustomerMyInfo() {
                 </li>
               ))}
             </ul>
-          </section>
+          </SectionToggle>
         )}
       </div>
       </div>

@@ -2,13 +2,18 @@
  * Phase 2: Customer My Info page – view info, edit profile only (does not change Customer Management).
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import { MemoryRouter, useNavigate } from 'react-router-dom';
 import CustomerMyInfo from '../CustomerMyInfo';
 
 jest.mock('axios');
+async function openHeading(name) {
+  const button = await screen.findByRole('button', { name });
+  if (button.getAttribute('aria-expanded') === 'false') fireEvent.click(button);
+}
+
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
   useNavigate: jest.fn()
@@ -44,6 +49,8 @@ describe('CustomerMyInfo', () => {
     await waitFor(() => {
       expect(axios.get).toHaveBeenCalledWith(expect.stringContaining('/api/customer/me'), expect.any(Object));
     });
+    await openHeading('Account (read-only)');
+    await openHeading('My preferred contact (editable)');
 
     await waitFor(() => {
       expect(screen.getAllByText('Jane Doe').length).toBeGreaterThanOrEqual(1);
@@ -71,6 +78,7 @@ describe('CustomerMyInfo', () => {
       </MemoryRouter>
     );
 
+    await openHeading('My preferred contact (editable)');
     await waitFor(() => expect(screen.getByText('Edit preferred contact')).toBeInTheDocument());
 
     await userEvent.click(screen.getByText('Edit preferred contact'));
@@ -116,7 +124,7 @@ describe('CustomerMyInfo', () => {
     );
 
     await waitFor(() => expect(screen.getByText('Request for Service / New Bid')).toBeInTheDocument());
-    expect(screen.getByText('Request for Service / New Bid')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Request for Service / New Bid' }));
     expect(screen.getByText(/Your name and email are already on file/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /New Service \/ New Bid/i })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Project name')).toBeInTheDocument();
@@ -147,6 +155,7 @@ describe('CustomerMyInfo', () => {
       </MemoryRouter>
     );
 
+    await openHeading('Projects');
     await waitFor(() => expect(screen.getByText(/Jan 15, 2025/)).toBeInTheDocument());
     expect(screen.getByText(/Bathroom Fix — Pending/)).toBeInTheDocument();
     expect(screen.getByText(/Deck Build — Completed/)).toBeInTheDocument();

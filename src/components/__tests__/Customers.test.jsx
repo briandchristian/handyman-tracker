@@ -11,9 +11,26 @@ import Customers from '../Customers';
 
 jest.mock('axios');
 
-const renderWithRouter = (component) => {
-  return render(<BrowserRouter>{component}</BrowserRouter>);
+const renderWithRouter = (component, { expandLists = true } = {}) => {
+  const view = render(<BrowserRouter>{component}</BrowserRouter>);
+  if (!expandLists) return view;
+  const management = screen.getByRole('button', { name: 'Customer Management' });
+  if (management.getAttribute('aria-expanded') === 'false') fireEvent.click(management);
+  const list = screen.getByRole('button', { name: 'Customer List' });
+  if (list.getAttribute('aria-expanded') === 'false') fireEvent.click(list);
+  return view;
 };
+
+async function openAddCustomer() {
+  const management = screen.getByRole('button', { name: 'Customer Management' });
+  if (management.getAttribute('aria-expanded') === 'false') {
+    await userEvent.click(management);
+  }
+  const toggle = screen.getByRole('button', { name: 'Add New Customer' });
+  if (toggle.getAttribute('aria-expanded') === 'false') {
+    await userEvent.click(toggle);
+  }
+}
 
 const createMatchMediaMock = (matches) => jest.fn().mockImplementation((query) => ({
   matches,
@@ -124,19 +141,17 @@ describe('Customers Component', () => {
       // Mobile-only controls (md:hidden) should be tested in an explicit mobile viewport mock.
       window.matchMedia = createMatchMediaMock(true);
       axios.get.mockResolvedValue({ data: [] });
-      renderWithRouter(<Customers />);
+      renderWithRouter(<Customers />, { expandLists: false });
 
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Customer Management/i })).toBeInTheDocument();
-      });
+      const customerManagementToggle = await screen.findByRole('button', { name: /Customer Management/i });
+      expect(customerManagementToggle).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(customerManagementToggle);
 
-      const customerManagementToggle = screen.getByRole('button', { name: /Customer Management/i });
       const addCustomerToggle = screen.getByRole('button', { name: /Add New Customer/i });
       const customerListToggle = screen.getByRole('button', { name: /Customer List/i });
 
-      expect(customerManagementToggle).toHaveAttribute('aria-expanded', 'true');
       expect(addCustomerToggle).toHaveAttribute('aria-expanded', 'false');
-      expect(customerListToggle).toHaveAttribute('aria-expanded', 'true');
+      expect(customerListToggle).toHaveAttribute('aria-expanded', 'false');
       expect(screen.queryByRole('button', { name: /Add Job to Customer/i })).not.toBeInTheDocument();
     });
 
@@ -162,6 +177,7 @@ describe('Customers Component', () => {
       await waitFor(() => {
         expect(screen.getAllByText('Add New Customer').length).toBeGreaterThan(0);
       });
+      await openAddCustomer();
 
       expect(screen.getByLabelText('Name')).toBeInTheDocument();
       expect(screen.getByLabelText('Email')).toBeInTheDocument();
@@ -174,6 +190,7 @@ describe('Customers Component', () => {
       axios.post.mockResolvedValue({ data: { _id: '3', name: 'New Customer' } });
 
       renderWithRouter(<Customers />);
+      await openAddCustomer();
 
       const nameInput = screen.getByPlaceholderText('Name');
       const emailInput = screen.getByPlaceholderText('Email');
@@ -207,6 +224,7 @@ describe('Customers Component', () => {
       axios.post.mockResolvedValue({ data: {} });
 
       renderWithRouter(<Customers />);
+      await openAddCustomer();
 
       const nameInput = screen.getByPlaceholderText('Name');
       await userEvent.type(nameInput, 'Test');
@@ -226,6 +244,7 @@ describe('Customers Component', () => {
       });
 
       renderWithRouter(<Customers />);
+      await openAddCustomer();
 
       await userEvent.type(screen.getByPlaceholderText('Name'), 'Test');
       await userEvent.click(screen.getByText('Add Customer'));
@@ -233,6 +252,26 @@ describe('Customers Component', () => {
       await waitFor(() => {
         expect(global.alert).toHaveBeenCalledWith(
           expect.stringContaining('Validation error')
+        );
+      });
+    });
+
+    test('saves a private individual instead of a business', async () => {
+      axios.get.mockResolvedValue({ data: [] });
+      axios.post.mockResolvedValue({ data: { _id: '4', name: 'Sam Home', kind: 'individual' } });
+      renderWithRouter(<Customers />);
+      await openAddCustomer();
+
+      await userEvent.type(screen.getByPlaceholderText('Name'), 'Sam Home');
+      await userEvent.selectOptions(screen.getByLabelText('Customer type'), 'individual');
+      axios.get.mockResolvedValueOnce({ data: [] });
+      await userEvent.click(screen.getByText('Add Customer'));
+
+      await waitFor(() => {
+        expect(axios.post).toHaveBeenCalledWith(
+          expect.stringContaining('/api/customers'),
+          expect.objectContaining({ name: 'Sam Home', kind: 'individual' }),
+          expect.any(Object)
         );
       });
     });

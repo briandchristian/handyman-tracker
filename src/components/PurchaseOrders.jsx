@@ -9,6 +9,7 @@ import {
   generateAdiOrder,
   inquireAdiOrder,
 } from '../services/adiSupplierApi';
+import SectionToggle from './SectionToggle';
 import {
   adiAllowedLabel,
   adiCurrentStatusLabel,
@@ -1143,8 +1144,7 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
           </div>
 
           {/* Status Workflow Buttons */}
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <h3 className="font-bold text-black mb-3">Update Status:</h3>
+          <SectionToggle title="Update Status" className="mb-6">
             <div className="flex flex-wrap gap-2">
               {status === 'Draft' && (
                 <button
@@ -1191,11 +1191,9 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
                 </button>
               )}
             </div>
-          </div>
+          </SectionToggle>
 
-          {/* ADI pricing, ordering, and tracking */}
-          <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
-            <h3 className="font-bold text-black mb-3">ADI</h3>
+          <SectionToggle title="ADI" className="mb-6">
             {adiCustomerNumber.trim() && !editingAccount ? (
               <p className="text-sm text-black mb-3">
                 ADI account {adiCustomerNumber.trim()}-{adiCustomerSuffix.trim() || '000'}
@@ -1531,11 +1529,9 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
             {adiLastMessage && (
               <p className="text-sm text-gray-700 mt-3">{adiLastMessage}</p>
             )}
-          </div>
+          </SectionToggle>
 
-          {/* Items */}
-          <div className="mb-6">
-            <h3 className="font-bold text-black mb-3">Line Items</h3>
+          <SectionToggle title="Line Items" className="mb-6">
             <div className="bg-gray-50 border border-gray-300 rounded-lg overflow-hidden">
               <table aria-label="Line items" className="w-full">
                 <thead>
@@ -1610,9 +1606,9 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
                   </tfoot>
               </table>
             </div>
-          </div>
+          </SectionToggle>
 
-          {/* Notes */}
+          <SectionToggle title="Notes and photos" defaultOpen={false}>
           <div>
             <label htmlFor="po-notes" className="block text-sm font-medium text-black mb-1">Notes</label>
             <textarea
@@ -1661,6 +1657,7 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
               </div>
             )}
           </div>
+          </SectionToggle>
         </div>
 
         {/* Camera Modal */}

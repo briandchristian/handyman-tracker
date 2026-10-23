@@ -1,8 +1,9 @@
 /**
- * Staff page for one customer: edit contact, and add, edit, open, or remove jobs.
+ * Staff page for one customer: contact, job tickets, bids, and projects.
+ * Earlier combined records stay linked. A bid is not a job.
  */
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import axios from 'axios';
@@ -23,35 +24,55 @@ const customer = {
       name: 'Kitchen Remodel',
       jobNumber: 'J-1001',
       status: 'Pending',
-      description: 'Cameras',
-      workType: 'installation',
       bidAmount: 250,
-      materials: [{ item: 'Camera' }],
-      payments: [],
     },
+  ],
+  serviceJobs: [
     {
-      _id: 'p2',
-      name: 'Panel',
-      jobNumber: 'J-1002',
-      status: 'Scheduled',
-      description: '',
+      _id: 'j1',
+      name: 'Replace keypad',
+      jobNumber: 'J-2001',
+      status: 'invoiced',
       workType: 'service',
-      materials: [],
-      bidMaterials: [],
-      payments: [],
-      paidToDate: 0,
+      amountDue: 160,
+      paidAmount: 100,
+      variance: -60,
+      chargeLines: [{ description: 'Keypad', quantity: 1, price: 85 }],
+    },
+  ],
+  bids: [
+    {
+      _id: 'b1',
+      name: 'Cameras and access',
+      quoteNumber: 'Q-1001',
+      status: 'declined',
+      quotedAmount: 9100,
+    },
+  ],
+  plans: [
+    {
+      _id: 'plan1',
+      name: 'Building security',
+      description: 'Phased install',
     },
   ],
 };
 
-function renderPage() {
-  return render(
+async function renderPage() {
+  const view = render(
     <MemoryRouter initialEntries={['/customers/c1']}>
       <Routes>
         <Route path="/customers/:customerId" element={<CustomerDetail />} />
       </Routes>
     </MemoryRouter>
   );
+  const contact = await screen.findByRole('button', { name: 'Contact' }).catch(() => null);
+  if (!contact) return view;
+  for (const name of ['Contact', 'Jobs', 'Bids', 'Projects']) {
+    const button = screen.queryByRole('button', { name });
+    if (button?.getAttribute('aria-expanded') === 'false') fireEvent.click(button);
+  }
+  return view;
 }
 
 describe('CustomerDetail', () => {
@@ -63,8 +84,8 @@ describe('CustomerDetail', () => {
     axios.get.mockResolvedValue({ data: customer });
   });
 
-  test('loads the customer and lists each job', async () => {
-    renderPage();
+  test('loads contact and keeps jobs, bids, and projects in separate lists', async () => {
+    await renderPage();
 
     await waitFor(() => {
       expect(axios.get).toHaveBeenCalledWith(
@@ -73,28 +94,39 @@ describe('CustomerDetail', () => {
       );
       expect(screen.getByText('john@example.com')).toBeInTheDocument();
     });
-    expect(screen.getByText('555-123-4567')).toBeInTheDocument();
-    expect(screen.getByText('123 Main St')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Customers' })).toHaveAttribute('href', '/customers');
-    expect(screen.getByTestId('job-row-p1')).toHaveTextContent('J-1001 · Kitchen Remodel');
-    expect(screen.getByTestId('job-row-p2')).toHaveTextContent('J-1002 · Panel');
-    expect(within(screen.getByTestId('job-row-p1')).getByRole('link', { name: 'Open' })).toHaveAttribute(
-      'href',
-      '/projects/c1/p1'
-    );
-    expect(screen.queryByText('Obtained from the Request a Bid page')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Job number')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Quote number')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Jobs' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Bids' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Projects' })).toBeInTheDocument();
+
+    const job = screen.getByTestId('job-ticket-j1');
+    expect(job).toHaveTextContent('J-2001 · Replace keypad');
+    expect(job).toHaveTextContent('$160.00');
+    expect(job).toHaveTextContent('$100.00');
+    expect(within(job).queryByRole('link', { name: 'Open' })).not.toBeInTheDocument();
+
+    const bid = screen.getByTestId('bid-row-b1');
+    expect(bid).toHaveTextContent('Q-1001 · Cameras and access');
+    expect(bid).toHaveTextContent('declined');
+    expect(bid).toHaveTextContent('$9,100.00');
+    expect(bid).not.toHaveTextContent('Amount due');
+
+    expect(screen.getByTestId('plan-row-plan1')).toHaveTextContent('Building security');
+    await userEvent.click(screen.getByRole('button', { name: 'Earlier job records' }));
+    const earlier = screen.getByTestId('earlier-job-p1');
+    expect(within(earlier).getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/projects/c1/p1');
   });
 
   test('notes when this customer was obtained from the Request a Bid page', async () => {
     axios.get.mockResolvedValue({ data: { ...customer, obtainedVia: 'hero-bid' } });
-    renderPage();
+    await renderPage();
     expect(await screen.findByText('Obtained from the Request a Bid page')).toBeInTheDocument();
   });
 
   test('saves edited email and phone, including a cleared email', async () => {
     axios.put.mockResolvedValue({ data: customer });
-    renderPage();
+    await renderPage();
 
     await screen.findByText('john@example.com');
     await userEvent.click(screen.getByRole('button', { name: 'Edit contact' }));
@@ -123,90 +155,140 @@ describe('CustomerDetail', () => {
     });
   });
 
-  test('adds a job for this customer without searching again', async () => {
-    axios.post.mockResolvedValue({ data: { _id: 'p3', name: 'Alarm install' } });
-    renderPage();
+  test('adds a job ticket with a charge line and does not post it as a bid', async () => {
+    axios.post.mockResolvedValue({ data: { _id: 'j2' } });
+    await renderPage();
 
     await screen.findByText('John Doe');
-    await userEvent.type(screen.getByLabelText('Job name'), 'Alarm install');
-    await userEvent.click(screen.getByRole('checkbox', { name: /Fire Alarm/i }));
-    await userEvent.click(screen.getByRole('checkbox', { name: /CCTV/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+    await userEvent.type(screen.getByLabelText('Job name'), 'Panel service');
+    await userEvent.type(screen.getByLabelText('Charge description'), 'Keypad');
+    await userEvent.type(screen.getByLabelText('Charge quantity'), '1');
+    await userEvent.type(screen.getByLabelText('Price'), '85');
     await userEvent.click(screen.getByRole('button', { name: 'Add job' }));
 
     await waitFor(() => {
       expect(axios.post).toHaveBeenCalledWith(
-        expect.stringContaining('/api/customers/c1/projects'),
-        expect.objectContaining({
-          name: 'Alarm install',
-          status: 'Pending',
-          equipmentCategories: {
-            burglarAlarm: false,
-            fireAlarm: true,
-            accessControl: false,
-            cctv: true,
-            monitoring: false,
-          },
-        }),
-        expect.any(Object)
-      );
-    });
-  });
-
-  test('edits a job name and work type', async () => {
-    axios.put.mockResolvedValue({ data: { msg: 'Project updated' } });
-    renderPage();
-
-    const row = await screen.findByTestId('job-row-p2');
-    await userEvent.click(within(row).getByRole('button', { name: 'Edit' }));
-    const name = within(row).getByLabelText('Job name');
-    await userEvent.clear(name);
-    await userEvent.type(name, 'Panel service');
-    await userEvent.selectOptions(within(row).getByLabelText('Work type'), 'service');
-    await userEvent.click(within(row).getByRole('button', { name: 'Save job' }));
-
-    await waitFor(() => {
-      expect(axios.put).toHaveBeenCalledWith(
-        expect.stringContaining('/api/customers/c1/projects/p2'),
+        expect.stringContaining('/api/customers/c1/service-jobs'),
         expect.objectContaining({
           name: 'Panel service',
-          jobNumber: 'J-1002',
-          workType: 'service',
+          chargeLines: [expect.objectContaining({ description: 'Keypad', quantity: '1', price: '85' })],
         }),
         expect.any(Object)
       );
     });
+    expect(axios.post).not.toHaveBeenCalledWith(
+      expect.stringContaining('/bids'),
+      expect.anything(),
+      expect.anything()
+    );
   });
 
-  test('warns before removing a job that already has materials', async () => {
-    axios.delete.mockResolvedValue({ data: { msg: 'Project deleted' } });
-    renderPage();
+  test('adds a bid without creating a job', async () => {
+    axios.post.mockResolvedValue({ data: { _id: 'b2' } });
+    await renderPage();
 
-    const row = await screen.findByTestId('job-row-p1');
-    await userEvent.click(within(row).getByRole('button', { name: 'Remove' }));
+    await screen.findByRole('heading', { name: 'Bids' });
+    await userEvent.click(screen.getByRole('button', { name: 'Add bid' }));
+    await userEvent.type(screen.getByLabelText('Bid name'), 'Cameras');
+    await userEvent.type(screen.getByLabelText('Quoted amount'), '9100');
+    await userEvent.selectOptions(screen.getByLabelText('Bid status'), 'declined');
+    await userEvent.click(screen.getByRole('button', { name: 'Save bid' }));
 
-    expect(global.confirm).toHaveBeenCalledWith(expect.stringMatching(/materials/i));
     await waitFor(() => {
-      expect(axios.delete).toHaveBeenCalledWith(
-        expect.stringContaining('/api/customers/c1/projects/p1'),
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/customers/c1/bids'),
+        expect.objectContaining({
+          name: 'Cameras',
+          quotedAmount: '9100',
+          status: 'declined',
+        }),
         expect.any(Object)
       );
     });
+    expect(axios.post).not.toHaveBeenCalledWith(
+      expect.stringContaining('/service-jobs'),
+      expect.anything(),
+      expect.anything()
+    );
   });
 
-  test('does not remove a job when the confirmation is cancelled', async () => {
-    global.confirm.mockReturnValue(false);
-    renderPage();
+  test('Paid filter keeps a ticket that has a recorded payment', async () => {
+    axios.get.mockResolvedValue({
+      data: {
+        ...customer,
+        serviceJobs: [
+          customer.serviceJobs[0],
+          {
+            _id: 'j2',
+            name: 'Open service',
+            jobNumber: 'J-2002',
+            status: 'scheduled',
+            workType: 'service',
+            amountDue: 40,
+            paidAmount: null,
+          },
+        ],
+      },
+    });
+    await renderPage();
 
-    const row = await screen.findByTestId('job-row-p2');
-    await userEvent.click(within(row).getByRole('button', { name: 'Remove' }));
+    await screen.findByTestId('job-ticket-j2');
+    await userEvent.selectOptions(screen.getByLabelText('Job status'), 'paid');
 
-    expect(global.confirm).toHaveBeenCalledWith('Remove J-1002 · Panel?');
-    expect(axios.delete).not.toHaveBeenCalled();
+    expect(screen.getByTestId('job-ticket-j1')).toBeInTheDocument();
+    expect(screen.queryByTestId('job-ticket-j2')).not.toBeInTheDocument();
+  });
+
+  test('lists people on a business and keeps them off a private individual', async () => {
+    axios.get.mockResolvedValue({
+      data: {
+        ...customer,
+        kind: 'business',
+        people: [{ _id: 'person1', name: 'Ada Owner', role: 'Owner', phone: '931-279-7879' }],
+      },
+    });
+    await renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'People' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'People' })).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(screen.getByRole('button', { name: 'People' }));
+    expect(screen.getByText('Ada Owner')).toBeInTheDocument();
+    expect(screen.getAllByText('Business').length).toBeGreaterThan(0);
+  });
+
+  test('a private individual is the person and their home', async () => {
+    axios.get.mockResolvedValue({ data: { ...customer, kind: 'individual', people: [] } });
+    await renderPage();
+
+    expect(await screen.findByText('Private individual')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'People' })).not.toBeInTheDocument();
+  });
+
+  test('adds a person to a business', async () => {
+    axios.get.mockResolvedValue({ data: { ...customer, kind: 'business', people: [] } });
+    axios.post.mockResolvedValue({ data: { _id: 'person2', name: 'Ada Owner' } });
+    await renderPage();
+
+    await screen.findByRole('heading', { name: 'People' });
+    await userEvent.click(screen.getByRole('button', { name: 'People' }));
+    await userEvent.click(screen.getByRole('button', { name: 'New person' }));
+    await userEvent.type(screen.getByLabelText('Person name'), 'Ada Owner');
+    await userEvent.type(screen.getByLabelText('Role'), 'Owner');
+    await userEvent.click(screen.getByRole('button', { name: 'Add person' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/customers/c1/people'),
+        expect.objectContaining({ name: 'Ada Owner', role: 'Owner' }),
+        expect.any(Object)
+      );
+    });
   });
 
   test('shows a not-found message when the customer does not exist', async () => {
     axios.get.mockRejectedValue({ response: { status: 404, data: { msg: 'Customer not found' } } });
-    renderPage();
+    await renderPage();
 
     expect(await screen.findByText(/customer not found/i)).toBeInTheDocument();
   });

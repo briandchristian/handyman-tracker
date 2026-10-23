@@ -7,6 +7,7 @@ import AuthShell from './AuthShell';
 import FormStatus from './FormStatus';
 import Seo from './Seo';
 import { COMPANY_NAME } from '../constants/companyContact';
+import { clearSectionToggles } from '../constants/sectionToggles';
 
 /**
  * Sign-in hub at /login — customer first; staff login is collapsed.
@@ -53,6 +54,7 @@ export default function Login({ setToken }) {
       const res = await axios.post(`${API_BASE_URL}/api/login`, { username, password });
       localStorage.setItem('token', res.data.token);
       if (res.data.user?.role) localStorage.setItem('userRole', res.data.user.role);
+      clearSectionToggles();
       setToken(res.data.token);
       window.location.href =
         res.data.user?.role === 'customer' ? '/customer' : '/dashboard';
@@ -139,6 +141,7 @@ export default function Login({ setToken }) {
       });
       localStorage.setItem('token', res.data.token);
       if (res.data.user?.role) localStorage.setItem('userRole', res.data.user.role);
+      clearSectionToggles();
       setToken(res.data.token);
       window.location.href = '/customer';
     } catch (err) {
@@ -174,6 +177,7 @@ export default function Login({ setToken }) {
       });
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('userRole', 'customer');
+      clearSectionToggles();
       setToken(res.data.token);
       window.location.href = '/customer';
     } catch (err) {

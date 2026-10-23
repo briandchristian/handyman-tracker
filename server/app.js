@@ -32,7 +32,7 @@ import {
   normalizeSku,
   reconcileCount,
 } from './lib/inventoryStock.js';
-import { buildAccountingSummary } from './lib/accountingSummary.js';
+import { buildAccountingSummary, serviceJobForAccounting } from './lib/accountingSummary.js';
 import { reorderByIds } from '../src/utils/bidMaterialsOrder.js';
 import { inventoryItemsFromBidLines, inventoryConflictMessage } from '../src/utils/inventoryFromBid.js';
 import { mergedInventoryFields } from '../src/utils/inventoryIdentity.js';
@@ -60,6 +60,8 @@ import {
   isKnownStatus,
   validateWorkOrder,
 } from './lib/subcontractorWorkOrders.js';
+import { registerCustomerWorkRoutes } from './lib/customerWorkRoutes.js';
+import { normalizeCustomerKind, registerCustomerPeopleRoutes } from './lib/customerPeople.js';
 
 const app = express();
 
@@ -310,6 +312,19 @@ const customerSchema = new mongoose.Schema({
   phone: String,
   address: String,
   accountNumber: { type: String, default: '', trim: true },
+  // business: a company with people. individual: a person and their home.
+  kind: {
+    type: String,
+    enum: ['', 'business', 'individual'],
+    default: '',
+  },
+  people: [{
+    name: String,
+    role: { type: String, default: '' },
+    email: { type: String, default: '' },
+    phone: { type: String, default: '' },
+    createdAt: { type: Date, default: Date.now },
+  }],
   // Set only when this customer record is created by the public Request a Bid page.
   obtainedVia: { type: String, default: '' },
   // True after a Request a Bid submission until staff open the "New Customer Bid!" link.
@@ -371,7 +386,74 @@ const customerSchema = new mongoose.Schema({
     }],
     notes: [{ text: String, addedAt: { type: Date, default: Date.now } }],
     createdAt: { type: Date, default: Date.now }
-  }]
+  }],
+  // Single-entry jobs. A bid does not create one of these.
+  serviceJobs: [{
+    name: String,
+    jobNumber: { type: String, default: '', trim: true },
+    siteName: { type: String, default: '' },
+    siteAddress: { type: String, default: '' },
+    siteCity: { type: String, default: '' },
+    workType: {
+      type: String,
+      enum: ['installation', 'service', 'consultation'],
+      default: 'installation',
+    },
+    status: {
+      type: String,
+      enum: ['scheduled', 'completed', 'invoiced', 'paid'],
+      default: 'scheduled',
+    },
+    scheduledDate: Date,
+    completedDate: Date,
+    hoursWorked: { type: Number, default: 0 },
+    hourlyRate: { type: Number, default: 0 },
+    travelPay: { type: Number, default: 0 },
+    laborPay: { type: Number, default: 0 },
+    linesTotal: { type: Number, default: 0 },
+    amountDue: { type: Number, default: 0 },
+    chargeLines: [{
+      description: String,
+      quantity: Number,
+      price: Number,
+    }],
+    notes: { type: String, default: '' },
+    paidAmount: { type: Number, default: null },
+    paidDate: Date,
+    variance: { type: Number, default: null },
+    planId: { type: String, default: '' },
+    bidId: { type: String, default: '' },
+    createdAt: { type: Date, default: Date.now },
+  }],
+  // Quotes. Revisions and declined bids stay here, off the job list.
+  bids: [{
+    name: String,
+    quoteNumber: { type: String, default: '', trim: true },
+    description: { type: String, default: '' },
+    status: {
+      type: String,
+      enum: ['draft', 'sent', 'revised', 'accepted', 'declined', 'expired'],
+      default: 'draft',
+    },
+    quotedAmount: { type: Number, default: 0 },
+    linesTotal: { type: Number, default: 0 },
+    lines: [{
+      description: String,
+      quantity: Number,
+      estimate: Number,
+    }],
+    notes: { type: String, default: '' },
+    planId: { type: String, default: '' },
+    createdAt: { type: Date, default: Date.now },
+  }],
+  // Optional groups of job tickets. Most work has no project.
+  plans: [{
+    name: String,
+    planNumber: { type: String, default: '', trim: true },
+    description: { type: String, default: '' },
+    targetDate: Date,
+    createdAt: { type: Date, default: Date.now },
+  }],
 });
 const Customer = mongoose.model('Customer', customerSchema);
 
@@ -1684,6 +1766,13 @@ app.post('/api/customers', authMiddleware, adminMiddleware, async (req, res) => 
       return res.status(400).json({ msg: 'Account number is already in use' });
     }
     customerData.accountNumber = requestedAccount || nextAccountNumber(collectAccountNumbers(existingCustomers));
+    if (customerData.kind !== undefined) {
+      const kind = normalizeCustomerKind(customerData.kind);
+      if (kind === null) {
+        return res.status(400).json({ msg: 'Customer type must be a business or a private individual' });
+      }
+      customerData.kind = kind;
+    }
     const jobNumbers = collectJobNumbers(existingCustomers);
     customerData.projects = (customerData.projects || []).map((project) => {
       const requestedJob = normalizeNumber(project.jobNumber);
@@ -1724,6 +1813,13 @@ app.put('/api/customers/:id', authMiddleware, adminMiddleware, async (req, res) 
         }
         customer.accountNumber = nextAccount;
       }
+    }
+    if (req.body.kind !== undefined) {
+      const kind = normalizeCustomerKind(req.body.kind);
+      if (kind === null) {
+        return res.status(400).json({ msg: 'Customer type must be a business or a private individual' });
+      }
+      customer.kind = kind;
     }
     
     await customer.save();
@@ -3710,14 +3806,17 @@ app.delete('/api/labor-entries/:id', authMiddleware, adminMiddleware, async (req
 app.get('/api/accounting/summary', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const customers = await Customer.find({}).lean();
-    const projects = customers.flatMap((customer) =>
-      (customer.projects || []).map((project) => ({
+    const projects = customers.flatMap((customer) => [
+      ...(customer.projects || []).map((project) => ({
         ...project,
         customerName: customer.name,
         accountNumber: customer.accountNumber,
         customerId: customer._id,
-      }))
-    );
+      })),
+      ...(customer.serviceJobs || [])
+        .map((job) => serviceJobForAccounting(job, customer))
+        .filter(Boolean),
+    ]);
     const purchaseOrders = await PurchaseOrder.find({}).lean();
     const supplierPayments = await SupplierPayment.find({}).lean();
     const expenses = await Expense.find({}).lean();
@@ -3797,6 +3896,9 @@ app.delete('/api/subcontractor-work-orders/:id', authMiddleware, adminMiddleware
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });
+
+registerCustomerWorkRoutes(app, { Customer, authMiddleware, adminMiddleware });
+registerCustomerPeopleRoutes(app, { Customer, authMiddleware, adminMiddleware });
 
 // Catch-all: no route matched. When DEBUG_API is on, return path info in response so you can see it in F12 → Network.
 app.use((req, res) => {

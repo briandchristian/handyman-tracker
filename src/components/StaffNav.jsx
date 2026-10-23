@@ -1,7 +1,8 @@
 /**
  * Desktop staff bar. Five daily sections stay on the bar. Part price, suppliers,
  * subcontractors, history, users, and bid alerts sit under More so the row
- * does not wrap. Links use the same outlined button as Bid alert emails.
+ * does not wrap. The bar matches the public header: white, uppercase badge,
+ * and white buttons with black lettering, spaced and kept to the right.
  */
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
@@ -11,6 +12,7 @@ import {
   logoutStaff,
   staffNavLabel,
 } from '../constants/staffNav';
+import BrandMark from './BrandMark';
 
 const linkClass = (active) =>
   `btn-secondary text-sm${active ? ' ring-2 ring-slate-900' : ''}`;
@@ -41,16 +43,11 @@ export default function StaffNav() {
   return (
     <header
       data-testid="staff-nav"
-      className="hidden lg:block sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-md"
+      className="hidden lg:block sticky top-0 z-40 border-b border-slate-200 bg-white shadow-sm"
     >
-      <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-2">
-        <Link
-          to="/dashboard"
-          className="mr-1 shrink-0 text-sm font-bold uppercase tracking-wide text-slate-900"
-        >
-          Christian Security
-        </Link>
-        <nav aria-label="Staff" className="flex flex-wrap items-center gap-2">
+      <div className="mx-auto flex max-w-6xl items-center gap-4 px-6 py-2">
+        <BrandMark to="/dashboard" />
+        <nav aria-label="Staff" className="ml-auto flex flex-nowrap items-center justify-end gap-2">
           {primary.map((item) => {
             const active = isStaffNavActive(item.path, location);
             return (
@@ -76,7 +73,7 @@ export default function StaffNav() {
               More
             </button>
             {moreOpen && (
-              <div className="absolute left-0 z-50 mt-2 flex w-56 flex-col gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+              <div className="absolute right-0 z-50 mt-2 flex w-56 flex-col gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
                 {more.map((item) => {
                   const active = isStaffNavActive(item.path, location);
                   return (
@@ -94,10 +91,10 @@ export default function StaffNav() {
               </div>
             )}
           </div>
+          <button type="button" onClick={logoutStaff} className="btn-secondary text-sm">
+            Logout
+          </button>
         </nav>
-        <button type="button" onClick={logoutStaff} className="btn-secondary text-sm ml-auto">
-          Logout
-        </button>
       </div>
     </header>
   );

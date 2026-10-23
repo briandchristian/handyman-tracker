@@ -47,6 +47,40 @@ export function jobQuotedAmount(project) {
   return Number.isFinite(quoted) && quoted > 0 ? quoted : 0;
 }
 
+/**
+ * A service-job ticket charges amountDue and collects paidAmount.
+ * A scheduled ticket with no payment is not revenue yet.
+ * Returns null when there is nothing for accounting to post.
+ */
+export function serviceJobForAccounting(job = {}, customer = {}) {
+  const due = roundMoney(job.amountDue);
+  const hasPaid = !(job.paidAmount === '' || job.paidAmount == null);
+  const status = String(job.status || '').trim().toLowerCase();
+  const recognized = status === 'completed' || status === 'invoiced' || status === 'paid' || hasPaid;
+  if (!recognized || due <= 0) return null;
+  const paid = hasPaid ? roundMoney(job.paidAmount) : (status === 'paid' ? due : 0);
+  const activityAt = job.paidDate || job.completedDate || job.scheduledDate || job.createdAt || null;
+  let accountingStatus = 'Pending';
+  if (status === 'completed' && !hasPaid) accountingStatus = 'Completed';
+  if (status === 'invoiced' || status === 'paid' || hasPaid) accountingStatus = 'Billed';
+  return {
+    _id: job._id,
+    customerId: customer._id || customer.customerId || job.customerId || '',
+    customerName: customer.name || customer.customerName || '',
+    accountNumber: customer.accountNumber || '',
+    name: job.name || '',
+    jobNumber: job.jobNumber || '',
+    workType: job.workType,
+    status: accountingStatus,
+    billAmount: due,
+    paidToDate: paid,
+    taxRate: 0,
+    materials: [],
+    createdAt: activityAt,
+    completedAt: activityAt,
+  };
+}
+
 export function isOpenReceivable(project) {
   const billed = jobBilledAmount(project);
   if (billed <= 0) return false;

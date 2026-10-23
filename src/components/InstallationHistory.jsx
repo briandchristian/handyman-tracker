@@ -10,6 +10,7 @@ import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import API_BASE_URL from '../config/api';
+import SectionToggle from './SectionToggle';
 
 const token = () => localStorage.getItem('token');
 const auth = () => ({ headers: { Authorization: `Bearer ${token()}` } });
@@ -177,7 +178,7 @@ export default function InstallationHistory() {
         </div>
       </div>
 
-      <div className="bg-white border border-gray-300 rounded-lg overflow-hidden">
+      <SectionToggle title="History">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-100">
@@ -229,7 +230,7 @@ export default function InstallationHistory() {
             </tbody>
           </table>
         </div>
-      </div>
+      </SectionToggle>
 
       {editing && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -265,8 +266,7 @@ export default function InstallationHistory() {
                 </label>
               </div>
               {editing.editHistory && editing.editHistory.length > 0 && (
-                <div className="mb-4 p-3 bg-gray-100 rounded">
-                  <h3 className="text-sm font-semibold mb-2">Edit history (admin audit)</h3>
+                <SectionToggle nested title="Edit history (admin audit)" defaultOpen={false} className="mb-4">
                   <ul className="text-xs space-y-1">
                     {editing.editHistory.map((edit, i) => (
                       <li key={i}>
@@ -274,7 +274,7 @@ export default function InstallationHistory() {
                       </li>
                     ))}
                   </ul>
-                </div>
+                </SectionToggle>
               )}
               <div className="flex gap-2">
                 <button onClick={saveEdit} disabled={saving} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50">

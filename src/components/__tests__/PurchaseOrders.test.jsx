@@ -88,6 +88,11 @@ describe('PurchaseOrders Component - Phase 2B', () => {
   ];
 
   beforeEach(() => {
+    sessionStorage.setItem('section-toggles', JSON.stringify({
+      '/::Update Status': true,
+      '/::ADI': true,
+      '/::Line Items': true,
+    }));
     localStorage.setItem('token', 'test-token');
     jest.clearAllMocks();
     global.alert = jest.fn();
