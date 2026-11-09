@@ -111,7 +111,7 @@ afterEach(async () => {
 });
 
 describe('POST materials with SKU', () => {
-  test('decrements inventory and stores sku/cost from lastPrice', async () => {
+  test('records a purchase and a use without changing on-hand, and stores sku/cost from lastPrice', async () => {
     const { customerId, projectId, item } = await seedJobAndSku();
     const res = await request(app)
       .post(`/api/customers/${customerId}/projects/${projectId}/materials`)
@@ -128,23 +128,25 @@ describe('POST materials with SKU', () => {
 
     const InventoryItem = mongoose.model('InventoryItem');
     const updated = await InventoryItem.findById(item._id);
-    expect(updated.currentStock).toBe(3);
+    expect(updated.currentStock).toBe(5);
 
     const InventoryMovement = mongoose.model('InventoryMovement');
-    const moves = await InventoryMovement.find({ itemId: item._id, type: 'use' });
-    expect(moves).toHaveLength(1);
-    expect(moves[0].quantity).toBe(2);
+    const used = await InventoryMovement.find({ itemId: item._id, type: 'use' });
+    const purchased = await InventoryMovement.find({ itemId: item._id, type: 'receive' });
+    expect(used).toHaveLength(1);
+    expect(purchased).toHaveLength(1);
+    expect(used[0].quantity).toBe(2);
+    expect(purchased[0].quantity).toBe(2);
   });
 
-  test('rejects usage that would go negative', async () => {
+  test('buys the part for the job even when stock is short', async () => {
     const { customerId, projectId, item } = await seedJobAndSku();
     const res = await request(app)
       .post(`/api/customers/${customerId}/projects/${projectId}/materials`)
       .set(auth())
       .send({ item: 'Motion Sensor', sku: 'MOT-100', quantity: 9 });
 
-    expect(res.status).toBe(400);
-    expect(res.body.msg).toMatch(/negative/i);
+    expect(res.status).toBe(200);
     const InventoryItem = mongoose.model('InventoryItem');
     expect((await InventoryItem.findById(item._id)).currentStock).toBe(5);
   });
@@ -158,6 +160,10 @@ describe('POST materials with SKU', () => {
     expect(res.status).toBe(200);
     expect(res.body[0].item).toBe('Misc wire');
     expect(res.body[0].sku == null || res.body[0].sku === '').toBe(true);
+    const InventoryItem = mongoose.model('InventoryItem');
+    const created = await InventoryItem.findOne({ name: 'Misc wire' });
+    expect(created.currentStock).toBe(0);
+    expect(created.lastPrice).toBe(5);
   });
 });
 

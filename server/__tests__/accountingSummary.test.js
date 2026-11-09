@@ -1,4 +1,5 @@
-import { buildAccountingSummary, materialCost, bidWorksheetTotal, serviceJobForAccounting } from '../lib/accountingSummary.js';
+import { buildAccountingSummary, materialCost, bidWorksheetTotal, serviceJobForAccounting, partsSold } from '../lib/accountingSummary.js';
+import { subcontractorPartsJob } from '../lib/jobParts.js';
 
 describe('accountingSummary', () => {
   test('computes material cost as qty × unit cost', () => {
@@ -327,6 +328,62 @@ describe('accountingSummary', () => {
       billed: 0,
       quoted: 9100,
     });
+  });
+
+  test('part paid is material cost and part sold is revenue for jobs and subcontractor parts', () => {
+    const project = {
+      name: 'Alarm',
+      customerName: 'Jane',
+      status: 'Pending',
+      billAmount: 0,
+      materials: [{ quantity: 2, cost: 10, sold: 25 }],
+      createdAt: '2026-06-01',
+    };
+    expect(partsSold(project)).toBe(50);
+    expect(materialCost(project)).toBe(20);
+    const summary = buildAccountingSummary({
+      projects: [
+        project,
+        subcontractorPartsJob({
+          principal: 'Brinks',
+          workOrderNumber: 'BRK-9',
+          siteName: 'Lobby',
+          laborPay: 100,
+          equipmentLines: [{ description: 'Contact', quantity: 1, cost: 8, sold: 15 }],
+          createdAt: '2026-06-02',
+        }),
+      ],
+    });
+    expect(summary.jobs.find((job) => job.projectName === 'Alarm')).toMatchObject({
+      billed: 50,
+      materialCost: 20,
+      partsSold: 50,
+      profit: 30,
+    });
+    expect(summary.jobs.find((job) => job.jobNumber === 'BRK-9')).toMatchObject({
+      billed: 15,
+      materialCost: 8,
+      profit: 7,
+    });
+    expect(summary.direct.materials).toBe(28);
+    expect(summary.period.revenue).toBe(65);
+  });
+
+  test('a scheduled service job still posts its parts', () => {
+    const ticket = serviceJobForAccounting({
+      name: 'Panel',
+      jobNumber: 'A-1-J0001',
+      status: 'scheduled',
+      amountDue: 40,
+      paidAmount: null,
+      parts: [{ description: 'Contact', quantity: 2, paid: 8, sold: 20 }],
+    }, { name: 'Ada' });
+    expect(ticket).toMatchObject({
+      billAmount: 40,
+      materials: [{ quantity: 2, cost: 8 }],
+    });
+    const summary = buildAccountingSummary({ projects: [ticket] });
+    expect(summary.jobs[0]).toMatchObject({ materialCost: 16, billed: 40, profit: 24 });
   });
 
   test('a scheduled ticket with no payment stays off the books', () => {

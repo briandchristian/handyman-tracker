@@ -555,7 +555,8 @@ describe('ProjectDetails Component', () => {
       });
 
       expect(screen.getByLabelText('Quantity')).toBeInTheDocument();
-      expect(screen.getByLabelText('Cost')).toBeInTheDocument();
+      expect(screen.getByLabelText('Paid')).toBeInTheDocument();
+      expect(screen.getByLabelText('Sold')).toBeInTheDocument();
       expect(screen.getByLabelText('%Markup')).toBeInTheDocument();
     });
 
@@ -636,7 +637,7 @@ describe('ProjectDetails Component', () => {
       await userEvent.clear(qtyInput);
       await userEvent.type(qtyInput, '5');
 
-      const costInput = screen.getByLabelText(/edit cost/i);
+      const costInput = screen.getByLabelText(/edit paid/i);
       await userEvent.clear(costInput);
       await userEvent.type(costInput, '10');
 

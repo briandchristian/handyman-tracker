@@ -484,9 +484,9 @@ export default function Accounting() {
           <div>
             <p className="text-sm text-slate-600">
               Billed is invoice revenue. Quoted is the bid and is not used in profit or material cost.
-              Material cost is qty × unit cost from material lines on the job — not billed labor or the
-              bid total. Profit is billed minus those material lines. A labor-only job with no material
-              lines should show $0 material cost.
+              Material cost is qty × what you paid. Parts sold is qty × what you charged and is included in
+              billed revenue. Profit is billed minus material cost. Subcontractor labor stays off this
+              list; their parts are included. A labor-only job with no material lines should show $0 material cost.
             </p>
             <p className="text-sm text-slate-500 mt-2">
               Work type filters this Job profit table only. Period ledger and P&L stay for the full
@@ -527,6 +527,7 @@ export default function Accounting() {
                   <th className="py-2 pr-3">Status</th>
                   <th className="py-2 pr-3">Quoted</th>
                   <th className="py-2 pr-3">Billed</th>
+                  <th className="py-2 pr-3">Parts sold</th>
                   <th className="py-2 pr-3">Material cost</th>
                   <th className="py-2 pr-3">Labor</th>
                   <th className="py-2 pr-3">Direct expenses</th>
@@ -546,6 +547,7 @@ export default function Accounting() {
                     <td className="py-2 pr-3">{job.status}</td>
                     <td className="py-2 pr-3">{money(job.quoted)}</td>
                     <td className="py-2 pr-3">{money(job.billed)}</td>
+                    <td className="py-2 pr-3">{money(job.partsSold)}</td>
                     <td className="py-2 pr-3">{money(job.materialCost)}</td>
                     <td className="py-2 pr-3">{money(job.laborCost)}</td>
                     <td className="py-2 pr-3">{money(job.directExpenseCost)}</td>

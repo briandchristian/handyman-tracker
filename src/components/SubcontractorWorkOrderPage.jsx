@@ -50,6 +50,7 @@ const emptyEquipmentLine = () => ({
   sku: '',
   quantity: '',
   cost: '',
+  sold: '',
   reimbursable: true,
 });
 
@@ -88,6 +89,7 @@ function formFromOrder(order) {
       sku: line.sku || '',
       quantity: line.quantity ?? '',
       cost: line.cost ?? '',
+      sold: line.sold ?? '',
       reimbursable: line.reimbursable !== false,
     }))
     : [emptyEquipmentLine()];
@@ -377,8 +379,11 @@ export default function SubcontractorWorkOrderPage() {
                 <AlignedFormField label="Quantity" htmlFor={`wo-eq-qty-${index}`} className="col-span-6 md:col-span-2">
                   <input id={`wo-eq-qty-${index}`} type="number" min="0" step="1" value={line.quantity} onChange={(event) => updateLine(index, 'quantity', event.target.value)} className={fieldClass} />
                 </AlignedFormField>
-                <AlignedFormField label="Cost" htmlFor={`wo-eq-cost-${index}`} className="col-span-6 md:col-span-2">
+                <AlignedFormField label="Paid" htmlFor={`wo-eq-cost-${index}`} className="col-span-6 md:col-span-2">
                   <input id={`wo-eq-cost-${index}`} type="number" min="0" step="0.01" value={line.cost} onChange={(event) => updateLine(index, 'cost', event.target.value)} className={fieldClass} />
+                </AlignedFormField>
+                <AlignedFormField label="Sold" htmlFor={`wo-eq-sold-${index}`} className="col-span-6 md:col-span-2">
+                  <input id={`wo-eq-sold-${index}`} type="number" min="0" step="0.01" value={line.sold} onChange={(event) => updateLine(index, 'sold', event.target.value)} className={fieldClass} />
                 </AlignedFormField>
                 <div className="col-span-6 md:col-span-2 flex items-end gap-2 pb-1">
                   <label className="flex items-center gap-2 text-sm">

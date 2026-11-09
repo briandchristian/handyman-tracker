@@ -77,6 +77,12 @@ describe('labor + travel + equipment due', () => {
     expect(totals.travelPay).toBe(25);
     expect(totals.equipmentTotal).toBe(80);
     expect(totals.amountDue).toBe(205);
+    expect(computeWorkOrderTotals({
+      hoursWorked: 0,
+      hourlyRate: 0,
+      travelPay: 0,
+      equipmentLines: [{ description: 'Contact', quantity: 2, cost: 8, sold: 15, reimbursable: true }],
+    }).amountDue).toBe(30);
     expect(amountDue({
       hoursWorked: 2,
       hourlyRate: 50,

@@ -241,7 +241,7 @@ describe('Accounting', () => {
     expect(screen.getByText('$2,500.00')).toBeInTheDocument();
     expect(screen.getAllByText('$7,400.00').length).toBeGreaterThan(0);
     expect(
-      screen.getByText(/Material cost is qty × unit cost from material lines/i)
+      screen.getByText(/Material cost is qty × what you paid/i)
     ).toBeInTheDocument();
   });
 

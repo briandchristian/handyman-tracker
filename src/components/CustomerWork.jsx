@@ -1,7 +1,9 @@
 /**
  * Jobs, bids, and projects on one customer.
  * A job is a single ticket with charge lines. Amount due is computed on save.
- * A bid is a quote and does not open a job. A project only groups tickets.
+ * A bid stays a quote until Import into job copies it onto a job.
+ * A bid that a job already carries is shown in green with the job number.
+ * A project only groups tickets.
  * Generate bid prints the shared bid document from these lines and the quoted amount.
  */
 import { useMemo, useState } from 'react';
@@ -15,6 +17,7 @@ import {
   DEFAULT_SERVICE_JOB_STATUS,
   SERVICE_JOB_STATUSES,
   computeServiceJobTotals,
+  jobDraftFromBid,
   planRollup,
   serviceJobMatchesStatus,
 } from '../constants/customerWork';
@@ -46,6 +49,7 @@ const toDateInput = (value) => {
 };
 
 const emptyChargeLine = () => ({ description: '', quantity: '', price: '' });
+const emptyPart = () => ({ description: '', sku: '', quantity: '', paid: '', sold: '' });
 const emptyBidLine = () => ({ description: '', quantity: '', estimate: '' });
 
 function emptyJob(customer) {
@@ -67,6 +71,7 @@ function emptyJob(customer) {
     planId: '',
     bidId: '',
     chargeLines: [emptyChargeLine()],
+    parts: [emptyPart()],
   };
 }
 
@@ -96,6 +101,15 @@ function jobFromRecord(job) {
     planId: job.planId || '',
     bidId: job.bidId || '',
     chargeLines: lines,
+    parts: Array.isArray(job.parts) && job.parts.length > 0
+      ? job.parts.map((line) => ({
+        description: line.description || '',
+        sku: line.sku || '',
+        quantity: line.quantity ?? '',
+        paid: line.paid ?? '',
+        sold: line.sold ?? '',
+      }))
+      : [emptyPart()],
   };
 }
 
@@ -175,6 +189,15 @@ export default function CustomerWork({ customer, onSaved }) {
     : Math.round(((Number(jobForm.paidAmount) || 0) - liveTotals.amountDue) * 100) / 100;
 
   const updateJob = (field, value) => setJobForm((prev) => ({ ...prev, [field]: value }));
+  const updatePart = (index, field, value) => {
+    setJobForm((prev) => ({
+      ...prev,
+      parts: (prev.parts || []).map((line, lineIndex) => (
+        lineIndex === index ? { ...line, [field]: value } : line
+      )),
+    }));
+  };
+
   const updateCharge = (index, field, value) => {
     setJobForm((prev) => ({
       ...prev,
@@ -275,6 +298,32 @@ export default function CustomerWork({ customer, onSaved }) {
     } catch (err) {
       console.error('Error generating bid:', err);
       setBidError('Failed to generate bid');
+    }
+  };
+
+  const importBidIntoJob = async (bid) => {
+    setBidError('');
+    try {
+      await axios.post(
+        `${API_BASE_URL}/api/customers/${customer._id}/service-jobs`,
+        jobDraftFromBid(bid),
+        auth
+      );
+      if (bid.status !== 'accepted') {
+        const form = bidFromRecord(bid);
+        await axios.put(
+          `${API_BASE_URL}/api/customers/${customer._id}/bids/${bid._id}`,
+          {
+            ...form,
+            status: 'accepted',
+            quotedAmount: form.quotedAmount === '' ? null : form.quotedAmount,
+          },
+          auth
+        );
+      }
+      await onSaved();
+    } catch (err) {
+      setBidError(err.response?.data?.msg || 'Failed to import bid');
     }
   };
 
@@ -516,6 +565,37 @@ export default function CustomerWork({ customer, onSaved }) {
             Add line
           </button>
 
+          <h4 className="font-medium mb-2">Parts used</h4>
+          <p className="text-sm text-slate-600 mb-2">
+            Paid is what the part cost. Sold is what you charge. Saving records the purchase and the use in inventory, and both amounts go to accounting.
+          </p>
+          {(jobForm.parts || []).map((line, index) => (
+            <AlignedFormGrid key={`part-${index}`} className="mb-2">
+              <AlignedFormField label="Part description" htmlFor={`part-desc-${index}`} className="col-span-12 md:col-span-4">
+                <input id={`part-desc-${index}`} value={line.description} onChange={(event) => updatePart(index, 'description', event.target.value)} className={fieldClass} />
+              </AlignedFormField>
+              <AlignedFormField label="Part SKU" htmlFor={`part-sku-${index}`} className="col-span-6 md:col-span-2">
+                <input id={`part-sku-${index}`} value={line.sku} onChange={(event) => updatePart(index, 'sku', event.target.value)} className={fieldClass} />
+              </AlignedFormField>
+              <AlignedFormField label="Part quantity" htmlFor={`part-qty-${index}`} className="col-span-6 md:col-span-2">
+                <input id={`part-qty-${index}`} type="number" min="0" step="1" value={line.quantity} onChange={(event) => updatePart(index, 'quantity', event.target.value)} className={fieldClass} />
+              </AlignedFormField>
+              <AlignedFormField label="Part paid" htmlFor={`part-paid-${index}`} className="col-span-6 md:col-span-2">
+                <input id={`part-paid-${index}`} type="number" min="0" step="0.01" value={line.paid} onChange={(event) => updatePart(index, 'paid', event.target.value)} className={fieldClass} />
+              </AlignedFormField>
+              <AlignedFormField label="Part sold" htmlFor={`part-sold-${index}`} className="col-span-6 md:col-span-2">
+                <input id={`part-sold-${index}`} type="number" min="0" step="0.01" value={line.sold} onChange={(event) => updatePart(index, 'sold', event.target.value)} className={fieldClass} />
+              </AlignedFormField>
+            </AlignedFormGrid>
+          ))}
+          <button
+            type="button"
+            className="btn-secondary mb-4"
+            onClick={() => setJobForm((prev) => ({ ...prev, parts: [...(prev.parts || []), emptyPart()] }))}
+          >
+            Add part
+          </button>
+
           <AlignedFormGrid className="mb-3">
             <AlignedFormField label="Paid amount" htmlFor="job-paid" className="col-span-12 md:col-span-3">
               <input id="job-paid" type="number" min="0" step="0.01" value={jobForm.paidAmount} onChange={(event) => updateJob('paidAmount', event.target.value)} className={fieldClass} />
@@ -528,7 +608,7 @@ export default function CustomerWork({ customer, onSaved }) {
             </AlignedFormField>
           </AlignedFormGrid>
           <p className="text-sm text-slate-700 mb-3">
-            Labor {money(liveTotals.laborPay)} · Lines {money(liveTotals.linesTotal)} · Amount due {money(liveTotals.amountDue)}
+            Labor {money(liveTotals.laborPay)} · Lines {money(liveTotals.linesTotal)} · Parts sold {money(liveTotals.partsSold)} · Amount due {money(liveTotals.amountDue)}
             {liveVariance == null ? ' · Not reconciled' : ` · Variance ${signedMoney(liveVariance)}`}
           </p>
           <div className="flex gap-2">
@@ -549,11 +629,18 @@ export default function CustomerWork({ customer, onSaved }) {
           <p className="text-slate-600">No bids yet. A bid can be declined without becoming a job.</p>
         ) : (
           <div className="space-y-3 mb-4">
-            {bids.map((bid) => (
+            {bids.map((bid) => {
+              const importedJob = jobs.find((job) => job.bidId && String(job.bidId) === String(bid._id));
+              return (
               <article key={bid._id} data-testid={`bid-row-${bid._id}`} className="border border-slate-200 rounded-xl p-4">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div>
-                    <h3 className="font-semibold">{bid.quoteNumber ? `${bid.quoteNumber} · ${bid.name}` : bid.name}</h3>
+                    <h3 className={`font-semibold ${importedJob ? 'text-green-700' : ''}`}>
+                      {bid.quoteNumber ? `${bid.quoteNumber} · ${bid.name}` : bid.name}
+                    </h3>
+                    {importedJob ? (
+                      <p className="text-sm text-green-700">On job {formatJobLabel(importedJob)}</p>
+                    ) : null}
                     <p className="text-sm text-slate-600 capitalize">{bid.status}</p>
                     {bid.description ? <p className="text-sm text-slate-600">{bid.description}</p> : null}
                     {labelFor(plans, bid.planId, (plan) => plan.name)
@@ -575,6 +662,7 @@ export default function CustomerWork({ customer, onSaved }) {
                     <p className="text-sm text-slate-600">Lines {money(bid.linesTotal ?? bidLinesTotal(bid.lines))}</p>
                     <div className="flex flex-wrap gap-2 sm:justify-end mt-2">
                       <button type="button" className="btn-row btn-row-primary" onClick={() => generateCustomerBid(bid)}>Generate bid</button>
+                      <button type="button" className="btn-row btn-row-secondary" onClick={() => importBidIntoJob(bid)}>Import into job</button>
                       <button type="button" className="btn-row btn-row-secondary" onClick={() => editBid(bid)}>Edit</button>
                       <button type="button" className="btn-row btn-row-danger" onClick={() => deleteBid(bid)}>Delete</button>
                     </div>
@@ -592,7 +680,8 @@ export default function CustomerWork({ customer, onSaved }) {
                   </div>
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         )}
         {bidEditor ? (

@@ -214,8 +214,9 @@ describe('SubcontractorJobs', () => {
     await userEvent.type(screen.getByLabelText(/equipment description/i), 'Contact');
     await userEvent.clear(screen.getByLabelText(/quantity/i));
     await userEvent.type(screen.getByLabelText(/quantity/i), '1');
-    await userEvent.clear(screen.getByLabelText(/^cost$/i));
-    await userEvent.type(screen.getByLabelText(/^cost$/i), '5');
+    await userEvent.clear(screen.getByLabelText(/^paid$/i));
+    await userEvent.type(screen.getByLabelText(/^paid$/i), '5');
+    expect(screen.getByLabelText(/^sold$/i)).toBeInTheDocument();
 
     expect(screen.getByTestId('amount-due')).toHaveTextContent('$95.00');
 

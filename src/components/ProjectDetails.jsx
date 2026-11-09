@@ -65,7 +65,7 @@ export default function ProjectDetails() {
   const [taxRateAmount, setTaxRateAmount] = useState('');
   const [paidToDateAmount, setPaidToDateAmount] = useState('');
   const [scheduleDate, setScheduleDate] = useState('');
-  const [newMaterial, setNewMaterial] = useState({ item: '', quantity: 0, cost: 0, markup: 0 });
+  const [newMaterial, setNewMaterial] = useState({ item: '', quantity: 0, cost: 0, sold: '', markup: 0 });
   const [newBidMaterial, setNewBidMaterial] = useState({ item: '', quantity: '', estimate: '', sku: '' });
   const [editingBidMaterialId, setEditingBidMaterialId] = useState(null);
   const [editBidMaterial, setEditBidMaterial] = useState({ item: '', quantity: '', estimate: '', sku: '' });
@@ -336,11 +336,12 @@ export default function ProjectDetails() {
           item: newMaterial.item, 
           quantity: parseFloat(newMaterial.quantity), 
           cost: parseFloat(newMaterial.cost),
+          sold: newMaterial.sold === '' ? undefined : parseFloat(newMaterial.sold),
           markup: parseFloat(newMaterial.markup || 0)
         }, 
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
-      setNewMaterial({ item: '', quantity: 0, cost: 0, markup: 0 });
+      setNewMaterial({ item: '', quantity: 0, cost: 0, sold: '', markup: 0 });
       fetchProject();
     } catch (err) {
       console.error('Error adding material:', err);
@@ -854,6 +855,7 @@ export default function ProjectDetails() {
       item: mat.item || '',
       quantity: String(mat.quantity ?? ''),
       cost: String(mat.cost ?? ''),
+      sold: mat.sold == null ? '' : String(mat.sold),
       markup: String(mat.markup ?? 0),
       taxable: mat.taxable !== false,
     });
@@ -898,6 +900,7 @@ export default function ProjectDetails() {
           item: editMaterial.item.trim(),
           quantity: qty,
           cost: unitCost,
+          sold: editMaterial.sold === '' ? '' : parseFloat(editMaterial.sold),
           markup: markupPct,
           taxable: editMaterial.taxable !== false,
         },
@@ -1899,7 +1902,7 @@ export default function ProjectDetails() {
         </div>
       <SectionToggle nested title="Materials used">
       <p className="text-sm text-slate-600 mb-2">
-        Actual materials on the job. Qty × cost is Job Profit material cost. Leave empty on labor-only jobs.
+        Actual materials on the job. Paid is the part cost and Sold is the price charged. Both go to accounting. Adding a part records the purchase and the use in inventory.
       </p>
 
       <div data-testid="materials-list" className="mt-2 space-y-3 max-w-full min-w-0">
@@ -1929,10 +1932,19 @@ export default function ProjectDetails() {
                       <input
                         type="number"
                         step="0.01"
-                        aria-label="Edit Cost ($)"
-                        placeholder="Cost ($)"
+                        aria-label="Edit Paid ($)"
+                        placeholder="Paid ($)"
                         value={editMaterial.cost}
                         onChange={(e) => setEditMaterial({ ...editMaterial, cost: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        aria-label="Edit Sold ($)"
+                        placeholder="Sold ($)"
+                        value={editMaterial.sold}
+                        onChange={(e) => setEditMaterial({ ...editMaterial, sold: e.target.value })}
                         className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
                       />
                       <input
@@ -2002,7 +2014,10 @@ export default function ProjectDetails() {
                           Qty: <span className="text-black">{mat.quantity}</span>
                         </p>
                         <p className="text-gray-600">
-                          Cost: <span className="text-black">${parseFloat(mat.cost).toFixed(2)}</span>
+                          Paid: <span className="text-black">${parseFloat(mat.cost || 0).toFixed(2)}</span>
+                        </p>
+                        <p className="text-gray-600">
+                          Sold: <span className="text-black">${parseFloat(mat.sold || 0).toFixed(2)}</span>
                         </p>
                         <p className="text-gray-600">
                           Markup: <span className="text-black">{parseFloat(mat.markup || 0).toFixed(0)}%</span>
@@ -2116,7 +2131,7 @@ export default function ProjectDetails() {
               className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
             />
           </AlignedFormField>
-          <AlignedFormField label="Cost" htmlFor="new-material-cost" className="col-span-6 md:col-span-2">
+          <AlignedFormField label="Paid" htmlFor="new-material-cost" className="col-span-6 md:col-span-2">
             <input
               id="new-material-cost"
               type="number"
@@ -2124,6 +2139,17 @@ export default function ProjectDetails() {
               placeholder="Cost ($)"
               value={newMaterial.cost}
               onChange={e => setNewMaterial({ ...newMaterial, cost: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
+            />
+          </AlignedFormField>
+          <AlignedFormField label="Sold" htmlFor="new-material-sold" className="col-span-6 md:col-span-2">
+            <input
+              id="new-material-sold"
+              type="number"
+              step="0.01"
+              placeholder="Sold ($)"
+              value={newMaterial.sold}
+              onChange={e => setNewMaterial({ ...newMaterial, sold: e.target.value })}
               className="w-full p-2 border border-gray-300 rounded bg-gray-100 text-black"
             />
           </AlignedFormField>

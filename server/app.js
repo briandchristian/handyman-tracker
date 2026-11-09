@@ -33,6 +33,7 @@ import {
   reconcileCount,
 } from './lib/inventoryStock.js';
 import { buildAccountingSummary, serviceJobForAccounting } from './lib/accountingSummary.js';
+import { subcontractorPartsJob, syncPartLines } from './lib/jobParts.js';
 import { reorderByIds } from '../src/utils/bidMaterialsOrder.js';
 import { inventoryItemsFromBidLines, inventoryConflictMessage } from '../src/utils/inventoryFromBid.js';
 import { mergedInventoryFields } from '../src/utils/inventoryIdentity.js';
@@ -358,9 +359,11 @@ const customerSchema = new mongoose.Schema({
       inventoryItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryItem' },
       quantity: Number,
       cost: Number,
+      sold: Number,
       markup: Number,
       taxable: { type: Boolean, default: true },
       chargedFromStock: { type: Boolean, default: true },
+      purchasedForJob: { type: Boolean, default: false },
     }],
     bidMaterials: [{
       item: String,
@@ -416,6 +419,14 @@ const customerSchema = new mongoose.Schema({
       description: String,
       quantity: Number,
       price: Number,
+    }],
+    parts: [{
+      description: String,
+      sku: String,
+      quantity: Number,
+      paid: Number,
+      sold: Number,
+      inventoryItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryItem' },
     }],
     notes: { type: String, default: '' },
     paidAmount: { type: Number, default: null },
@@ -855,7 +866,9 @@ const subcontractorWorkOrderSchema = new mongoose.Schema({
     sku: { type: String, default: '' },
     quantity: { type: Number, default: 0 },
     cost: { type: Number, default: 0 },
+    sold: Number,
     reimbursable: { type: Boolean, default: true },
+    inventoryItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryItem' },
   }],
   equipmentTotal: { type: Number, default: 0 },
   amountDue: { type: Number, default: 0 },
@@ -2206,39 +2219,34 @@ app.post('/api/customers/:customerId/projects/:projectId/materials', authMiddlew
       return res.status(404).json({ msg: 'Project not found' });
     }
     
-    const { item, quantity, cost, markup, taxable, sku } = req.body || {};
+    const { item, quantity, cost, markup, taxable, sku, sold } = req.body || {};
     const qty = Number(quantity);
-    let skuValue = normalizeSku(sku);
-    let inventoryItemId;
+    const skuValue = normalizeSku(sku);
     let unitCost = cost === undefined || cost === null || cost === '' ? undefined : Number(cost);
-
-    if (skuValue) {
-      const stockItem = await InventoryItem.findOne({ sku: skuValue });
-      if (!stockItem) {
-        return res.status(404).json({ msg: 'Inventory SKU not found' });
-      }
-      await applyAndRecordStockMovement({
-        item: stockItem,
-        type: 'use',
-        quantity: qty,
-        reason: `Used on ${project.name}`,
-        source: { kind: 'job', id: `${customer._id}:${project._id}` },
-        userId: req.user.id,
-      });
-      inventoryItemId = stockItem._id;
-      if (unitCost === undefined || Number.isNaN(unitCost)) {
-        unitCost = Number(stockItem.lastPrice) || 0;
-      }
+    if (unitCost === undefined || Number.isNaN(unitCost)) {
+      const priced = skuValue ? await InventoryItem.findOne({ sku: skuValue }) : null;
+      unitCost = Number(priced?.lastPrice) || 0;
     }
+    const hasSold = !(sold === '' || sold == null);
+    const synced = await syncJobParts({
+      previous: [],
+      next: [{ description: item, sku: skuValue || '', quantity: qty, paid: unitCost }],
+      source: { kind: 'job', id: `${customer._id}:${project._id}` },
+      reason: project.name,
+      userId: req.user.id,
+    });
+    const stamped = synced.lines[0] || {};
 
     project.materials.push({
       item,
       sku: skuValue || undefined,
-      inventoryItemId,
+      inventoryItemId: stamped.inventoryItemId,
       quantity: qty,
       cost: Number(unitCost || 0),
+      ...(hasSold ? { sold: Number(sold) || 0 } : {}),
       markup: Number(markup || 0),
       taxable: taxable === undefined ? true : Boolean(taxable),
+      purchasedForJob: true,
     });
     await customer.save();
     
@@ -2272,9 +2280,25 @@ app.put('/api/customers/:customerId/projects/:projectId/materials/:materialId', 
 
     const { item, quantity, cost, markup, taxable } = req.body;
 
+    if (material.purchasedForJob && (quantity !== undefined || item !== undefined)) {
+      await syncJobParts({
+        previous: [{ description: material.item, sku: material.sku, quantity: material.quantity, paid: material.cost }],
+        next: [{
+          description: item !== undefined ? item : material.item,
+          sku: material.sku,
+          quantity: quantity !== undefined ? quantity : material.quantity,
+          paid: cost !== undefined ? cost : material.cost,
+        }],
+        source: { kind: 'job', id: `${customer._id}:${project._id}` },
+        reason: project.name,
+        userId: req.user.id,
+      });
+    }
+
     if (item !== undefined) material.item = String(item).trim();
     if (quantity !== undefined) material.quantity = Number(quantity);
     if (cost !== undefined) material.cost = Number(cost);
+    if (req.body?.sold !== undefined) material.sold = req.body.sold === '' ? undefined : Number(req.body.sold);
     if (markup !== undefined) material.markup = Number(markup);
     if (taxable !== undefined) material.taxable = Boolean(taxable);
 
@@ -2299,7 +2323,15 @@ app.delete('/api/customers/:customerId/projects/:projectId/materials/:materialId
     }
 
     const material = project.materials.id(req.params.materialId);
-    if ((material?.sku || material?.inventoryItemId) && material.chargedFromStock !== false) {
+    if (material?.purchasedForJob) {
+      await syncJobParts({
+        previous: [{ description: material.item, sku: material.sku, quantity: material.quantity, paid: material.cost }],
+        next: [],
+        source: { kind: 'job', id: `${customer._id}:${project._id}` },
+        reason: project.name,
+        userId: req.user.id,
+      });
+    } else if ((material?.sku || material?.inventoryItemId) && material.chargedFromStock !== false) {
       const stockItem = material.inventoryItemId
         ? await InventoryItem.findById(material.inventoryItemId)
         : await InventoryItem.findOne({ sku: normalizeSku(material.sku) });
@@ -3279,6 +3311,44 @@ async function applyAndRecordStockMovement({
   return { item, movement };
 }
 
+async function findOrCreatePartItem({ description, sku, paid }) {
+  const skuValue = normalizeSku(sku);
+  if (skuValue) {
+    const existing = await InventoryItem.findOne({ sku: skuValue });
+    if (existing) return existing;
+    return InventoryItem.create({
+      name: description || skuValue,
+      sku: skuValue,
+      currentStock: 0,
+      lastPrice: Number(paid) || 0,
+    });
+  }
+  const name = String(description || '').trim();
+  if (!name) return null;
+  const named = await InventoryItem.find({ name });
+  const unnamedSku = named.find((item) => !normalizeSku(item.sku));
+  if (unnamedSku) return unnamedSku;
+  return InventoryItem.create({
+    name,
+    currentStock: 0,
+    lastPrice: Number(paid) || 0,
+  });
+}
+
+function syncJobParts({ previous, next, source, reason, userId }) {
+  return syncPartLines({
+    previous,
+    next,
+    source,
+    reason,
+    findOrCreate: findOrCreatePartItem,
+    applyMovement: (movement) => applyAndRecordStockMovement({
+      ...movement,
+      userId,
+    }),
+  });
+}
+
 function inventoryConflictResponse(res, err) {
   if (err.statusCode === 409 || isDuplicateKeyError(err)) {
     return res.status(409).json({ msg: 'SKU already exists' });
@@ -3821,6 +3891,8 @@ app.get('/api/accounting/summary', authMiddleware, adminMiddleware, async (req, 
     const supplierPayments = await SupplierPayment.find({}).lean();
     const expenses = await Expense.find({}).lean();
     const laborEntries = await LaborEntry.find({}).lean();
+    const workOrders = await SubcontractorWorkOrder.find({}).lean();
+    projects.push(...workOrders.map(subcontractorPartsJob).filter(Boolean));
     const from = req.query.from || null;
     const to = req.query.to || null;
     res.json(buildAccountingSummary({
@@ -3858,8 +3930,16 @@ app.post('/api/subcontractor-work-orders', authMiddleware, adminMiddleware, asyn
   try {
     const checked = validateWorkOrder(req.body || {});
     if (checked.error) return res.status(400).json({ msg: checked.error });
+    const synced = await syncJobParts({
+      previous: [],
+      next: checked.value.equipmentLines,
+      source: { kind: 'subcontractor', id: 'new' },
+      reason: checked.value.workOrderNumber,
+      userId: req.user.id,
+    });
     const order = await SubcontractorWorkOrder.create({
       ...checked.value,
+      equipmentLines: synced.lines,
       createdBy: req.user.id,
     });
     res.status(201).json(order);
@@ -3873,9 +3953,18 @@ app.put('/api/subcontractor-work-orders/:id', authMiddleware, adminMiddleware, a
   try {
     const checked = validateWorkOrder(req.body || {});
     if (checked.error) return res.status(400).json({ msg: checked.error });
+    const existing = await SubcontractorWorkOrder.findById(req.params.id);
+    if (!existing) return res.status(404).json({ msg: 'Work order not found' });
+    const synced = await syncJobParts({
+      previous: existing.equipmentLines,
+      next: checked.value.equipmentLines,
+      source: { kind: 'subcontractor', id: String(existing._id) },
+      reason: checked.value.workOrderNumber,
+      userId: req.user.id,
+    });
     const order = await SubcontractorWorkOrder.findByIdAndUpdate(
       req.params.id,
-      { ...checked.value, updatedAt: new Date() },
+      { ...checked.value, equipmentLines: synced.lines, updatedAt: new Date() },
       { new: true, runValidators: true }
     );
     if (!order) return res.status(404).json({ msg: 'Work order not found' });
@@ -3888,8 +3977,16 @@ app.put('/api/subcontractor-work-orders/:id', authMiddleware, adminMiddleware, a
 
 app.delete('/api/subcontractor-work-orders/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const order = await SubcontractorWorkOrder.findByIdAndDelete(req.params.id);
+    const order = await SubcontractorWorkOrder.findById(req.params.id);
     if (!order) return res.status(404).json({ msg: 'Work order not found' });
+    await syncJobParts({
+      previous: order.equipmentLines,
+      next: [],
+      source: { kind: 'subcontractor', id: String(order._id) },
+      reason: order.workOrderNumber,
+      userId: req.user.id,
+    });
+    await order.deleteOne();
     res.json({ msg: 'Work order deleted' });
   } catch (err) {
     console.error('Error deleting subcontractor work order:', err);
@@ -3897,7 +3994,12 @@ app.delete('/api/subcontractor-work-orders/:id', authMiddleware, adminMiddleware
   }
 });
 
-registerCustomerWorkRoutes(app, { Customer, authMiddleware, adminMiddleware });
+registerCustomerWorkRoutes(app, {
+  Customer,
+  authMiddleware,
+  adminMiddleware,
+  syncParts: syncJobParts,
+});
 registerCustomerPeopleRoutes(app, { Customer, authMiddleware, adminMiddleware });
 
 // Catch-all: no route matched. When DEBUG_API is on, return path info in response so you can see it in F12 → Network.

@@ -1,10 +1,11 @@
 /**
  * Customer jobs are single tickets with charge lines, opened like a work order.
  * Amount due is hours × rate + travel + charge lines. Variance is paid − due.
- * A bid is a separate quote. A project only groups tickets and does not start a job.
+ * A bid is a separate quote until it is imported into a job. A project only groups tickets.
  */
 
 import { laborPay, reconcileVariance } from './subcontractorWorkOrders.js';
+import { partSoldTotal } from './jobParts.js';
 import { PROJECT_WORK_TYPE_VALUES, DEFAULT_PROJECT_WORK_TYPE } from './projectWorkTypes.js';
 
 export const SERVICE_JOB_STATUSES = [
@@ -98,15 +99,33 @@ function normalizeChargeLines(lines) {
     .filter((line) => line.description || line.quantity || line.price);
 }
 
-export function computeServiceJobTotals({ hoursWorked, hourlyRate, travelPay, chargeLines } = {}) {
+function normalizeParts(lines) {
+  return (Array.isArray(lines) ? lines : [])
+    .map((line) => {
+      const hasSold = !(line?.sold === '' || line?.sold == null);
+      return {
+        description: String(line?.description || line?.item || '').trim(),
+        sku: String(line?.sku || '').trim(),
+        quantity: asNonNegative(line?.quantity),
+        paid: asNonNegative(line?.paid ?? line?.cost),
+        ...(hasSold ? { sold: asNonNegative(line.sold) } : {}),
+        ...(line?.inventoryItemId ? { inventoryItemId: line.inventoryItemId } : {}),
+      };
+    })
+    .filter((line) => line.description || line.sku || line.quantity || line.paid || line.sold != null);
+}
+
+export function computeServiceJobTotals({ hoursWorked, hourlyRate, travelPay, chargeLines, parts } = {}) {
   const labor = laborPay({ hoursWorked, hourlyRate });
   const travel = asNonNegative(travelPay);
   const charges = linesTotal(chargeLines);
+  const sold = partSoldTotal(parts);
   return {
     laborPay: labor,
     travelPay: travel,
     linesTotal: charges,
-    amountDue: money(labor + travel + charges),
+    partsSold: sold,
+    amountDue: money(labor + travel + charges + sold),
   };
 }
 
@@ -151,7 +170,8 @@ export function validateServiceJob(input = {}) {
   if (paidDate?.error) return { error: paidDate.error };
 
   const chargeLines = normalizeChargeLines(input.chargeLines);
-  const totals = computeServiceJobTotals({ hoursWorked, hourlyRate, travelPay, chargeLines });
+  const parts = normalizeParts(input.parts);
+  const totals = computeServiceJobTotals({ hoursWorked, hourlyRate, travelPay, chargeLines, parts });
 
   return {
     value: {
@@ -165,6 +185,7 @@ export function validateServiceJob(input = {}) {
       completedDate,
       notes: String(input.notes || '').trim(),
       chargeLines,
+      parts,
       paidAmount,
       paidDate,
       variance: reconcileVariance(totals.amountDue, paidAmount),
@@ -191,6 +212,42 @@ function bidLinesTotal(lines = []) {
   return money((Array.isArray(lines) ? lines : []).reduce((sum, line) => (
     sum + money(asNonNegative(line.quantity) * asNonNegative(line.estimate))
   ), 0));
+}
+
+/**
+ * Copy a quote onto a new job. Bid lines become charge lines at the estimate.
+ * A lump-sum quote with no lines becomes one charge for the quoted amount.
+ * Parts stay empty so inventory is not purchased until parts are added on the job.
+ */
+export function jobDraftFromBid(bid = {}) {
+  const lines = (Array.isArray(bid.lines) ? bid.lines : [])
+    .map((line) => ({
+      description: String(line?.description || '').trim(),
+      quantity: Number(line?.quantity) || 0,
+      price: Number(line?.estimate) || 0,
+    }))
+    .filter((line) => line.description || line.quantity || line.price);
+  const quoted = Number(bid.quotedAmount);
+  const name = String(bid.name || '').trim();
+  const chargeLines = lines.length
+    ? lines
+    : (Number.isFinite(quoted) && quoted > 0
+      ? [{ description: name || 'Bid', quantity: 1, price: quoted }]
+      : []);
+  return {
+    name,
+    notes: String(bid.description || '').trim(),
+    planId: String(bid.planId || ''),
+    bidId: bid._id ? String(bid._id) : '',
+    workType: DEFAULT_PROJECT_WORK_TYPE,
+    status: DEFAULT_SERVICE_JOB_STATUS,
+    hoursWorked: 0,
+    hourlyRate: 0,
+    travelPay: 0,
+    paidAmount: null,
+    chargeLines,
+    parts: [],
+  };
 }
 
 export function validateBid(input = {}) {

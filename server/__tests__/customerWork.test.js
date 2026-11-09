@@ -15,6 +15,7 @@ import {
   serviceJobMatchesStatus,
   validateBid,
   validatePlan,
+  jobDraftFromBid,
   validateServiceJob,
 } from '../lib/customerWork.js';
 
@@ -95,6 +96,41 @@ describe('customer job tickets', () => {
     expect(checked.value.amountDue).toBe(80);
     expect(checked.value.paidAmount).toBeNull();
     expect(checked.value.variance).toBeNull();
+  });
+
+  test('imports bid lines onto a job as charges and keeps the bid linked', () => {
+    const draft = jobDraftFromBid({
+      _id: 'b1',
+      name: 'Cameras and access',
+      description: 'Four outdoor cameras',
+      planId: 'plan1',
+      quotedAmount: 9100,
+      lines: [{ description: 'Quoted camera', quantity: 4, estimate: 1800 }],
+    });
+    expect(draft).toMatchObject({
+      name: 'Cameras and access',
+      notes: 'Four outdoor cameras',
+      planId: 'plan1',
+      bidId: 'b1',
+      status: 'scheduled',
+      chargeLines: [{ description: 'Quoted camera', quantity: 4, price: 1800 }],
+      parts: [],
+    });
+    expect(jobDraftFromBid({ name: 'Lump sum', quotedAmount: 500, lines: [] }).chargeLines).toEqual([
+      { description: 'Lump sum', quantity: 1, price: 500 },
+    ]);
+  });
+
+  test('sold parts increase amount due and paid parts stay a cost', () => {
+    const checked = validateServiceJob({
+      name: 'Contacts',
+      hoursWorked: 0,
+      hourlyRate: 0,
+      parts: [{ description: 'Contact', sku: 'DC-1', quantity: 2, paid: 8, sold: 20 }],
+    });
+    expect(checked.value.amountDue).toBe(40);
+    expect(checked.value.partsSold).toBe(40);
+    expect(checked.value.parts[0]).toMatchObject({ description: 'Contact', paid: 8, sold: 20 });
   });
 });
 

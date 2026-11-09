@@ -16,14 +16,23 @@ import { COST_CENTERS, costCenterName } from './costCenters.js';
 import { isInInclusiveDateRange, projectActivityDate } from './dateRange.js';
 import { normalizeProjectWorkType } from './projectWorkTypes.js';
 import { formatCustomerLabel, formatJobLabel } from './jobIdentity.js';
+import { partPaidTotal, partSoldTotal } from './jobParts.js';
 
 /** Qty × unit cost from job materials used only. Never billed, bid, markup, or bid worksheet. */
 export function materialCost(project) {
   return (project?.materials || []).reduce((sum, line) => {
     const qty = Number(line.quantity) || 0;
-    const cost = Number(line.cost) || 0;
-    return sum + qty * cost;
+    const cost = line.cost != null && line.cost !== '' ? Number(line.cost) : Number(line.paid) || 0;
+    return sum + qty * (Number.isFinite(cost) ? cost : 0);
   }, 0);
+}
+
+/** Qty × sold price on material lines. Added to invoice revenue. Blank sold is not revenue. */
+export function partsSold(project) {
+  return roundMoney((project?.materials || []).reduce((sum, line) => {
+    if (line?.sold === '' || line?.sold == null) return sum;
+    return sum + (Number(line.quantity) || 0) * (Number(line.sold) || 0);
+  }, 0));
 }
 
 /** Qty × estimate on the bid worksheet. Quote only — not Job Profit material cost. */
@@ -54,11 +63,15 @@ export function jobQuotedAmount(project) {
  */
 export function serviceJobForAccounting(job = {}, customer = {}) {
   const due = roundMoney(job.amountDue);
+  const parts = Array.isArray(job.parts) ? job.parts : [];
+  const partsPaid = partPaidTotal(parts);
+  const partsRevenue = partSoldTotal(parts);
   const hasPaid = !(job.paidAmount === '' || job.paidAmount == null);
   const status = String(job.status || '').trim().toLowerCase();
   const recognized = status === 'completed' || status === 'invoiced' || status === 'paid' || hasPaid;
-  if (!recognized || due <= 0) return null;
-  const paid = hasPaid ? roundMoney(job.paidAmount) : (status === 'paid' ? due : 0);
+  if ((!recognized || due <= 0) && partsPaid <= 0 && partsRevenue <= 0) return null;
+  const billedDue = recognized && due > 0 ? due : partsRevenue;
+  const paid = hasPaid ? roundMoney(job.paidAmount) : (status === 'paid' ? billedDue : 0);
   const activityAt = job.paidDate || job.completedDate || job.scheduledDate || job.createdAt || null;
   let accountingStatus = 'Pending';
   if (status === 'completed' && !hasPaid) accountingStatus = 'Completed';
@@ -72,10 +85,13 @@ export function serviceJobForAccounting(job = {}, customer = {}) {
     jobNumber: job.jobNumber || '',
     workType: job.workType,
     status: accountingStatus,
-    billAmount: due,
+    billAmount: billedDue,
     paidToDate: paid,
     taxRate: 0,
-    materials: [],
+    materials: parts.map((line) => ({
+      quantity: Number(line.quantity) || 0,
+      cost: Number(line.paid ?? line.cost) || 0,
+    })),
     createdAt: activityAt,
     completedAt: activityAt,
   };
@@ -143,7 +159,7 @@ export function buildAccountingSummary({
   );
 
   const jobs = rangedProjects.map((project) => {
-    const billed = jobBilledAmount(project);
+    const billed = roundMoney(jobBilledAmount(project) + partsSold(project));
     const quoted = jobQuotedAmount(project);
     const paid = Number(project.paidToDate) || 0;
     const materials = materialCost(project);
@@ -176,6 +192,7 @@ export function buildAccountingSummary({
       billed: roundMoney(billed),
       paid: roundMoney(paid),
       balance: roundMoney(billed - paid),
+      partsSold: partsSold(project),
       materialCost: roundMoney(materials),
       laborCost: roundMoney(laborCost),
       directExpenseCost: roundMoney(directExpenseCost),

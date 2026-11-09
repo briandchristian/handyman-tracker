@@ -31,7 +31,7 @@ function issuedNumber(customer, kind, records, field, current = '') {
   return nextCustomerRecordNumber(customer.accountNumber, kind, storedNumbers(records, field));
 }
 
-export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, adminMiddleware }) {
+export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, adminMiddleware, syncParts }) {
   const guard = [authMiddleware, adminMiddleware];
 
   app.post('/api/customers/:customerId/service-jobs', ...guard, async (req, res) => {
@@ -42,7 +42,16 @@ export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, admi
       if (checked.error) return res.status(400).json({ msg: checked.error });
       const assigned = issuedNumber(customer, 'job', customer.serviceJobs, 'jobNumber');
       if (assigned.error) return res.status(400).json({ msg: assigned.error });
-      customer.serviceJobs.push({ ...checked.value, jobNumber: assigned.value });
+      const synced = syncParts
+        ? await syncParts({
+          previous: [],
+          next: checked.value.parts,
+          source: { kind: 'service-job', id: String(customer._id) },
+          reason: checked.value.name,
+          userId: req.user.id,
+        })
+        : { lines: checked.value.parts };
+      customer.serviceJobs.push({ ...checked.value, parts: synced.lines, jobNumber: assigned.value });
       await customer.save();
       res.status(201).json(customer.serviceJobs[customer.serviceJobs.length - 1]);
     } catch (err) {
@@ -61,7 +70,16 @@ export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, admi
       if (checked.error) return res.status(400).json({ msg: checked.error });
       const assigned = issuedNumber(customer, 'job', customer.serviceJobs, 'jobNumber', job.jobNumber);
       if (assigned.error) return res.status(400).json({ msg: assigned.error });
-      job.set({ ...checked.value, jobNumber: assigned.value });
+      const synced = syncParts
+        ? await syncParts({
+          previous: job.parts,
+          next: checked.value.parts,
+          source: { kind: 'service-job', id: `${customer._id}:${job._id}` },
+          reason: checked.value.name,
+          userId: req.user.id,
+        })
+        : { lines: checked.value.parts };
+      job.set({ ...checked.value, parts: synced.lines, jobNumber: assigned.value });
       await customer.save();
       res.json(job);
     } catch (err) {
@@ -76,6 +94,15 @@ export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, admi
       if (!customer) return;
       const job = customer.serviceJobs.id(req.params.jobId);
       if (!job) return res.status(404).json({ msg: 'Job not found' });
+      if (syncParts) {
+        await syncParts({
+          previous: job.parts,
+          next: [],
+          source: { kind: 'service-job', id: `${customer._id}:${job._id}` },
+          reason: job.name,
+          userId: req.user.id,
+        });
+      }
       customer.serviceJobs.pull(job._id);
       await customer.save();
       res.json({ msg: 'Job deleted' });

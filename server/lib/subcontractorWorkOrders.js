@@ -81,9 +81,14 @@ export function laborPay({ hoursWorked, hourlyRate } = {}) {
   return money(asNonNegative(hoursWorked) * asNonNegative(hourlyRate));
 }
 
+function equipmentUnitCharge(line = {}) {
+  const hasSold = !(line.sold === '' || line.sold == null);
+  return hasSold ? asNonNegative(line.sold) : asNonNegative(line.cost);
+}
+
 export function equipmentLineTotal(line = {}) {
   if (line.reimbursable === false) return 0;
-  return money(asNonNegative(line.quantity) * asNonNegative(line.cost));
+  return money(asNonNegative(line.quantity) * equipmentUnitCharge(line));
 }
 
 export function equipmentTotal(lines = []) {
@@ -124,7 +129,8 @@ function normalizeEquipmentLines(lines) {
       description: String(line?.description || '').trim(),
       sku: String(line?.sku || '').trim(),
       quantity: asNonNegative(line?.quantity),
-      cost: asNonNegative(line?.cost),
+      cost: asNonNegative(line?.cost ?? line?.paid),
+      ...(line?.sold === '' || line?.sold == null ? {} : { sold: asNonNegative(line.sold) }),
       reimbursable: line?.reimbursable !== false,
     }))
     .filter((line) => line.description || line.sku || line.quantity || line.cost);

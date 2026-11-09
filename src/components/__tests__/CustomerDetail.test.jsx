@@ -158,6 +158,7 @@ describe('CustomerDetail', () => {
 
     const bid = screen.getByTestId('bid-row-b1');
     expect(bid).toHaveTextContent('Q-1001 · Cameras and access');
+    expect(within(bid).getByRole('heading', { name: 'Q-1001 · Cameras and access' })).not.toHaveClass('text-green-700');
     expect(bid).toHaveTextContent('declined');
     expect(bid).toHaveTextContent('$9,100.00');
     expect(bid).not.toHaveTextContent('Amount due');
@@ -276,6 +277,71 @@ describe('CustomerDetail', () => {
     expect(printed).toContain("What's Included:");
     expect(printed.some((line) => String(line).includes('1800'))).toBe(false);
     expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  test('shows a bid in green once a job is linked to it', async () => {
+    axios.get.mockResolvedValue({
+      data: {
+        ...customer,
+        serviceJobs: [{
+          ...customer.serviceJobs[0],
+          bidId: 'b1',
+        }],
+      },
+    });
+
+    await renderPage();
+    const bid = await screen.findByTestId('bid-row-b1');
+    const title = within(bid).getByRole('heading', { name: 'Q-1001 · Cameras and access' });
+    expect(title).toHaveClass('text-green-700');
+    expect(bid).toHaveTextContent('On job J-2001');
+  });
+
+  test('imports a bid into a job and marks the bid accepted', async () => {
+    axios.get.mockResolvedValue({
+      data: {
+        ...customer,
+        bids: [{
+          _id: 'b1',
+          name: 'Cameras and access',
+          quoteNumber: 'Q-1001',
+          status: 'sent',
+          description: 'Four outdoor cameras',
+          planId: 'plan1',
+          quotedAmount: 9100,
+          lines: [{ description: 'Quoted camera', quantity: 4, estimate: 1800 }],
+        }],
+      },
+    });
+    axios.post.mockResolvedValue({ data: { _id: 'j9' } });
+    axios.put.mockResolvedValue({ data: { status: 'accepted' } });
+
+    await renderPage();
+    const bid = await screen.findByTestId('bid-row-b1');
+    await userEvent.click(within(bid).getByRole('button', { name: /import into job/i }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/customers/c1/service-jobs'),
+        expect.objectContaining({
+          name: 'Cameras and access',
+          bidId: 'b1',
+          planId: 'plan1',
+          notes: 'Four outdoor cameras',
+          chargeLines: [expect.objectContaining({
+            description: 'Quoted camera',
+            quantity: 4,
+            price: 1800,
+          })],
+        }),
+        expect.any(Object)
+      );
+    });
+    expect(axios.put).toHaveBeenCalledWith(
+      expect.stringContaining('/api/customers/c1/bids/b1'),
+      expect.objectContaining({ status: 'accepted' }),
+      expect.any(Object)
+    );
   });
 
   test('adds a bid without creating a job', async () => {
