@@ -38,6 +38,41 @@ const SUBCONTRACTOR_FILTER_STATUS = {
   paid: 'Billed',
 };
 
+const SERVICE_JOB_STATUS = {
+  scheduled: { status: 'Scheduled', displayStatus: 'Scheduled' },
+  completed: { status: 'Completed', displayStatus: 'Completed' },
+  invoiced: { status: 'Billed', displayStatus: 'Invoiced' },
+  paid: { status: 'Billed', displayStatus: 'Paid' },
+};
+
+/**
+ * A single-entry customer job as a dashboard row.
+ * These live on the customer, separate from installation projects.
+ */
+export function dashboardJobFromServiceJob(job, customer = {}) {
+  const name = String(job?.name || '').trim();
+  const jobNumber = String(job?.jobNumber || '').trim();
+  if (!name && !jobNumber) return null;
+  const mapped = SERVICE_JOB_STATUS[String(job?.status || '').trim().toLowerCase()]
+    || { status: 'Pending', displayStatus: 'Pending' };
+  const amount = Number(job?.amountDue);
+  return {
+    _id: job._id,
+    source: 'customer',
+    name: name || jobNumber,
+    jobNumber,
+    customerName: customer.name || '',
+    accountNumber: customer.accountNumber || '',
+    customerId: customer._id,
+    status: mapped.status,
+    displayStatus: mapped.displayStatus,
+    billAmount: Number.isFinite(amount) ? amount : undefined,
+    scheduleDate: job?.scheduledDate || null,
+    createdAt: job?.createdAt || null,
+    href: customer._id ? `/customers/${customer._id}` : '/customers',
+  };
+}
+
 /** A Brinks work order as a dashboard row. Records without a number are skipped. */
 export function dashboardJobFromWorkOrder(order) {
   const workOrderNumber = String(order?.workOrderNumber || '').trim();

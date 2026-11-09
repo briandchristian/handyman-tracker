@@ -330,6 +330,48 @@ describe('accountingSummary', () => {
     });
   });
 
+  test('a service job imported from a bid reports that bid quoted amount', () => {
+    const customer = {
+      _id: 'cust',
+      name: 'Mike Dibble',
+      accountNumber: 'A-1006',
+      bids: [{
+        _id: 'bid-1',
+        quoteNumber: 'A-1006-B0001',
+        quotedAmount: 500,
+        linesTotal: 700,
+      }],
+    };
+    const ticket = serviceJobForAccounting(
+      {
+        _id: 'job-ticket',
+        name: 'IP Cameras for property',
+        jobNumber: 'A-1006-J0001',
+        status: 'scheduled',
+        amountDue: 1124,
+        paidAmount: 1124,
+        bidId: 'bid-1',
+        chargeLines: [
+          { description: 'switch', quantity: 1, price: 500 },
+          { description: 'wire', quantity: 1, price: 200 },
+        ],
+      },
+      customer
+    );
+    const summary = buildAccountingSummary({ projects: [ticket] });
+
+    expect(ticket.bidAmount).toBe(500);
+    expect(summary.jobs[0]).toMatchObject({
+      quoted: 500,
+      billed: 1124,
+      profit: 1124,
+    });
+    expect(serviceJobForAccounting(
+      { name: 'No bid', status: 'paid', amountDue: 40, bidId: 'missing' },
+      customer
+    ).bidAmount).toBe(0);
+  });
+
   test('part paid is material cost and part sold is revenue for jobs and subcontractor parts', () => {
     const project = {
       name: 'Alarm',
@@ -363,10 +405,33 @@ describe('accountingSummary', () => {
     expect(summary.jobs.find((job) => job.jobNumber === 'BRK-9')).toMatchObject({
       billed: 15,
       materialCost: 8,
+      partsSold: 15,
       profit: 7,
     });
     expect(summary.direct.materials).toBe(28);
     expect(summary.period.revenue).toBe(65);
+  });
+
+  test('a service job line with a cost is material cost and a price-only line is only billed', () => {
+    const ticket = serviceJobForAccounting({
+      name: 'Cameras',
+      jobNumber: 'A-1006-J0001',
+      status: 'paid',
+      amountDue: 1060,
+      paidAmount: 1060,
+      chargeLines: [
+        { description: 'Switch', quantity: 1, price: 500 },
+        { description: 'Hub', quantity: 1, price: 328, paid: 265 },
+      ],
+      parts: [{ description: 'Contact', quantity: 3, paid: 13.92, sold: 32 }],
+    }, { name: 'Mike Dibble' });
+    const summary = buildAccountingSummary({ projects: [ticket] });
+    expect(summary.jobs[0]).toMatchObject({
+      billed: 1060,
+      materialCost: 306.76,
+      partsSold: 424,
+      profit: 753.24,
+    });
   });
 
   test('a scheduled service job still posts its parts', () => {
@@ -383,7 +448,66 @@ describe('accountingSummary', () => {
       materials: [{ quantity: 2, cost: 8 }],
     });
     const summary = buildAccountingSummary({ projects: [ticket] });
-    expect(summary.jobs[0]).toMatchObject({ materialCost: 16, billed: 40, profit: 24 });
+    expect(summary.jobs[0]).toMatchObject({ materialCost: 16, billed: 40, partsSold: 40, profit: 24 });
+  });
+
+  test('hours and rate on a service job show as Job Profit labor', () => {
+    const ticket = serviceJobForAccounting({
+      _id: 'job1',
+      name: 'IP Cameras for property',
+      jobNumber: 'A-1006-J0001',
+      status: 'scheduled',
+      amountDue: 1344,
+      paidAmount: 1124,
+      hoursWorked: 2,
+      hourlyRate: 85,
+      laborPay: 170,
+      travelPay: 50,
+      parts: [{ description: 'Hub', quantity: 1, paid: 265, sold: 328 }],
+    }, { _id: 'c1', name: 'Mike Dibble', accountNumber: 'A-1006' });
+    const summary = buildAccountingSummary({ projects: [ticket] });
+    expect(summary.jobs[0]).toMatchObject({
+      laborCost: 170,
+      billed: 1344,
+      materialCost: 265,
+      profit: 1079,
+      contribution: 909,
+    });
+    expect(summary.direct.labor).toBe(170);
+    expect(summary.direct.laborHours).toBe(2);
+  });
+
+  test('an expense follows a service job or a subcontractor work order', () => {
+    const summary = buildAccountingSummary({
+      projects: [
+        {
+          _id: 'svc1',
+          name: 'Cameras',
+          customerId: 'c1',
+          status: 'Billed',
+          billAmount: 100,
+        },
+        subcontractorPartsJob({
+          _id: 'wo1',
+          workOrderNumber: 'BRK-1',
+          siteName: 'Lobby',
+          principal: 'Brinks',
+          equipmentLines: [{ description: 'Contact', quantity: 1, cost: 8, sold: 15 }],
+        }),
+      ],
+      expenses: [
+        { amount: 12, costCenterCode: 'FUEL', customerId: 'c1', projectId: 'svc1' },
+        { amount: 9, costCenterCode: 'FUEL', subcontractorWorkOrderId: 'wo1' },
+      ],
+    });
+    expect(summary.jobs.find((job) => job.projectName === 'Cameras')).toMatchObject({
+      directExpenseCost: 12,
+    });
+    expect(summary.jobs.find((job) => job.jobNumber === 'BRK-1')).toMatchObject({
+      directExpenseCost: 9,
+      laborCost: 0,
+    });
+    expect(summary.direct.expenses).toBe(21);
   });
 
   test('a scheduled ticket with no payment stays off the books', () => {
@@ -393,6 +517,118 @@ describe('accountingSummary', () => {
       amountDue: 80,
       paidAmount: null,
     })).toBeNull();
+  });
+
+  test('a purchase filed as inventory stays an asset until the sale recognizes cost of goods sold', () => {
+    const purchase = {
+      _id: 'buy',
+      postedDate: '2026-05-02',
+      amount: -10,
+      status: 'categorized',
+      categoryCode: 'INVENTORY',
+      description: 'LOCK',
+    };
+    const sale = {
+      _id: 'sell',
+      postedDate: '2026-06-15',
+      amount: 25,
+      status: 'categorized',
+      categoryCode: 'SALES',
+      inventoryLineIds: ['buy'],
+    };
+    const may = buildAccountingSummary({
+      checkingLines: [purchase, sale],
+      from: '2026-05-01',
+      to: '2026-05-31',
+    });
+    expect(may.period.sales).toBe(0);
+    expect(may.period.cogs).toBe(0);
+    expect(may.period.revenue).toBe(0);
+    expect(may.direct.expenses).toBe(0);
+    expect(may.indirect.byCostCenter).toEqual([]);
+    expect(may.inventory.onHand).toBe(10);
+
+    const june = buildAccountingSummary({
+      checkingLines: [purchase, sale],
+      from: '2026-06-01',
+      to: '2026-06-30',
+    });
+    expect(june.period.sales).toBe(25);
+    expect(june.period.cogs).toBe(10);
+    expect(june.period.revenue).toBe(25);
+    expect(june.period.otherIncome).toBe(0);
+    expect(june.period.contribution).toBe(15);
+    expect(june.inventory.onHand).toBe(0);
+    expect(june.indirect.byCostCenter).toEqual([]);
+  });
+
+  test('a deposit filed to a subcontractor work order is income and not an expense', () => {
+    const summary = buildAccountingSummary({
+      checkingLines: [{
+        postedDate: '2026-06-03',
+        amount: 640,
+        status: 'categorized',
+        categoryCode: 'OFFICE',
+        subcontractorWorkOrderId: 'wo1',
+      }],
+    });
+    expect(summary.period.subcontractorIncome).toBe(640);
+    expect(summary.period.revenue).toBe(640);
+    expect(summary.period.otherIncome).toBe(0);
+    expect(summary.indirect.byCostCenter).toEqual([]);
+    expect(summary.direct.expenses).toBe(0);
+  });
+
+  test('a categorized checking withdrawal hits the P&L and a reconciled one does not', () => {
+    const summary = buildAccountingSummary({
+      projects: [],
+      checkingLines: [
+        {
+          postedDate: '2026-06-03',
+          amount: -45.2,
+          status: 'categorized',
+          categoryCode: 'FUEL',
+        },
+        {
+          postedDate: '2026-06-04',
+          amount: -45.2,
+          status: 'matched',
+          categoryCode: '',
+          match: { kind: 'expense', id: 'e1' },
+        },
+        {
+          postedDate: '2026-06-05',
+          amount: -12,
+          status: 'uncategorized',
+        },
+        {
+          postedDate: '2026-06-06',
+          amount: 500,
+          status: 'categorized',
+          categoryCode: 'INCOME',
+        },
+        {
+          postedDate: '2026-06-07',
+          amount: -200,
+          status: 'excluded',
+          categoryCode: 'TRANSFER',
+        },
+        {
+          postedDate: '2026-06-08',
+          amount: -30,
+          status: 'categorized',
+          categoryCode: 'TOOLS',
+          projectId: 'job1',
+        },
+      ],
+    });
+    expect(summary.indirect.byCostCenter).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'FUEL', expenses: 45.2 })])
+    );
+    expect(summary.direct.expenses).toBe(30);
+    expect(summary.period.otherIncome).toBe(500);
+    expect(summary.period.revenue).toBe(500);
+    expect(summary.checking).toMatchObject({ uncategorized: 1, suggested: 0 });
   });
 
   test('status paid with no amount entered counts the ticket total as collected', () => {

@@ -1,12 +1,14 @@
 /**
  * Staff accounting overview: AR, AP, tax, Direct vs Indirect costs, and job contribution.
- * Source documents stay on jobs, expenses, and labor — this page summarizes them.
+ * Source documents stay on jobs, expenses, labor, and imported checking lines — this page summarizes them.
+ * A checking line stays off the P&L until it is categorized or reconciled to a record already entered.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
 import { COST_CENTERS } from '../constants/costCenters';
+import { checkingCategoryChoices } from '../../server/lib/checkingCategories.js';
 import { LABOR_WORK_TYPES, INDIRECT_LABOR_WORK_TYPES } from '../constants/laborWorkTypes';
 import { PROJECT_WORK_TYPES, jobMatchesWorkTypeFilter, projectWorkTypeLabel } from '../constants/projectWorkTypes';
 import { asCalendarDay, currentMonthRange, rangeFromSearch } from '../../server/lib/dateRange.js';
@@ -20,6 +22,15 @@ const money = (value) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+
+const bankMoney = (value) => {
+  const amount = Number(value) || 0;
+  const body = Math.abs(amount).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return amount < 0 ? `-$${body}` : `$${body}`;
+};
 
 const rateLabel = (value) => {
   if (value == null || Number.isNaN(Number(value))) return '—';
@@ -63,6 +74,11 @@ export default function Accounting() {
   const [formError, setFormError] = useState('');
   const [expenses, setExpenses] = useState([]);
   const [laborEntries, setLaborEntries] = useState([]);
+  const [workOrders, setWorkOrders] = useState([]);
+  const [checkingLines, setCheckingLines] = useState([]);
+  const [checkingDrafts, setCheckingDrafts] = useState({});
+  const [importNote, setImportNote] = useState('');
+  const [importError, setImportError] = useState('');
   const [ledgerClass, setLedgerClass] = useState('');
 
   const loadSummary = async (range = { from, to }) => {
@@ -97,19 +113,30 @@ export default function Accounting() {
     setLaborEntries(asList(laborRes.data));
   };
 
+  const loadChecking = async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/accounting/checking-lines`, authHeaders());
+      setCheckingLines(asList(res.data));
+    } catch {
+      setCheckingLines([]);
+    }
+  };
+
   const loadPeriod = async (range = { from, to }) => {
-    await Promise.all([loadSummary(range), loadLedger(range)]);
+    await Promise.all([loadSummary(range), loadLedger(range), loadChecking()]);
   };
 
   const loadAux = async () => {
     const headers = authHeaders();
-    const [centersRes, customersRes] = await Promise.all([
+    const [centersRes, customersRes, workOrdersRes] = await Promise.all([
       axios.get(`${API_BASE_URL}/api/cost-centers`, headers).catch(() => ({ data: COST_CENTERS })),
       axios.get(`${API_BASE_URL}/api/customers`, headers).catch(() => ({ data: [] })),
+      axios.get(`${API_BASE_URL}/api/subcontractor-work-orders`, headers).catch(() => ({ data: [] })),
     ]);
     const centers = asList(centersRes.data);
     setCostCenters(centers.length ? centers : COST_CENTERS);
     setCustomers(asList(customersRes.data));
+    setWorkOrders(asList(workOrdersRes.data));
   };
 
   useEffect(() => {
@@ -129,18 +156,31 @@ export default function Accounting() {
     return list.filter((job) => jobMatchesWorkTypeFilter(job.workType, workTypeFilter));
   }, [summary, workTypeFilter]);
 
-  const jobOptions = useMemo(() => {
+  const customerJobOptions = useMemo(() => {
     const options = [];
     customers.forEach((customer) => {
+      const labelFor = (job) => `${formatJobLabel(job)} (${formatCustomerLabel(customer)})`;
       (customer.projects || []).forEach((project) => {
         options.push({
           value: `${customer._id}:${project._id}`,
-          label: `${formatJobLabel(project)} (${formatCustomerLabel(customer)})`,
+          label: labelFor(project),
+        });
+      });
+      (customer.serviceJobs || []).forEach((job) => {
+        if (!job?._id) return;
+        options.push({
+          value: `${customer._id}:${job._id}`,
+          label: labelFor(job),
         });
       });
     });
     return options;
   }, [customers]);
+
+  const subcontractorJobOptions = useMemo(() => workOrders.map((order) => ({
+    value: `subcontractor:${order._id}`,
+    label: `${order.workOrderNumber || 'Work order'}${order.siteName ? ` · ${order.siteName}` : ''} (${order.principal || 'Subcontractor'})`,
+  })), [workOrders]);
 
   const ledgerJobs = useMemo(() => {
     const fromSummary = asList(summary?.jobs).map((job) => ({
@@ -160,6 +200,15 @@ export default function Accounting() {
           customerName: customer.name,
           projectName: project.name,
           jobNumber: project.jobNumber,
+        });
+      });
+      (customer.serviceJobs || []).forEach((job) => {
+        fromCustomers.push({
+          customerId: customer._id,
+          projectId: job._id,
+          customerName: customer.name,
+          projectName: job.name,
+          jobNumber: job.jobNumber,
         });
       });
     });
@@ -207,6 +256,113 @@ export default function Accounting() {
     }
   };
 
+  const checkingCategories = useMemo(() => {
+    const specials = checkingCategoryChoices().filter((item) => item.effect !== 'expense');
+    const centers = (costCenters.length ? costCenters : COST_CENTERS).map((center) => ({
+      code: center.code,
+      name: center.name,
+    }));
+    const known = new Set(centers.map((center) => center.code));
+    COST_CENTERS.forEach((center) => {
+      if (!known.has(center.code)) centers.push({ code: center.code, name: center.name });
+    });
+    return [...centers, ...specials];
+  }, [costCenters]);
+
+  const checkingReview = checkingLines.filter((line) => (
+    line.status === 'uncategorized' || line.status === 'suggested'
+  ));
+
+  const checkingDraft = (line) => checkingDrafts[line._id] || {
+    categoryCode: line.categoryCode || 'OFFICE',
+    job: line.subcontractorWorkOrderId
+      ? `subcontractor:${line.subcontractorWorkOrderId}`
+      : (line.customerId && line.projectId ? `${line.customerId}:${line.projectId}` : ''),
+    note: line.note || '',
+    inventoryLineIds: (line.inventoryLineIds || []).map(String),
+  };
+
+  const importChecking = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      event.target.value = '';
+    } catch {
+      // A file input can only be cleared to an empty string.
+    }
+    setImportError('');
+    setImportNote('');
+    try {
+      const csv = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('Could not read CSV'));
+        reader.readAsText(file);
+      });
+      const res = await axios.post(
+        `${API_BASE_URL}/api/accounting/checking-import`,
+        { csv },
+        authHeaders()
+      );
+      const data = res.data || {};
+      setImportNote(
+        `Imported ${data.imported || 0}. Already stored ${data.duplicates || 0}. Possible matches ${data.suggested || 0}.`
+      );
+      await loadPeriod({ from, to });
+    } catch (err) {
+      setImportError(err.response?.data?.msg || 'Failed to import checking CSV');
+    }
+  };
+
+  const saveCheckingCategory = async (line) => {
+    setImportError('');
+    const draft = checkingDraft(line);
+    const payload = { categoryCode: draft.categoryCode, note: draft.note || '' };
+    if (draft.categoryCode === 'SALES') payload.inventoryLineIds = draft.inventoryLineIds || [];
+    if (String(draft.job).startsWith('subcontractor:')) {
+      payload.subcontractorWorkOrderId = draft.job.slice('subcontractor:'.length);
+    } else if (draft.job) {
+      const [customerId, projectId] = draft.job.split(':');
+      payload.customerId = customerId;
+      payload.projectId = projectId;
+    }
+    try {
+      await axios.put(`${API_BASE_URL}/api/accounting/checking-lines/${line._id}`, payload, authHeaders());
+      await loadPeriod({ from, to });
+    } catch (err) {
+      setImportError(err.response?.data?.msg || 'Failed to categorize checking line');
+    }
+  };
+
+  const saveCheckingNote = async (line) => {
+    setImportError('');
+    const draft = checkingDraft(line);
+    try {
+      await axios.put(
+        `${API_BASE_URL}/api/accounting/checking-lines/${line._id}`,
+        { note: draft.note || '' },
+        authHeaders()
+      );
+      await loadPeriod({ from, to });
+    } catch (err) {
+      setImportError(err.response?.data?.msg || 'Failed to save note');
+    }
+  };
+
+  const confirmCheckingMatch = async (line) => {
+    setImportError('');
+    try {
+      await axios.put(
+        `${API_BASE_URL}/api/accounting/checking-lines/${line._id}`,
+        { confirmMatch: true },
+        authHeaders()
+      );
+      await loadPeriod({ from, to });
+    } catch (err) {
+      setImportError(err.response?.data?.msg || 'Failed to reconcile checking line');
+    }
+  };
+
   const submitExpense = async (event) => {
     event.preventDefault();
     setFormError('');
@@ -218,7 +374,9 @@ export default function Accounting() {
         description: expenseForm.description,
         costCenterCode: expenseForm.costCenterCode,
       };
-      if (expenseForm.job) {
+      if (String(expenseForm.job).startsWith('subcontractor:')) {
+        payload.subcontractorWorkOrderId = expenseForm.job.slice('subcontractor:'.length);
+      } else if (expenseForm.job) {
         const [customerId, projectId] = expenseForm.job.split(':');
         payload.customerId = customerId;
         payload.projectId = projectId;
@@ -352,6 +510,171 @@ export default function Accounting() {
         </div>
       </div>
 
+      <SectionToggle title="Checking account" className="mb-6">
+        <p className="text-sm text-slate-600 mb-4">
+          Import the checking-account CSV, starting with the full history from when the account opened.
+          Later exports skip lines already stored. A line that matches an expense or supplier payment
+          already entered can be reconciled so it is not counted twice. Cost centers file expenses.
+          Other income, a customer payment already on a job, a transfer, and an owner draw are separate,
+          because a cost center cannot describe those. A purchase filed as Inventory stays on the shelf.
+          When you file the deposit as Sales and check that purchase, the income is recorded and the
+          purchase cost becomes cost of goods sold. A line stays off the P&amp;L until you categorize it or reconcile it.
+        </p>
+        <AlignedFormField label="Checking CSV" htmlFor="checking-csv" className="max-w-md">
+          <input
+            id="checking-csv"
+            type="file"
+            accept=".csv,text/csv"
+            onChange={importChecking}
+            className="w-full text-sm"
+          />
+        </AlignedFormField>
+        {importNote ? <p className="text-sm text-slate-700 mt-3">{importNote}</p> : null}
+        {importError ? <p role="alert" className="text-red-700 mt-3">{importError}</p> : null}
+        <p className="text-sm text-slate-600 mt-4">
+          {checkingLines.length === 0
+            ? 'No checking lines yet.'
+            : `${checkingReview.length} still need a category. ${checkingLines.length - checkingReview.length} categorized or reconciled.`}
+        </p>
+        <div className="space-y-3 mt-4">
+          {[...checkingReview, ...checkingLines.filter((line) => (
+            line.status === 'categorized' && line.categoryCode === 'SALES'
+          ))].map((line) => {
+            const draft = checkingDraft(line);
+            const soldElsewhere = new Set();
+            checkingLines.forEach((other) => {
+              if (String(other._id) === String(line._id) || other.categoryCode !== 'SALES') return;
+              (other.inventoryLineIds || []).forEach((id) => soldElsewhere.add(String(id)));
+            });
+            const inventoryLots = checkingLines.filter((lot) => (
+              lot.status === 'categorized'
+              && lot.categoryCode === 'INVENTORY'
+              && Number(lot.amount) < 0
+              && !soldElsewhere.has(String(lot._id))
+            ));
+            const selectedIds = new Set((draft.inventoryLineIds || []).map(String));
+            const goodsCost = inventoryLots.reduce((sum, lot) => (
+              selectedIds.has(String(lot._id)) ? sum + Math.abs(Number(lot.amount) || 0) : sum
+            ), 0);
+            return (
+              <article key={line._id} className="border border-slate-200 rounded-xl p-4">
+                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold">{line.description || 'Checking line'}</h3>
+                    <p className="text-sm text-slate-600">
+                      {asCalendarDay(line.postedDate)}
+                      {' · '}
+                      <span className={Number(line.amount) < 0 ? 'text-red-700' : 'text-green-700'}>
+                        {bankMoney(line.amount)}
+                      </span>
+                    </p>
+                    {line.suggestion?.label ? (
+                      <p className="text-sm text-slate-700 mt-1">{line.suggestion.label}</p>
+                    ) : null}
+                    <label className="block text-sm text-slate-600 mt-2">
+                      Note
+                      <input
+                        aria-label={`Note for ${line.description || 'checking line'}`}
+                        value={draft.note}
+                        onChange={(event) => setCheckingDrafts((prev) => ({
+                          ...prev,
+                          [line._id]: { ...draft, note: event.target.value },
+                        }))}
+                        className="mt-1 block w-full p-2 border border-slate-300 rounded bg-white text-slate-900"
+                      />
+                    </label>
+                    <button type="button" className="btn-row btn-row-secondary mt-2" onClick={() => saveCheckingNote(line)}>
+                      Save note
+                    </button>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+                    <label className="text-sm text-slate-600">
+                      Category
+                      <select
+                        aria-label={`Category for ${line.description || 'checking line'}`}
+                        value={draft.categoryCode}
+                        onChange={(event) => setCheckingDrafts((prev) => ({
+                          ...prev,
+                          [line._id]: { ...draft, categoryCode: event.target.value },
+                        }))}
+                        className="mt-1 block w-full sm:w-56 p-2 border border-slate-300 rounded bg-white text-slate-900"
+                      >
+                        {checkingCategories.map((category) => (
+                          <option key={category.code} value={category.code}>{category.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm text-slate-600">
+                      Job
+                      <select
+                        aria-label={`Job for ${line.description || 'checking line'}`}
+                        value={draft.job}
+                        onChange={(event) => setCheckingDrafts((prev) => ({
+                          ...prev,
+                          [line._id]: { ...draft, job: event.target.value },
+                        }))}
+                        className="mt-1 block w-full sm:w-56 p-2 border border-slate-300 rounded bg-white text-slate-900"
+                      >
+                        <option value="">Overhead — no job</option>
+                        {customerJobOptions.length ? (
+                          <optgroup label="Customer jobs">
+                            {customerJobOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </optgroup>
+                        ) : null}
+                        {subcontractorJobOptions.length ? (
+                          <optgroup label="Subcontractor">
+                            {subcontractorJobOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </optgroup>
+                        ) : null}
+                      </select>
+                    </label>
+                    {draft.categoryCode === 'SALES' ? (
+                      <fieldset className="text-sm text-slate-600 sm:min-w-56">
+                        <legend>Inventory sold</legend>
+                        {inventoryLots.length === 0 ? (
+                          <p className="mt-1">No inventory purchases are waiting to be sold.</p>
+                        ) : inventoryLots.map((lot) => (
+                          <label key={lot._id} className="mt-1 flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(String(lot._id))}
+                              onChange={(event) => {
+                                const id = String(lot._id);
+                                const nextIds = event.target.checked
+                                  ? [...selectedIds, id]
+                                  : [...selectedIds].filter((value) => value !== id);
+                                setCheckingDrafts((prev) => ({
+                                  ...prev,
+                                  [line._id]: { ...draft, inventoryLineIds: nextIds },
+                                }));
+                              }}
+                            />
+                            {`${lot.description || 'Inventory'} · ${money(Math.abs(Number(lot.amount) || 0))}`}
+                          </label>
+                        ))}
+                        <p className="mt-1">Cost of goods sold {money(goodsCost)}</p>
+                      </fieldset>
+                    ) : null}
+                    <button type="button" className="btn-row btn-row-primary" onClick={() => saveCheckingCategory(line)}>
+                      Save category
+                    </button>
+                    {line.suggestion?.id ? (
+                      <button type="button" className="btn-row btn-row-secondary" onClick={() => confirmCheckingMatch(line)}>
+                        Use existing
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </SectionToggle>
+
       <SectionToggle title="Period P&L lite" className="mb-6">
         <p className="text-sm text-slate-600 mb-4">
           Overhead rate is for future bid markup. Jobs are not auto-burdened.
@@ -360,6 +683,26 @@ export default function Accounting() {
           <div>
             <p className="text-slate-600">Revenue</p>
             <p className="font-semibold">{money(period.revenue)}</p>
+          </div>
+          <div>
+            <p className="text-slate-600">Other income</p>
+            <p className="font-semibold">{money(period.otherIncome)}</p>
+          </div>
+          <div>
+            <p className="text-slate-600">Subcontractor income</p>
+            <p className="font-semibold">{money(period.subcontractorIncome)}</p>
+          </div>
+          <div>
+            <p className="text-slate-600">Sales</p>
+            <p className="font-semibold">{money(period.sales)}</p>
+          </div>
+          <div>
+            <p className="text-slate-600">Cost of goods sold</p>
+            <p className="font-semibold">{money(period.cogs)}</p>
+          </div>
+          <div>
+            <p className="text-slate-600">Inventory on hand</p>
+            <p className="font-semibold">{money(summary.inventory?.onHand)}</p>
           </div>
           <div>
             <p className="text-slate-600">Direct (period)</p>
@@ -484,6 +827,7 @@ export default function Accounting() {
           <div>
             <p className="text-sm text-slate-600">
               Billed is invoice revenue. Quoted is the bid and is not used in profit or material cost.
+              Hours and the hourly rate on a customer service job count as labor.
               Material cost is qty × what you paid. Parts sold is qty × what you charged and is included in
               billed revenue. Profit is billed minus material cost. Subcontractor labor stays off this
               list; their parts are included. A labor-only job with no material lines should show $0 material cost.
@@ -620,11 +964,20 @@ export default function Accounting() {
                 className="w-full p-2 border border-slate-300 rounded bg-white text-slate-900"
               >
                 <option value="">Overhead — no job</option>
-                {jobOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
+                {customerJobOptions.length ? (
+                  <optgroup label="Customer jobs">
+                    {customerJobOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {subcontractorJobOptions.length ? (
+                  <optgroup label="Subcontractor">
+                    {subcontractorJobOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </optgroup>
+                ) : null}
               </select>
             </AlignedFormField>
             <AlignedFormField label="Description" htmlFor="expense-description" className="col-span-12">

@@ -206,6 +206,45 @@ describe('CustomerDetail', () => {
     });
   });
 
+  test('edits a job as one list of lines with price and optional cost', async () => {
+    axios.get.mockResolvedValue({
+      data: {
+        ...customer,
+        serviceJobs: [{
+          ...customer.serviceJobs[0],
+          chargeLines: [{ description: 'Switch', quantity: 1, price: 500 }],
+          parts: [{ description: 'Hub', sku: 'Q9', quantity: 1, paid: 265, sold: 328 }],
+        }],
+      },
+    });
+    axios.put.mockResolvedValue({ data: { _id: 'j1' } });
+    await renderPage();
+
+    const job = await screen.findByTestId('job-ticket-j1');
+    await userEvent.click(within(job).getByRole('button', { name: 'Edit' }));
+    expect(screen.queryByRole('heading', { name: 'Parts used' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Lines' })).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Switch')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Hub')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('328')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('265')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save job' }));
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('/api/customers/c1/service-jobs/j1'),
+        expect.objectContaining({
+          parts: [],
+          chargeLines: expect.arrayContaining([
+            expect.objectContaining({ description: 'Switch', price: 500 }),
+            expect.objectContaining({ description: 'Hub', price: 328, paid: 265, sku: 'Q9' }),
+          ]),
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
   test('adds a job ticket with a charge line and does not post it as a bid', async () => {
     axios.post.mockResolvedValue({ data: { _id: 'j2' } });
     await renderPage();
@@ -213,8 +252,8 @@ describe('CustomerDetail', () => {
     await screen.findByText('John Doe');
     await userEvent.click(screen.getByRole('button', { name: 'New job' }));
     await userEvent.type(screen.getByLabelText('Job name'), 'Panel service');
-    await userEvent.type(screen.getByLabelText('Charge description'), 'Keypad');
-    await userEvent.type(screen.getByLabelText('Charge quantity'), '1');
+    await userEvent.type(screen.getByLabelText('Line description'), 'Keypad');
+    await userEvent.type(screen.getByLabelText('Line quantity'), '1');
     await userEvent.type(screen.getByLabelText('Price'), '85');
     await userEvent.click(screen.getByRole('button', { name: 'Add job' }));
 
@@ -277,6 +316,23 @@ describe('CustomerDetail', () => {
     expect(printed).toContain("What's Included:");
     expect(printed.some((line) => String(line).includes('1800'))).toBe(false);
     expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  test('a job linked to a bid shows that bid quoted amount', async () => {
+    axios.get.mockResolvedValue({
+      data: {
+        ...customer,
+        serviceJobs: [{
+          ...customer.serviceJobs[0],
+          bidId: 'b1',
+        }],
+      },
+    });
+
+    await renderPage();
+    const job = screen.getByTestId('job-ticket-j1');
+    expect(job).toHaveTextContent('Quoted $9,100.00');
+    expect(job).toHaveTextContent('Q-1001');
   });
 
   test('shows a bid in green once a job is linked to it', async () => {

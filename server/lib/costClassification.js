@@ -11,7 +11,7 @@ import {
 } from './laborWorkTypes.js';
 
 export function hasProject(record = {}) {
-  const id = record.projectId;
+  const id = record.projectId || record.subcontractorWorkOrderId;
   return id != null && String(id).trim() !== '';
 }
 

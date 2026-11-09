@@ -28,6 +28,14 @@ describe('costClassification', () => {
     });
   });
 
+  test('expense assigned to a subcontractor work order is direct', () => {
+    expect(classifyExpense({
+      costCenterCode: 'FUEL',
+      subcontractorWorkOrderId: 'wo1',
+      amount: 9,
+    })).toMatchObject({ costClass: 'direct', reason: 'assigned-to-job' });
+  });
+
   test('expense with a projectId is direct even for fuel or consumables', () => {
     expect(
       classifyExpense({ costCenterCode: 'FUEL', projectId: 'job1', amount: 40 })

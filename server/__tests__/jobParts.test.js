@@ -4,6 +4,7 @@ import {
   partQuantityDeltas,
   partSoldTotal,
   subcontractorPartsJob,
+  subcontractorJobForAccounting,
   syncPartLines,
 } from '../lib/jobParts.js';
 
@@ -68,7 +69,30 @@ describe('jobParts', () => {
       ],
     });
     expect(job.laborPay).toBeUndefined();
+    expect(job._id).toBeUndefined();
+    expect(subcontractorPartsJob({ _id: 'wo1', equipmentLines: [{ description: 'Contact', quantity: 1, cost: 8, sold: 15 }] })._id).toBe('wo1');
     expect(subcontractorPartsJob({ equipmentLines: [] })).toBeNull();
+    expect(subcontractorJobForAccounting({
+      _id: 'wo2',
+      workOrderNumber: 'BRK-2',
+      principal: 'Brinks',
+      equipmentLines: [],
+    })).toBeNull();
+    expect(subcontractorJobForAccounting({
+      _id: 'wo2',
+      workOrderNumber: 'BRK-2',
+      principal: 'Brinks',
+      equipmentLines: [],
+    }, { includeWithoutParts: true })).toMatchObject({
+      _id: 'wo2',
+      jobNumber: 'BRK-2',
+      billAmount: 0,
+    });
+    expect(subcontractorJobForAccounting({
+      _id: 'wo2',
+      workOrderNumber: 'BRK-2',
+      equipmentLines: [],
+    }, { includeWithoutParts: true }).laborPay).toBeUndefined();
   });
 
   test('sync records the purchase and the use and keeps the inventory id', async () => {

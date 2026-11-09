@@ -10,6 +10,7 @@ import {
   SOURCE_FILTERS,
   STATUS_FILTERS,
   countProjectsByStatus,
+  dashboardJobFromServiceJob,
   dashboardJobFromWorkOrder,
   filterAndSortProjects,
   jobsForSource,
@@ -95,6 +96,10 @@ export default function Dashboard() {
             });
           });
         }
+        (customer.serviceJobs || []).forEach((job) => {
+          const row = dashboardJobFromServiceJob(job, customer);
+          if (row) allProjects.push(row);
+        });
       });
       orders.forEach((order) => {
         const job = dashboardJobFromWorkOrder(order);
@@ -299,20 +304,8 @@ export default function Dashboard() {
                     <h3 className="text-lg font-semibold text-black flex-1">
                       {formatJobLabel(project)}
                     </h3>
-                    <span
-                      className={`px-3 py-1 rounded text-sm ml-2 ${
-                        project.status === 'Completed'
-                          ? 'bg-green-100 text-green-800'
-                          : project.status === 'Billed'
-                            ? 'bg-blue-100 text-blue-800'
-                            : project.status === 'Scheduled'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : project.status === 'Bidded'
-                                ? 'bg-purple-100 text-purple-800'
-                                : 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
-                      {project.status || 'Pending'}
+                    <span className={`px-3 py-1 rounded text-sm ml-2 ${statusClass(project.status)}`}>
+                      {shownStatus(project)}
                     </span>
                   </div>
 
@@ -365,7 +358,7 @@ export default function Dashboard() {
 
                   <div className="mt-4 pt-4 border-t border-gray-200">
                     <Link
-                      to={`/projects/${project.customerId}/${project._id}`}
+                      to={project.href || `/projects/${project.customerId}/${project._id}`}
                       className="block w-full bg-blue-500 text-white text-center py-3 rounded hover:bg-blue-600 font-medium"
                     >
                       View Details →
@@ -405,20 +398,8 @@ export default function Dashboard() {
                         </Link>
                       </td>
                       <td className="p-3">
-                        <span
-                          className={`px-2 py-1 rounded text-sm ${
-                            project.status === 'Completed'
-                              ? 'bg-green-100 text-green-800'
-                              : project.status === 'Billed'
-                                ? 'bg-blue-100 text-blue-800'
-                                : project.status === 'Scheduled'
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : project.status === 'Bidded'
-                                    ? 'bg-purple-100 text-purple-800'
-                                    : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {project.status || 'Pending'}
+                        <span className={`px-2 py-1 rounded text-sm ${statusClass(project.status)}`}>
+                          {shownStatus(project)}
                         </span>
                       </td>
                       <td className="p-3 text-black text-sm">
@@ -443,7 +424,7 @@ export default function Dashboard() {
                       </td>
                       <td className="p-3">
                         <Link
-                          to={`/projects/${project.customerId}/${project._id}`}
+                          to={project.href || `/projects/${project.customerId}/${project._id}`}
                           className="text-blue-500 hover:text-blue-700 text-sm font-medium"
                         >
                           View Details →

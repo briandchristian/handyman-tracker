@@ -36,6 +36,35 @@ describe('light ledger constants', () => {
     expect(jobMatchesWorkTypeFilter('service', '')).toBe(true);
   });
 
+  test('includes advertising and marketing as overhead cost centers', () => {
+    expect(isKnownCostCenter('advertising')).toBe(true);
+    expect(isKnownCostCenter('marketing')).toBe(true);
+    expect(costCenterName('ADVERTISING')).toBe('Advertising');
+    expect(costCenterName('MARKETING')).toBe('Marketing');
+    expect(COST_CENTERS.find((center) => center.code === 'ADVERTISING')).toMatchObject({
+      defaultClass: 'indirect',
+    });
+    expect(COST_CENTERS.find((center) => center.code === 'MARKETING')).toMatchObject({
+      defaultClass: 'indirect',
+    });
+  });
+
+  test('includes insurance as an overhead cost center', () => {
+    expect(isKnownCostCenter('insurance')).toBe(true);
+    expect(costCenterName('INSURANCE')).toBe('Insurance');
+    expect(COST_CENTERS.find((center) => center.code === 'INSURANCE')).toMatchObject({
+      defaultClass: 'indirect',
+    });
+  });
+
+  test('includes taxes as an overhead cost center', () => {
+    expect(isKnownCostCenter('taxes')).toBe(true);
+    expect(costCenterName('TAXES')).toBe('Taxes');
+    expect(COST_CENTERS.find((center) => center.code === 'TAXES')).toMatchObject({
+      defaultClass: 'indirect',
+    });
+  });
+
   test('includes Misc as an overhead cost center and indirect labor work type', () => {
     expect(COST_CENTER_CODES).toContain('MISC');
     expect(isKnownCostCenter('misc')).toBe(true);

@@ -2,6 +2,7 @@ import {
   SOURCE_FILTERS,
   STATUS_FILTERS,
   countProjectsByStatus,
+  dashboardJobFromServiceJob,
   dashboardJobFromWorkOrder,
   filterAndSortProjects,
   jobsForSource,
@@ -137,6 +138,48 @@ describe('dashboardProjects', () => {
       statusFilter: STATUS_FILTERS.all,
       source: SOURCE_FILTERS.customers,
     })).toHaveLength(5);
+  });
+
+  test('a customer service job is a customer job on the dashboard', () => {
+    const job = dashboardJobFromServiceJob({
+      _id: 'j1',
+      name: 'IP Cameras for property',
+      jobNumber: 'A-1006-J0001',
+      status: 'scheduled',
+      amountDue: 1200,
+      scheduledDate: '2026-11-10',
+      createdAt: '2026-11-09',
+    }, { _id: 'c1', name: 'Mike Dibble', accountNumber: 'A-1006' });
+
+    expect(job).toMatchObject({
+      source: 'customer',
+      name: 'IP Cameras for property',
+      jobNumber: 'A-1006-J0001',
+      customerName: 'Mike Dibble',
+      accountNumber: 'A-1006',
+      customerId: 'c1',
+      status: 'Scheduled',
+      displayStatus: 'Scheduled',
+      billAmount: 1200,
+      scheduleDate: '2026-11-10',
+      href: '/customers/c1',
+    });
+    expect(matchesStatusFilter(job, STATUS_FILTERS.scheduled)).toBe(true);
+    expect(matchesSearch(job, 'a-1006')).toBe(true);
+    expect(jobsForSource([job], SOURCE_FILTERS.customers)).toEqual([job]);
+    expect(dashboardJobFromServiceJob(
+      { name: 'Done', jobNumber: 'A-1-J0002', status: 'paid' },
+      { _id: 'c1' }
+    )).toMatchObject({ status: 'Billed', displayStatus: 'Paid' });
+    expect(dashboardJobFromServiceJob(
+      { name: 'Invoice', jobNumber: 'A-1-J0003', status: 'invoiced' },
+      { _id: 'c1' }
+    )).toMatchObject({ status: 'Billed', displayStatus: 'Invoiced' });
+    expect(dashboardJobFromServiceJob(
+      { name: 'Finished', jobNumber: 'A-1-J0004', status: 'completed' },
+      { _id: 'c1' }
+    ).status).toBe('Completed');
+    expect(dashboardJobFromServiceJob({}, { _id: 'c1' })).toBeNull();
   });
 
   test('tapping the active card clears the filter to all', () => {

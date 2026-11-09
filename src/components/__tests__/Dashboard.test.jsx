@@ -166,6 +166,41 @@ describe('Dashboard Component', () => {
     expect(screen.queryByText('CCTV')).not.toBeInTheDocument();
   });
 
+  test('lists a customer service job with the customer jobs', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/subcontractor-work-orders')) {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({
+        data: [{
+          _id: 'c6',
+          name: 'Mike Dibble',
+          accountNumber: 'A-1006',
+          projects: [],
+          serviceJobs: [{
+            _id: 'j1',
+            name: 'IP Cameras for property',
+            jobNumber: 'A-1006-J0001',
+            status: 'scheduled',
+            amountDue: 1200,
+            scheduledDate: '2026-11-10',
+            createdAt: '2026-11-09',
+          }],
+        }],
+      });
+    });
+
+    await renderDashboard();
+
+    expect(screen.getAllByText('A-1006-J0001 · IP Cameras for property').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'View Details →' })[0]).toHaveAttribute(
+      'href',
+      '/customers/c6'
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Customer jobs' }));
+    expect(screen.getAllByText('A-1006-J0001 · IP Cameras for property').length).toBeGreaterThan(0);
+  });
+
   test('links each job back to its customer', async () => {
     axios.get.mockResolvedValue({ data: mockCustomers });
 

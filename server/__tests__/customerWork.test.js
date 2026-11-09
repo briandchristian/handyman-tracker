@@ -82,7 +82,7 @@ describe('customer job tickets', () => {
     expect(checked.value.planId).toBe('plan1');
     expect(checked.value.bidId).toBe('bid1');
     expect(checked.value.chargeLines).toEqual([
-      { description: 'Keypad', quantity: 1, price: 85 },
+      { description: 'Keypad', sku: '', quantity: 1, price: 85 },
     ]);
     expect(checked.value.jobNumber).toBeUndefined();
   });
@@ -121,16 +121,34 @@ describe('customer job tickets', () => {
     ]);
   });
 
-  test('sold parts increase amount due and paid parts stay a cost', () => {
+  test('a job line bills its price and keeps an optional cost', () => {
     const checked = validateServiceJob({
-      name: 'Contacts',
-      hoursWorked: 0,
-      hourlyRate: 0,
+      name: 'Cameras',
+      chargeLines: [
+        { description: 'Switch', quantity: 1, price: 500 },
+        { description: 'Hub', sku: 'Q9', quantity: 1, price: 328, paid: 265 },
+      ],
       parts: [{ description: 'Contact', sku: 'DC-1', quantity: 2, paid: 8, sold: 20 }],
     });
-    expect(checked.value.amountDue).toBe(40);
-    expect(checked.value.partsSold).toBe(40);
-    expect(checked.value.parts[0]).toMatchObject({ description: 'Contact', paid: 8, sold: 20 });
+    expect(checked.value.amountDue).toBe(868);
+    expect(checked.value.linesTotal).toBe(868);
+    expect(checked.value.lineCost).toBe(281);
+    expect(checked.value.parts).toEqual([]);
+    expect(checked.value.chargeLines).toEqual([
+      { description: 'Switch', sku: '', quantity: 1, price: 500 },
+      { description: 'Hub', sku: 'Q9', quantity: 1, price: 328, paid: 265 },
+      { description: 'Contact', sku: 'DC-1', quantity: 2, price: 20, paid: 8 },
+    ]);
+    expect(checked.value.chargeLines[0].paid).toBeUndefined();
+  });
+
+  test('a price with no cost is not a material cost', () => {
+    const totals = computeServiceJobTotals({
+      chargeLines: [{ description: 'Switch', quantity: 1, price: 500, paid: '' }],
+    });
+    expect(totals.linesTotal).toBe(500);
+    expect(totals.lineCost).toBe(0);
+    expect(totals.amountDue).toBe(500);
   });
 });
 

@@ -231,6 +231,101 @@ describe('expenses', () => {
     expect(String(stillOnJob.body[0].projectId)).toBe(projectId);
   });
 
+  test('accepts an expense on a service job or a subcontractor work order', async () => {
+    const Customer = mongoose.model('Customer');
+    const customer = await Customer.create({
+      name: 'Mike Dibble',
+      email: 'mike-labor@test.com',
+      phone: '555',
+      accountNumber: 'A-1006',
+      serviceJobs: [{
+        name: 'IP Cameras for property',
+        jobNumber: 'A-1006-J0001',
+        status: 'paid',
+        amountDue: 1344,
+        paidAmount: 1344,
+        hoursWorked: 2,
+        hourlyRate: 85,
+        laborPay: 170,
+        travelPay: 50,
+        paidDate: new Date('2026-11-01'),
+      }],
+    });
+    const serviceJobId = customer.serviceJobs[0]._id.toString();
+    const onJob = await request(app)
+      .post('/api/expenses')
+      .set(auth())
+      .send({
+        date: '2026-11-02',
+        amount: 12,
+        costCenterCode: 'FUEL',
+        customerId: customer._id.toString(),
+        projectId: serviceJobId,
+      });
+    expect(onJob.status).toBe(201);
+    expect(String(onJob.body.projectId)).toBe(serviceJobId);
+
+    const WorkOrder = mongoose.model('SubcontractorWorkOrder');
+    const missing = await request(app)
+      .post('/api/expenses')
+      .set(auth())
+      .send({
+        date: '2026-11-02',
+        amount: 5,
+        costCenterCode: 'FUEL',
+        subcontractorWorkOrderId: '64b000000000000000000099',
+      });
+    expect(missing.status).toBe(404);
+
+    const order = await WorkOrder.create({
+      workOrderNumber: 'BRK-2002',
+      siteName: 'Lobby',
+      principal: 'Brinks',
+      equipmentLines: [{ description: 'Contact', quantity: 1, cost: 8, sold: 15 }],
+    });
+    const bare = await WorkOrder.create({
+      workOrderNumber: 'BRK-9',
+      principal: 'Brinks',
+    });
+    const onOrder = await request(app)
+      .post('/api/expenses')
+      .set(auth())
+      .send({
+        date: '2026-11-02',
+        amount: 9,
+        costCenterCode: 'FUEL',
+        subcontractorWorkOrderId: order._id.toString(),
+      });
+    expect(onOrder.status).toBe(201);
+    expect(String(onOrder.body.subcontractorWorkOrderId)).toBe(order._id.toString());
+    expect(onOrder.body.projectId == null || onOrder.body.projectId === '').toBe(true);
+
+    const onBare = await request(app)
+      .post('/api/expenses')
+      .set(auth())
+      .send({
+        date: '2026-11-02',
+        amount: 4,
+        costCenterCode: 'FUEL',
+        subcontractorWorkOrderId: bare._id.toString(),
+      });
+    expect(onBare.status).toBe(201);
+
+    const summary = await request(app).get('/api/accounting/summary').set(auth());
+    expect(summary.status).toBe(200);
+    expect(summary.body.jobs.find((job) => job.jobNumber === 'A-1006-J0001')).toMatchObject({
+      laborCost: 170,
+      directExpenseCost: 12,
+    });
+    expect(summary.body.jobs.find((job) => job.jobNumber === 'BRK-2002')).toMatchObject({
+      directExpenseCost: 9,
+    });
+    expect(summary.body.jobs.find((job) => job.jobNumber === 'BRK-9')).toMatchObject({
+      directExpenseCost: 4,
+      billed: 0,
+    });
+  });
+
   test('returns 404 when updating a missing expense', async () => {
     const missing = await request(app)
       .put('/api/expenses/64b000000000000000000001')

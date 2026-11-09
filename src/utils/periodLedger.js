@@ -21,10 +21,11 @@ function isoDay(value) {
 }
 
 function jobLabel(record, jobs = []) {
-  if (!record?.projectId) return '';
+  const jobId = record?.subcontractorWorkOrderId || record?.projectId;
+  if (!jobId) return '';
   const match = jobs.find((job) =>
-    String(job.projectId) === String(record.projectId)
-    && (!record.customerId || String(job.customerId) === String(record.customerId))
+    String(job.projectId) === String(jobId)
+    && (!record.customerId || record.subcontractorWorkOrderId || String(job.customerId) === String(record.customerId))
   );
   if (!match) return formatJobLabel({});
   return formatJobLabel({ name: match.projectName || match.name, jobNumber: match.jobNumber });

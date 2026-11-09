@@ -12,6 +12,10 @@ export const COST_CENTERS = [
   { code: 'LICENSES', name: 'Licenses and permits', defaultClass: 'indirect' },
   { code: 'TOOLS', name: 'Tools', defaultClass: 'indirect' },
   { code: 'WARRANTY', name: 'Warranty (unassigned)', defaultClass: 'indirect' },
+  { code: 'ADVERTISING', name: 'Advertising', defaultClass: 'indirect' },
+  { code: 'MARKETING', name: 'Marketing', defaultClass: 'indirect' },
+  { code: 'INSURANCE', name: 'Insurance', defaultClass: 'indirect' },
+  { code: 'TAXES', name: 'Taxes', defaultClass: 'indirect' },
   { code: 'MISC', name: 'Misc', defaultClass: 'indirect' },
 ];
 

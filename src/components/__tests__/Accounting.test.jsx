@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter, MemoryRouter, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -15,7 +15,7 @@ async function renderAccounting(ui = (
   const view = render(ui);
   const period = await screen.findByRole('button', { name: 'Period' }).catch(() => null);
   if (!period) return view;
-  for (const name of ['Period', 'Period P&L lite', 'Indirect by cost center', 'Period ledger', 'Job profit']) {
+  for (const name of ['Period', 'Checking account', 'Period P&L lite', 'Indirect by cost center', 'Period ledger', 'Job profit']) {
     const button = screen.queryByRole('button', { name });
     if (button?.getAttribute('aria-expanded') === 'false') fireEvent.click(button);
   }
@@ -26,6 +26,278 @@ describe('Accounting', () => {
   beforeEach(() => {
     localStorage.setItem('token', 'test-token');
     jest.clearAllMocks();
+  });
+
+  test('saves a note on a checking line without categorizing it', async () => {
+    axios.get.mockImplementation((url) => {
+      const path = String(url);
+      if (path.includes('/api/accounting/checking-lines')) {
+        return Promise.resolve({
+          data: [{
+            _id: 'line1',
+            postedDate: '2024-01-15T12:00:00.000Z',
+            description: 'SHELL OIL',
+            amount: -45.2,
+            status: 'uncategorized',
+            note: '',
+          }],
+        });
+      }
+      if (path.includes('/api/accounting/summary')) {
+        return Promise.resolve({
+          data: {
+            ar: { billed: 0, paid: 0, balance: 0 },
+            ap: { receivedUnpaid: 0, paid: 0, balance: 0 },
+            taxCollected: 0,
+            jobs: [],
+            direct: { materials: 0, labor: 0, expenses: 0, total: 0 },
+            indirect: { total: 0, byCostCenter: [] },
+            period: { revenue: 0, contribution: 0, otherIncome: 0 },
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    axios.put.mockResolvedValue({ data: { note: 'Truck fuel' } });
+
+    await renderAccounting();
+    await userEvent.type(screen.getByLabelText('Note for SHELL OIL'), 'Truck fuel');
+    await userEvent.click(screen.getByRole('button', { name: /save note/i }));
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('/api/accounting/checking-lines/line1'),
+        { note: 'Truck fuel' },
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('saves a checking deposit against a subcontractor work order', async () => {
+    axios.get.mockImplementation((url) => {
+      const path = String(url);
+      if (path.includes('/api/subcontractor-work-orders')) {
+        return Promise.resolve({
+          data: [{ _id: 'wo1', workOrderNumber: 'BRK-2002', siteName: 'Lobby', principal: 'Brinks' }],
+        });
+      }
+      if (path.includes('/api/accounting/checking-lines')) {
+        return Promise.resolve({
+          data: [{
+            _id: 'in',
+            postedDate: '2024-01-16T12:00:00.000Z',
+            description: 'BRINKS PAYMENT',
+            amount: 640,
+            status: 'uncategorized',
+          }],
+        });
+      }
+      if (path.includes('/api/accounting/summary')) {
+        return Promise.resolve({
+          data: {
+            ar: { billed: 0, paid: 0, balance: 0 },
+            ap: { receivedUnpaid: 0, paid: 0, balance: 0 },
+            taxCollected: 0,
+            jobs: [],
+            direct: { materials: 0, labor: 0, expenses: 0, total: 0 },
+            indirect: { total: 0, byCostCenter: [] },
+            period: { revenue: 0, contribution: 0, otherIncome: 0, subcontractorIncome: 0 },
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    axios.put.mockResolvedValue({ data: { status: 'categorized' } });
+
+    await renderAccounting();
+    const job = screen.getByLabelText('Job for BRINKS PAYMENT');
+    expect(within(job).getByRole('option', { name: 'BRK-2002 · Lobby (Brinks)' })).toBeInTheDocument();
+    await userEvent.selectOptions(job, 'subcontractor:wo1');
+    await userEvent.click(screen.getByRole('button', { name: /save category/i }));
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('/api/accounting/checking-lines/in'),
+        expect.objectContaining({ subcontractorWorkOrderId: 'wo1' }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('files a sale against an inventory purchase so the cost follows the item', async () => {
+    axios.get.mockImplementation((url) => {
+      const path = String(url);
+      if (path.includes('/api/accounting/checking-lines')) {
+        return Promise.resolve({
+          data: [
+            {
+              _id: 'buy',
+              postedDate: '2026-05-02T12:00:00.000Z',
+              description: 'LOCK',
+              amount: -10,
+              status: 'categorized',
+              categoryCode: 'INVENTORY',
+            },
+            {
+              _id: 'sell',
+              postedDate: '2026-06-15T12:00:00.000Z',
+              description: 'CUSTOMER PAYMENT',
+              amount: 25,
+              status: 'uncategorized',
+            },
+          ],
+        });
+      }
+      if (path.includes('/api/accounting/summary')) {
+        return Promise.resolve({
+          data: {
+            ar: { billed: 0, paid: 0, balance: 0 },
+            ap: { receivedUnpaid: 0, paid: 0, balance: 0 },
+            taxCollected: 0,
+            jobs: [],
+            direct: { materials: 0, labor: 0, expenses: 0, total: 0 },
+            indirect: { total: 0, byCostCenter: [] },
+            inventory: { onHand: 10 },
+            period: { revenue: 25, contribution: 15, otherIncome: 0, subcontractorIncome: 0, sales: 25, cogs: 10 },
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    axios.put.mockResolvedValue({ data: { status: 'categorized' } });
+
+    await renderAccounting();
+    expect(screen.getByText('Cost of goods sold')).toBeInTheDocument();
+    expect(screen.getByText('Inventory on hand')).toBeInTheDocument();
+    const category = screen.getByLabelText('Category for CUSTOMER PAYMENT');
+    expect(within(category).getByRole('option', { name: 'Inventory' })).toBeInTheDocument();
+    expect(within(category).getByRole('option', { name: 'Sales' })).toBeInTheDocument();
+    await userEvent.selectOptions(category, 'SALES');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'LOCK · $10.00' }));
+    await userEvent.click(screen.getByRole('button', { name: /save category/i }));
+
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('/api/accounting/checking-lines/sell'),
+        expect.objectContaining({ categoryCode: 'SALES', inventoryLineIds: ['buy'] }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('colors checking income green and payouts red', async () => {
+    axios.get.mockImplementation((url) => {
+      const path = String(url);
+      if (path.includes('/api/accounting/checking-lines')) {
+        return Promise.resolve({
+          data: [
+            {
+              _id: 'out',
+              postedDate: '2024-01-15T12:00:00.000Z',
+              description: 'SHELL OIL',
+              amount: -45.2,
+              status: 'uncategorized',
+            },
+            {
+              _id: 'in',
+              postedDate: '2024-01-16T12:00:00.000Z',
+              description: 'CUSTOMER PAYMENT',
+              amount: 800,
+              status: 'uncategorized',
+            },
+          ],
+        });
+      }
+      if (path.includes('/api/accounting/summary')) {
+        return Promise.resolve({
+          data: {
+            ar: { billed: 0, paid: 0, balance: 0 },
+            ap: { receivedUnpaid: 0, paid: 0, balance: 0 },
+            taxCollected: 0,
+            jobs: [],
+            direct: { materials: 0, labor: 0, expenses: 0, total: 0 },
+            indirect: { total: 0, byCostCenter: [] },
+            period: { revenue: 0, contribution: 0, otherIncome: 0 },
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    await renderAccounting();
+    expect(screen.getByText('-$45.20')).toHaveClass('text-red-700');
+    expect(screen.getByText('$800.00')).toHaveClass('text-green-700');
+  });
+
+  test('imports a checking CSV and reconciles a suggested line to the existing record', async () => {
+    axios.get.mockImplementation((url) => {
+      const path = String(url);
+      if (path.includes('/api/accounting/checking-lines')) {
+        return Promise.resolve({
+          data: [{
+            _id: 'line1',
+            postedDate: '2024-01-15T12:00:00.000Z',
+            description: 'SHELL OIL',
+            amount: -45.2,
+            status: 'suggested',
+            suggestion: { kind: 'expense', id: 'e1', label: 'Expense Shell $45.20 on 2024-01-15' },
+          }],
+        });
+      }
+      if (path.includes('/api/accounting/summary')) {
+        return Promise.resolve({
+          data: {
+            ar: { billed: 0, paid: 0, balance: 0 },
+            ap: { receivedUnpaid: 0, paid: 0, balance: 0 },
+            taxCollected: 0,
+            jobs: [],
+            direct: { materials: 0, labor: 0, expenses: 0, total: 0 },
+            indirect: { total: 0, byCostCenter: [] },
+            period: { revenue: 0, contribution: 0, otherIncome: 0 },
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    axios.post.mockResolvedValue({ data: { imported: 1, duplicates: 4, suggested: 1 } });
+    axios.put.mockResolvedValue({ data: { status: 'matched' } });
+
+    await renderAccounting();
+    const input = screen.getByLabelText(/checking csv/i);
+    const csv = 'Date,Description,Amount\n01/15/2024,SHELL OIL,-45.20\n';
+    const file = new File([csv], 'checking.csv', { type: 'text/csv' });
+    const RealFileReader = global.FileReader;
+    global.FileReader = class {
+      readAsText() {
+        this.result = csv;
+        queueMicrotask(() => this.onload());
+      }
+    };
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    const propKey = Object.keys(input).find((key) => key.startsWith('__reactProps'));
+    try {
+      await act(async () => {
+        await input[propKey].onChange({ target: input });
+      });
+    } finally {
+      global.FileReader = RealFileReader;
+    }
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/accounting/checking-import'),
+        expect.objectContaining({ csv: expect.stringContaining('SHELL OIL') }),
+        expect.any(Object)
+      );
+    });
+    expect(screen.getByText('SHELL OIL')).toBeInTheDocument();
+    expect(screen.getByText(/Expense Shell/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /use existing/i }));
+    expect(axios.put).toHaveBeenCalledWith(
+      expect.stringContaining('/api/accounting/checking-lines/line1'),
+      { confirmMatch: true },
+      expect.any(Object)
+    );
   });
 
   test('renders AR, AP, tax, and job profit from the summary API', async () => {
@@ -130,6 +402,82 @@ describe('Accounting', () => {
       expect(axios.post).toHaveBeenCalledWith(
         expect.stringContaining('/api/expenses'),
         expect.objectContaining({ amount: 120, costCenterCode: 'OFFICE' }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('files an expense on a customer service job or a subcontractor job', async () => {
+    axios.get.mockImplementation((url) => {
+      const path = String(url);
+      if (path.includes('/api/accounting/summary')) {
+        return Promise.resolve({
+          data: {
+            ar: { billed: 0, paid: 0, balance: 0 },
+            ap: { receivedUnpaid: 0, paid: 0, balance: 0 },
+            taxCollected: 0,
+            direct: { materials: 0, labor: 0, expenses: 0, total: 0 },
+            indirect: { total: 0, byCostCenter: [] },
+            period: { revenue: 0, contribution: 0 },
+            jobs: [],
+          },
+        });
+      }
+      if (path.includes('/api/customers')) {
+        return Promise.resolve({
+          data: [{
+            _id: 'c6',
+            name: 'Mike Dibble',
+            accountNumber: 'A-1006',
+            projects: [{ _id: 'p1', name: 'Old install', jobNumber: 'A-1006-P0001' }],
+            serviceJobs: [{
+              _id: 'j1',
+              name: 'IP Cameras for property',
+              jobNumber: 'A-1006-J0001',
+            }],
+          }],
+        });
+      }
+      if (path.includes('/api/subcontractor-work-orders')) {
+        return Promise.resolve({
+          data: [{
+            _id: 'wo1',
+            workOrderNumber: 'BRK-2002',
+            siteName: 'Lobby',
+            principal: 'Brinks',
+          }],
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    axios.post.mockResolvedValue({ data: { _id: 'exp1' } });
+
+    await renderAccounting();
+    await userEvent.click(screen.getByRole('button', { name: 'Record expense' }));
+    const job = screen.getByLabelText('Job (optional)');
+    expect(Array.from(job.options).map((option) => option.textContent)).toEqual(expect.arrayContaining([
+      expect.stringContaining('A-1006-J0001'),
+      expect.stringContaining('BRK-2002'),
+    ]));
+
+    await userEvent.selectOptions(job, 'c6:j1');
+    await userEvent.type(screen.getByLabelText('Amount'), '12');
+    await userEvent.click(screen.getByRole('button', { name: 'Save expense' }));
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/expenses'),
+        expect.objectContaining({ customerId: 'c6', projectId: 'j1', amount: 12 }),
+        expect.any(Object)
+      );
+    });
+
+    await userEvent.selectOptions(job, 'subcontractor:wo1');
+    await userEvent.type(screen.getByLabelText('Amount'), '9');
+    await userEvent.click(screen.getByRole('button', { name: 'Save expense' }));
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/expenses'),
+        expect.objectContaining({ subcontractorWorkOrderId: 'wo1', amount: 9 }),
         expect.any(Object)
       );
     });

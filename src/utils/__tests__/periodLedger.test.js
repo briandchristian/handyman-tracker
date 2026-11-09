@@ -67,4 +67,18 @@ describe('periodLedger', () => {
     expect(rows[0].job).toBe('J-208 · Warehouse cameras');
     expect(rows[0].job).not.toMatch(/Customer —/);
   });
+
+  test('labels an expense filed on a subcontractor work order', () => {
+    const rows = buildPeriodLedgerRows({
+      expenses: [{
+        _id: 'e3',
+        amount: 9,
+        costCenterCode: 'FUEL',
+        subcontractorWorkOrderId: 'wo1',
+        date: '2026-11-02',
+      }],
+      jobs: [{ projectId: 'wo1', projectName: 'Lobby', jobNumber: 'BRK-2002' }],
+    });
+    expect(rows[0]).toMatchObject({ costClass: 'direct', job: 'BRK-2002 · Lobby' });
+  });
 });

@@ -1,8 +1,9 @@
 /**
  * Jobs, bids, and projects on one customer.
- * A job is a single ticket with charge lines. Amount due is computed on save.
+ * A job is a single ticket. Each line has a price, and Paid is the optional cost.
  * A bid stays a quote until Import into job copies it onto a job.
  * A bid that a job already carries is shown in green with the job number.
+ * That job reports the bid's quoted amount.
  * A project only groups tickets.
  * Generate bid prints the shared bid document from these lines and the quoted amount.
  */
@@ -48,8 +49,7 @@ const toDateInput = (value) => {
   return date.toISOString().slice(0, 10);
 };
 
-const emptyChargeLine = () => ({ description: '', quantity: '', price: '' });
-const emptyPart = () => ({ description: '', sku: '', quantity: '', paid: '', sold: '' });
+const emptyLine = () => ({ description: '', sku: '', quantity: '', price: '', paid: '' });
 const emptyBidLine = () => ({ description: '', quantity: '', estimate: '' });
 
 function emptyJob(customer) {
@@ -70,19 +70,30 @@ function emptyJob(customer) {
     paidDate: '',
     planId: '',
     bidId: '',
-    chargeLines: [emptyChargeLine()],
-    parts: [emptyPart()],
+    chargeLines: [emptyLine()],
   };
 }
 
+function formLine(line, price) {
+  return {
+    description: line.description || '',
+    sku: line.sku || '',
+    quantity: line.quantity ?? '',
+    price: price ?? '',
+    paid: line.paid ?? '',
+  };
+}
+
+function linesFromJob(job) {
+  const charges = (Array.isArray(job.chargeLines) ? job.chargeLines : [])
+    .map((line) => formLine(line, line.price ?? ''));
+  const legacy = (Array.isArray(job.parts) ? job.parts : [])
+    .map((line) => formLine(line, line.sold ?? ''));
+  const lines = [...charges, ...legacy];
+  return lines.length ? lines : [emptyLine()];
+}
+
 function jobFromRecord(job) {
-  const lines = Array.isArray(job.chargeLines) && job.chargeLines.length > 0
-    ? job.chargeLines.map((line) => ({
-      description: line.description || '',
-      quantity: line.quantity ?? '',
-      price: line.price ?? '',
-    }))
-    : [emptyChargeLine()];
   return {
     name: job.name || '',
     siteName: job.siteName || '',
@@ -100,16 +111,7 @@ function jobFromRecord(job) {
     paidDate: toDateInput(job.paidDate),
     planId: job.planId || '',
     bidId: job.bidId || '',
-    chargeLines: lines,
-    parts: Array.isArray(job.parts) && job.parts.length > 0
-      ? job.parts.map((line) => ({
-        description: line.description || '',
-        sku: line.sku || '',
-        quantity: line.quantity ?? '',
-        paid: line.paid ?? '',
-        sold: line.sold ?? '',
-      }))
-      : [emptyPart()],
+    chargeLines: linesFromJob(job),
   };
 }
 
@@ -189,15 +191,6 @@ export default function CustomerWork({ customer, onSaved }) {
     : Math.round(((Number(jobForm.paidAmount) || 0) - liveTotals.amountDue) * 100) / 100;
 
   const updateJob = (field, value) => setJobForm((prev) => ({ ...prev, [field]: value }));
-  const updatePart = (index, field, value) => {
-    setJobForm((prev) => ({
-      ...prev,
-      parts: (prev.parts || []).map((line, lineIndex) => (
-        lineIndex === index ? { ...line, [field]: value } : line
-      )),
-    }));
-  };
-
   const updateCharge = (index, field, value) => {
     setJobForm((prev) => ({
       ...prev,
@@ -217,7 +210,11 @@ export default function CustomerWork({ customer, onSaved }) {
   const saveJob = async (event) => {
     event.preventDefault();
     setJobError('');
-    const payload = { ...jobForm, paidAmount: jobForm.paidAmount === '' ? null : jobForm.paidAmount };
+    const payload = {
+      ...jobForm,
+      parts: [],
+      paidAmount: jobForm.paidAmount === '' ? null : jobForm.paidAmount,
+    };
     try {
       if (editingJobId) {
         await axios.put(
@@ -422,7 +419,8 @@ export default function CustomerWork({ customer, onSaved }) {
           <div className="space-y-3 mb-6">
             {visibleJobs.map((job) => {
               const projectName = labelFor(plans, job.planId, (plan) => plan.name);
-              const bidLabel = labelFor(bids, job.bidId, (bid) => bid.quoteNumber || bid.name);
+              const relatedBid = (bids || []).find((bid) => job.bidId && String(bid._id) === String(job.bidId));
+              const bidLabel = relatedBid ? (relatedBid.quoteNumber || relatedBid.name) : '';
               return (
                 <article key={job._id} data-testid={`job-ticket-${job._id}`} className="border border-slate-200 rounded-xl p-4">
                   <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
@@ -431,7 +429,9 @@ export default function CustomerWork({ customer, onSaved }) {
                       <p className="text-sm text-slate-600 capitalize">{job.workType} · {job.status}</p>
                       {job.siteName ? <p className="text-sm">{job.siteName}</p> : null}
                       {projectName ? <p className="text-sm text-slate-600">Project: {projectName}</p> : null}
-                      {bidLabel ? <p className="text-sm text-slate-600">Related bid: {bidLabel}</p> : null}
+                      {relatedBid ? (
+                        <p className="text-sm text-slate-600">Quoted {money(relatedBid.quotedAmount)} · {bidLabel}</p>
+                      ) : null}
                     </div>
                     <div className="md:text-right">
                       <p className="text-sm text-slate-600">Amount due</p>
@@ -531,25 +531,34 @@ export default function CustomerWork({ customer, onSaved }) {
             </AlignedFormField>
           </AlignedFormGrid>
 
-          <h4 className="font-medium mb-2">Charge lines</h4>
+          <h4 className="font-medium mb-2">Lines</h4>
+          <p className="text-sm text-slate-600 mb-2">
+            Price is what you charge. Leave Paid blank until you buy the item. A SKU or a Paid amount records it in inventory.
+          </p>
           {jobForm.chargeLines.map((line, index) => (
             <AlignedFormGrid key={`charge-${index}`} className="mb-2">
-              <AlignedFormField label="Charge description" htmlFor={`charge-desc-${index}`} className="col-span-12 md:col-span-6">
+              <AlignedFormField label="Line description" htmlFor={`charge-desc-${index}`} className="col-span-12 md:col-span-4">
                 <input id={`charge-desc-${index}`} value={line.description} onChange={(event) => updateCharge(index, 'description', event.target.value)} className={fieldClass} />
               </AlignedFormField>
-              <AlignedFormField label="Charge quantity" htmlFor={`charge-qty-${index}`} className="col-span-6 md:col-span-2">
+              <AlignedFormField label="SKU" htmlFor={`charge-sku-${index}`} className="col-span-6 md:col-span-2">
+                <input id={`charge-sku-${index}`} value={line.sku || ''} onChange={(event) => updateCharge(index, 'sku', event.target.value)} className={fieldClass} />
+              </AlignedFormField>
+              <AlignedFormField label="Line quantity" htmlFor={`charge-qty-${index}`} className="col-span-6 md:col-span-1">
                 <input id={`charge-qty-${index}`} type="number" min="0" step="1" value={line.quantity} onChange={(event) => updateCharge(index, 'quantity', event.target.value)} className={fieldClass} />
               </AlignedFormField>
               <AlignedFormField label="Price" htmlFor={`charge-price-${index}`} className="col-span-6 md:col-span-2">
                 <input id={`charge-price-${index}`} type="number" min="0" step="0.01" value={line.price} onChange={(event) => updateCharge(index, 'price', event.target.value)} className={fieldClass} />
               </AlignedFormField>
-              <div className="col-span-12 md:col-span-2">
+              <AlignedFormField label="Line paid" htmlFor={`charge-paid-${index}`} className="col-span-6 md:col-span-2">
+                <input id={`charge-paid-${index}`} type="number" min="0" step="0.01" value={line.paid ?? ''} onChange={(event) => updateCharge(index, 'paid', event.target.value)} className={fieldClass} />
+              </AlignedFormField>
+              <div className="col-span-12 md:col-span-1">
                 <button
                   type="button"
                   className="btn-row btn-row-danger"
                   onClick={() => setJobForm((prev) => {
                     const next = prev.chargeLines.filter((_, lineIndex) => lineIndex !== index);
-                    return { ...prev, chargeLines: next.length ? next : [emptyChargeLine()] };
+                    return { ...prev, chargeLines: next.length ? next : [emptyLine()] };
                   })}
                 >
                   Remove line
@@ -560,40 +569,9 @@ export default function CustomerWork({ customer, onSaved }) {
           <button
             type="button"
             className="btn-secondary mb-4"
-            onClick={() => setJobForm((prev) => ({ ...prev, chargeLines: [...prev.chargeLines, emptyChargeLine()] }))}
+            onClick={() => setJobForm((prev) => ({ ...prev, chargeLines: [...prev.chargeLines, emptyLine()] }))}
           >
             Add line
-          </button>
-
-          <h4 className="font-medium mb-2">Parts used</h4>
-          <p className="text-sm text-slate-600 mb-2">
-            Paid is what the part cost. Sold is what you charge. Saving records the purchase and the use in inventory, and both amounts go to accounting.
-          </p>
-          {(jobForm.parts || []).map((line, index) => (
-            <AlignedFormGrid key={`part-${index}`} className="mb-2">
-              <AlignedFormField label="Part description" htmlFor={`part-desc-${index}`} className="col-span-12 md:col-span-4">
-                <input id={`part-desc-${index}`} value={line.description} onChange={(event) => updatePart(index, 'description', event.target.value)} className={fieldClass} />
-              </AlignedFormField>
-              <AlignedFormField label="Part SKU" htmlFor={`part-sku-${index}`} className="col-span-6 md:col-span-2">
-                <input id={`part-sku-${index}`} value={line.sku} onChange={(event) => updatePart(index, 'sku', event.target.value)} className={fieldClass} />
-              </AlignedFormField>
-              <AlignedFormField label="Part quantity" htmlFor={`part-qty-${index}`} className="col-span-6 md:col-span-2">
-                <input id={`part-qty-${index}`} type="number" min="0" step="1" value={line.quantity} onChange={(event) => updatePart(index, 'quantity', event.target.value)} className={fieldClass} />
-              </AlignedFormField>
-              <AlignedFormField label="Part paid" htmlFor={`part-paid-${index}`} className="col-span-6 md:col-span-2">
-                <input id={`part-paid-${index}`} type="number" min="0" step="0.01" value={line.paid} onChange={(event) => updatePart(index, 'paid', event.target.value)} className={fieldClass} />
-              </AlignedFormField>
-              <AlignedFormField label="Part sold" htmlFor={`part-sold-${index}`} className="col-span-6 md:col-span-2">
-                <input id={`part-sold-${index}`} type="number" min="0" step="0.01" value={line.sold} onChange={(event) => updatePart(index, 'sold', event.target.value)} className={fieldClass} />
-              </AlignedFormField>
-            </AlignedFormGrid>
-          ))}
-          <button
-            type="button"
-            className="btn-secondary mb-4"
-            onClick={() => setJobForm((prev) => ({ ...prev, parts: [...(prev.parts || []), emptyPart()] }))}
-          >
-            Add part
           </button>
 
           <AlignedFormGrid className="mb-3">
@@ -608,7 +586,7 @@ export default function CustomerWork({ customer, onSaved }) {
             </AlignedFormField>
           </AlignedFormGrid>
           <p className="text-sm text-slate-700 mb-3">
-            Labor {money(liveTotals.laborPay)} · Lines {money(liveTotals.linesTotal)} · Parts sold {money(liveTotals.partsSold)} · Amount due {money(liveTotals.amountDue)}
+            Labor {money(liveTotals.laborPay)} · Lines {money(liveTotals.linesTotal)} · Cost {money(liveTotals.lineCost)} · Amount due {money(liveTotals.amountDue)}
             {liveVariance == null ? ' · Not reconciled' : ` · Variance ${signedMoney(liveVariance)}`}
           </p>
           <div className="flex gap-2">

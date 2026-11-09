@@ -33,7 +33,8 @@ import {
   reconcileCount,
 } from './lib/inventoryStock.js';
 import { buildAccountingSummary, serviceJobForAccounting } from './lib/accountingSummary.js';
-import { subcontractorPartsJob, syncPartLines } from './lib/jobParts.js';
+import { categorizeCheckingLine, inventoryReleaseError, noteOnCheckingLine, parseCheckingCsv, planCheckingImport } from './lib/checkingImport.js';
+import { subcontractorJobForAccounting, syncPartLines } from './lib/jobParts.js';
 import { reorderByIds } from '../src/utils/bidMaterialsOrder.js';
 import { inventoryItemsFromBidLines, inventoryConflictMessage } from '../src/utils/inventoryFromBid.js';
 import { mergedInventoryFields } from '../src/utils/inventoryIdentity.js';
@@ -222,7 +223,7 @@ if (process.env.VERCEL !== '1') {
 }
 
 app.use(cors());
-const jsonParser = express.json();
+const jsonParser = express.json({ limit: '2mb' });
 app.use((req, res, next) => {
   if (req.body !== undefined) return next();
   jsonParser(req, res, next);
@@ -419,6 +420,9 @@ const customerSchema = new mongoose.Schema({
       description: String,
       quantity: Number,
       price: Number,
+      sku: { type: String, default: '' },
+      paid: Number,
+      inventoryItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryItem' },
     }],
     parts: [{
       description: String,
@@ -810,11 +814,44 @@ const expenseSchema = new mongoose.Schema({
   costCenterCode: { type: String, required: true, uppercase: true, trim: true },
   customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
   projectId: { type: mongoose.Schema.Types.ObjectId },
+  subcontractorWorkOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'SubcontractorWorkOrder' },
   purchaseOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdAt: { type: Date, default: Date.now },
 });
 const Expense = mongoose.model('Expense', expenseSchema);
+
+const checkingLineSchema = new mongoose.Schema({
+  fingerprint: { type: String, required: true, unique: true },
+  postedDate: { type: Date, required: true },
+  description: { type: String, default: '' },
+  amount: { type: Number, required: true },
+  checkNumber: { type: String, default: '' },
+  status: {
+    type: String,
+    enum: ['uncategorized', 'suggested', 'matched', 'categorized', 'excluded'],
+    default: 'uncategorized',
+  },
+  categoryCode: { type: String, default: '' },
+  suggestion: {
+    kind: String,
+    id: String,
+    label: String,
+  },
+  match: {
+    kind: String,
+    id: String,
+    label: String,
+  },
+  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
+  projectId: { type: mongoose.Schema.Types.ObjectId },
+  subcontractorWorkOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'SubcontractorWorkOrder' },
+  /** Purchases filed as inventory that this sale consumes. Their cost becomes cost of goods sold. */
+  inventoryLineIds: { type: [String], default: [] },
+  note: { type: String, default: '' },
+  createdAt: { type: Date, default: Date.now },
+});
+const CheckingLine = mongoose.model('CheckingLine', checkingLineSchema);
 
 const laborEntrySchema = new mongoose.Schema({
   date: { type: Date, required: true },
@@ -893,7 +930,7 @@ async function assertJobRef(customerId, projectId) {
   }
   const customer = await Customer.findById(customerId);
   if (!customer) return { error: { status: 404, msg: 'Customer not found' } };
-  const project = customer.projects.id(projectId);
+  const project = customer.projects.id(projectId) || customer.serviceJobs.id(projectId);
   if (!project) return { error: { status: 404, msg: 'Project not found' } };
   return { customerId: customer._id, projectId: project._id };
 }
@@ -3637,6 +3674,159 @@ app.post('/api/cost-centers', authMiddleware, adminMiddleware, async (req, res) 
   }
 });
 
+app.get('/api/accounting/checking-lines', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const lines = await CheckingLine.find({}).sort({ postedDate: -1, createdAt: -1 });
+    res.json(lines);
+  } catch (err) {
+    console.error('Error listing checking lines:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.post('/api/accounting/checking-import', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const csv = req.body?.csv;
+    if (csv == null || !String(csv).trim()) {
+      return res.status(400).json({ msg: 'csv is required' });
+    }
+    const parsed = parseCheckingCsv(String(csv));
+    if (parsed.error) return res.status(400).json({ msg: parsed.error });
+    const [storedLines, expenses, supplierPayments] = await Promise.all([
+      CheckingLine.find({}).lean(),
+      Expense.find({}).lean(),
+      SupplierPayment.find({}).lean(),
+    ]);
+    const planned = planCheckingImport({
+      rows: parsed.rows,
+      storedLines,
+      expenses,
+      supplierPayments,
+    });
+    const fresh = planned.filter((row) => row.disposition !== 'duplicate');
+    const docs = fresh.map((row) => ({
+      fingerprint: row.fingerprint,
+      postedDate: new Date(`${row.postedDate}T12:00:00.000Z`),
+      description: row.description,
+      amount: row.amount,
+      checkNumber: row.checkNumber,
+      status: row.disposition === 'suggested' ? 'suggested' : 'uncategorized',
+      suggestion: row.suggestion || undefined,
+    }));
+    let imported = 0;
+    if (docs.length) {
+      try {
+        const created = await CheckingLine.insertMany(docs, { ordered: false });
+        imported = created.length;
+      } catch (err) {
+        imported = Array.isArray(err.insertedDocs) ? err.insertedDocs.length : 0;
+        if (!err.writeErrors && err.code !== 11000) throw err;
+      }
+    }
+    res.status(201).json({
+      imported,
+      duplicates: planned.length - imported,
+      suggested: docs.filter((row) => row.status === 'suggested').length,
+      skipped: parsed.skipped || 0,
+    });
+  } catch (err) {
+    console.error('Error importing checking CSV:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.put('/api/accounting/checking-lines/:id', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const line = await CheckingLine.findById(req.params.id);
+    if (!line) return res.status(404).json({ msg: 'Checking line not found' });
+    const body = req.body || {};
+    const noteOnly = Object.prototype.hasOwnProperty.call(body, 'note')
+      && body.categoryCode == null
+      && !body.confirmMatch;
+    if (noteOnly) {
+      line.note = noteOnCheckingLine(line, body.note).note;
+      await line.save();
+      return res.json(line);
+    }
+    const requestedCode = normalizeCostCenterCode(body.categoryCode);
+    let catalog = {};
+    if (!body.confirmMatch && requestedCode === 'SALES') {
+      const [lots, otherSales] = await Promise.all([
+        CheckingLine.find({ status: 'categorized', categoryCode: 'INVENTORY' }).lean(),
+        CheckingLine.find({
+          status: 'categorized',
+          categoryCode: 'SALES',
+          _id: { $ne: line._id },
+        }).lean(),
+      ]);
+      catalog = {
+        inventoryLines: lots,
+        soldInventoryIds: otherSales.flatMap((sale) => sale.inventoryLineIds || []),
+      };
+    }
+    const result = categorizeCheckingLine({
+      _id: line._id,
+      description: line.description,
+      amount: line.amount,
+      status: line.status,
+      categoryCode: line.categoryCode,
+      suggestion: line.suggestion,
+      match: line.match,
+      customerId: line.customerId,
+      projectId: line.projectId,
+      subcontractorWorkOrderId: line.subcontractorWorkOrderId,
+      note: line.note,
+    }, body, catalog);
+    if (result.error) return res.status(400).json({ msg: result.error });
+    if (line.categoryCode === 'INVENTORY') {
+      const holders = await CheckingLine.find({
+        inventoryLineIds: String(line._id),
+        categoryCode: 'SALES',
+        status: 'categorized',
+      }).select('inventoryLineIds').lean();
+      const releaseError = inventoryReleaseError(line, result.value.categoryCode, holders);
+      if (releaseError) return res.status(400).json({ msg: releaseError });
+    }
+    const next = result.value;
+    if (next.subcontractorWorkOrderId) {
+      if (!mongoose.Types.ObjectId.isValid(next.subcontractorWorkOrderId)) {
+        return res.status(400).json({ msg: 'Invalid work order' });
+      }
+      const order = await SubcontractorWorkOrder.findById(next.subcontractorWorkOrderId);
+      if (!order) return res.status(404).json({ msg: 'Work order not found' });
+      line.subcontractorWorkOrderId = order._id;
+      line.customerId = undefined;
+      line.projectId = undefined;
+    } else {
+      line.subcontractorWorkOrderId = undefined;
+    }
+    if (!next.subcontractorWorkOrderId && (next.customerId || next.projectId)) {
+      const job = await assertJobRef(next.customerId, next.projectId);
+      if (job.error) return res.status(job.error.status).json({ msg: job.error.msg });
+      line.customerId = job.customerId;
+      line.projectId = job.projectId;
+    } else {
+      line.customerId = undefined;
+      line.projectId = undefined;
+    }
+    line.status = next.status;
+    line.categoryCode = next.categoryCode || '';
+    line.inventoryLineIds = next.inventoryLineIds || [];
+    line.note = next.note || '';
+    line.match = next.match
+      ? { kind: next.match.kind, id: String(next.match.id), label: next.match.label || '' }
+      : undefined;
+    line.suggestion = next.suggestion
+      ? { kind: next.suggestion.kind, id: String(next.suggestion.id), label: next.suggestion.label || '' }
+      : undefined;
+    await line.save();
+    res.json(line);
+  } catch (err) {
+    console.error('Error updating checking line:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
 app.get('/api/expenses', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const filter = {};
@@ -3672,8 +3862,22 @@ app.post('/api/expenses', authMiddleware, adminMiddleware, async (req, res) => {
     if (Number.isNaN(date.getTime())) {
       return res.status(400).json({ msg: 'Invalid date' });
     }
-    const job = await assertJobRef(req.body?.customerId, req.body?.projectId);
-    if (job.error) return res.status(job.error.status).json({ msg: job.error.msg });
+    let customerId;
+    let projectId;
+    let subcontractorWorkOrderId;
+    if (req.body?.subcontractorWorkOrderId) {
+      if (!mongoose.Types.ObjectId.isValid(req.body.subcontractorWorkOrderId)) {
+        return res.status(400).json({ msg: 'Invalid work order' });
+      }
+      const order = await SubcontractorWorkOrder.findById(req.body.subcontractorWorkOrderId);
+      if (!order) return res.status(404).json({ msg: 'Work order not found' });
+      subcontractorWorkOrderId = order._id;
+    } else {
+      const job = await assertJobRef(req.body?.customerId, req.body?.projectId);
+      if (job.error) return res.status(job.error.status).json({ msg: job.error.msg });
+      customerId = job.customerId;
+      projectId = job.projectId;
+    }
 
     const expense = await Expense.create({
       date,
@@ -3681,8 +3885,9 @@ app.post('/api/expenses', authMiddleware, adminMiddleware, async (req, res) => {
       payee: String(req.body?.payee || '').trim(),
       description: String(req.body?.description || '').trim(),
       costCenterCode,
-      customerId: job.customerId,
-      projectId: job.projectId,
+      customerId,
+      projectId,
+      subcontractorWorkOrderId,
       purchaseOrderId: req.body?.purchaseOrderId || undefined,
       createdBy: req.user.id,
     });
@@ -3891,8 +4096,16 @@ app.get('/api/accounting/summary', authMiddleware, adminMiddleware, async (req, 
     const supplierPayments = await SupplierPayment.find({}).lean();
     const expenses = await Expense.find({}).lean();
     const laborEntries = await LaborEntry.find({}).lean();
+    const checkingLines = await CheckingLine.find({}).lean();
     const workOrders = await SubcontractorWorkOrder.find({}).lean();
-    projects.push(...workOrders.map(subcontractorPartsJob).filter(Boolean));
+    const expensesOnWorkOrders = new Set(
+      expenses
+        .filter((expense) => expense.subcontractorWorkOrderId)
+        .map((expense) => String(expense.subcontractorWorkOrderId))
+    );
+    projects.push(...workOrders.map((order) => subcontractorJobForAccounting(order, {
+      includeWithoutParts: expensesOnWorkOrders.has(String(order._id)),
+    })).filter(Boolean));
     const from = req.query.from || null;
     const to = req.query.to || null;
     res.json(buildAccountingSummary({
@@ -3901,6 +4114,7 @@ app.get('/api/accounting/summary', authMiddleware, adminMiddleware, async (req, 
       supplierPayments,
       expenses,
       laborEntries,
+      checkingLines,
       from,
       to,
     }));

@@ -4,10 +4,13 @@
  */
 
 import {
+  lineTracksInventory,
   nextCustomerRecordNumber,
+  serviceJobLines,
   validateBid,
   validatePlan,
   validateServiceJob,
+  withInventoryIds,
 } from './customerWork.js';
 
 async function loadCustomer(Customer, id, res) {
@@ -23,6 +26,15 @@ function storedNumbers(records, field) {
   return (Array.isArray(records) ? records : [])
     .map((record) => String(record?.[field] || '').trim())
     .filter(Boolean);
+}
+
+async function savedChargeLines({ syncParts, previousJob, nextLines, source, reason, userId }) {
+  const previous = serviceJobLines(previousJob || {}).filter(lineTracksInventory);
+  const next = (nextLines || []).filter(lineTracksInventory);
+  const synced = syncParts
+    ? await syncParts({ previous, next, source, reason, userId })
+    : { lines: next };
+  return withInventoryIds(nextLines || [], synced?.lines || []);
 }
 
 function issuedNumber(customer, kind, records, field, current = '') {
@@ -42,16 +54,15 @@ export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, admi
       if (checked.error) return res.status(400).json({ msg: checked.error });
       const assigned = issuedNumber(customer, 'job', customer.serviceJobs, 'jobNumber');
       if (assigned.error) return res.status(400).json({ msg: assigned.error });
-      const synced = syncParts
-        ? await syncParts({
-          previous: [],
-          next: checked.value.parts,
-          source: { kind: 'service-job', id: String(customer._id) },
-          reason: checked.value.name,
-          userId: req.user.id,
-        })
-        : { lines: checked.value.parts };
-      customer.serviceJobs.push({ ...checked.value, parts: synced.lines, jobNumber: assigned.value });
+      const chargeLines = await savedChargeLines({
+        syncParts,
+        previousJob: {},
+        nextLines: checked.value.chargeLines,
+        source: { kind: 'service-job', id: String(customer._id) },
+        reason: checked.value.name,
+        userId: req.user.id,
+      });
+      customer.serviceJobs.push({ ...checked.value, chargeLines, parts: [], jobNumber: assigned.value });
       await customer.save();
       res.status(201).json(customer.serviceJobs[customer.serviceJobs.length - 1]);
     } catch (err) {
@@ -70,16 +81,15 @@ export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, admi
       if (checked.error) return res.status(400).json({ msg: checked.error });
       const assigned = issuedNumber(customer, 'job', customer.serviceJobs, 'jobNumber', job.jobNumber);
       if (assigned.error) return res.status(400).json({ msg: assigned.error });
-      const synced = syncParts
-        ? await syncParts({
-          previous: job.parts,
-          next: checked.value.parts,
-          source: { kind: 'service-job', id: `${customer._id}:${job._id}` },
-          reason: checked.value.name,
-          userId: req.user.id,
-        })
-        : { lines: checked.value.parts };
-      job.set({ ...checked.value, parts: synced.lines, jobNumber: assigned.value });
+      const chargeLines = await savedChargeLines({
+        syncParts,
+        previousJob: job,
+        nextLines: checked.value.chargeLines,
+        source: { kind: 'service-job', id: `${customer._id}:${job._id}` },
+        reason: checked.value.name,
+        userId: req.user.id,
+      });
+      job.set({ ...checked.value, chargeLines, parts: [], jobNumber: assigned.value });
       await customer.save();
       res.json(job);
     } catch (err) {
@@ -96,7 +106,7 @@ export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, admi
       if (!job) return res.status(404).json({ msg: 'Job not found' });
       if (syncParts) {
         await syncParts({
-          previous: job.parts,
+          previous: serviceJobLines(job).filter(lineTracksInventory),
           next: [],
           source: { kind: 'service-job', id: `${customer._id}:${job._id}` },
           reason: job.name,

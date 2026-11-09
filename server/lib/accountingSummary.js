@@ -1,5 +1,5 @@
 /**
- * Read-only accounting totals derived from jobs, POs, payments, expenses, and labor.
+ * Read-only accounting totals derived from jobs, POs, payments, expenses, labor, and categorized checking lines.
  * Does not post new ledger rows — it summarizes source records.
  * Direct vs Indirect is derived; remaining overhead is not allocated onto jobs.
  */
@@ -16,7 +16,9 @@ import { COST_CENTERS, costCenterName } from './costCenters.js';
 import { isInInclusiveDateRange, projectActivityDate } from './dateRange.js';
 import { normalizeProjectWorkType } from './projectWorkTypes.js';
 import { formatCustomerLabel, formatJobLabel } from './jobIdentity.js';
-import { partPaidTotal, partSoldTotal } from './jobParts.js';
+import { partPaidTotal } from './jobParts.js';
+import { lineTracksInventory, serviceJobLines } from './customerWork.js';
+import { checkingBooksEffect, checkingInventoryPosition } from './checkingCategories.js';
 
 /** Qty × unit cost from job materials used only. Never billed, bid, markup, or bid worksheet. */
 export function materialCost(project) {
@@ -56,22 +58,42 @@ export function jobQuotedAmount(project) {
   return Number.isFinite(quoted) && quoted > 0 ? quoted : 0;
 }
 
+/** Quoted dollars from the bid a service job was imported from. Charge lines are not the quote. */
+function quotedAmountForServiceJob(job, customer) {
+  const bidId = String(job?.bidId || '').trim();
+  if (!bidId) return 0;
+  const bid = (Array.isArray(customer?.bids) ? customer.bids : [])
+    .find((item) => String(item?._id || '') === bidId);
+  return jobQuotedAmount({ bidAmount: bid?.quotedAmount });
+}
+
 /**
  * A service-job ticket charges amountDue and collects paidAmount.
  * A scheduled ticket with no payment is not revenue yet.
+ * When the job is linked to a bid, Quoted is that bid's quotedAmount.
+ * Hours times the hourly rate on the ticket are Job Profit labor.
+ * That labor is already inside amount due, so it does not change billed.
+ * The quote stays off billed revenue and profit.
  * Returns null when there is nothing for accounting to post.
  */
 export function serviceJobForAccounting(job = {}, customer = {}) {
   const due = roundMoney(job.amountDue);
-  const parts = Array.isArray(job.parts) ? job.parts : [];
-  const partsPaid = partPaidTotal(parts);
-  const partsRevenue = partSoldTotal(parts);
+  const inventoryLines = serviceJobLines(job).filter(lineTracksInventory);
+  const partsPaid = partPaidTotal(inventoryLines);
+  const partsRevenue = roundMoney(inventoryLines.reduce((sum, line) => {
+    if (line?.price === '' || line?.price == null) return sum;
+    return sum + (Number(line.quantity) || 0) * (Number(line.price) || 0);
+  }, 0));
   const hasPaid = !(job.paidAmount === '' || job.paidAmount == null);
   const status = String(job.status || '').trim().toLowerCase();
   const recognized = status === 'completed' || status === 'invoiced' || status === 'paid' || hasPaid;
   if ((!recognized || due <= 0) && partsPaid <= 0 && partsRevenue <= 0) return null;
   const billedDue = recognized && due > 0 ? due : partsRevenue;
   const paid = hasPaid ? roundMoney(job.paidAmount) : (status === 'paid' ? billedDue : 0);
+  const hours = Number(job.hoursWorked) || 0;
+  const storedLabor = Number(job.laborPay);
+  const ratedLabor = roundMoney(hours * (Number(job.hourlyRate) || 0));
+  const laborPay = Number.isFinite(storedLabor) && storedLabor > 0 ? roundMoney(storedLabor) : ratedLabor;
   const activityAt = job.paidDate || job.completedDate || job.scheduledDate || job.createdAt || null;
   let accountingStatus = 'Pending';
   if (status === 'completed' && !hasPaid) accountingStatus = 'Completed';
@@ -86,12 +108,20 @@ export function serviceJobForAccounting(job = {}, customer = {}) {
     workType: job.workType,
     status: accountingStatus,
     billAmount: billedDue,
+    bidAmount: quotedAmountForServiceJob(job, customer),
+    laborPay,
+    laborHours: laborPay > 0 ? hours : 0,
     paidToDate: paid,
     taxRate: 0,
-    materials: parts.map((line) => ({
-      quantity: Number(line.quantity) || 0,
-      cost: Number(line.paid ?? line.cost) || 0,
-    })),
+    partsIncludedInBill: true,
+    materials: inventoryLines.map((line) => {
+      const hasPrice = !(line?.price === '' || line?.price == null);
+      return {
+        quantity: Number(line.quantity) || 0,
+        cost: Number(line.paid ?? line.cost) || 0,
+        ...(hasPrice ? { sold: Number(line.price) || 0 } : {}),
+      };
+    }),
     createdAt: activityAt,
     completedAt: activityAt,
   };
@@ -120,6 +150,7 @@ function recordsForJob(records, project) {
   const pid = projectIdOf(project);
   const cid = project?.customerId;
   return (records || []).filter((record) => {
+    if (record.subcontractorWorkOrderId) return sameId(record.subcontractorWorkOrderId, pid);
     if (!sameId(record.projectId, pid)) return false;
     if (record.customerId && cid && !sameId(record.customerId, cid)) return false;
     return true;
@@ -145,6 +176,7 @@ export function buildAccountingSummary({
   supplierPayments = [],
   expenses = [],
   laborEntries = [],
+  checkingLines = [],
   from = null,
   to = null,
 } = {}) {
@@ -157,9 +189,17 @@ export function buildAccountingSummary({
   const rangedProjects = projects.filter((project) =>
     isInInclusiveDateRange(projectActivityDate(project), from, to)
   );
+  const rangedChecking = checkingLines.filter((line) =>
+    isInInclusiveDateRange(line.postedDate || line.date, from, to)
+  );
 
+  let ticketLabor = 0;
+  let ticketHours = 0;
   const jobs = rangedProjects.map((project) => {
-    const billed = roundMoney(jobBilledAmount(project) + partsSold(project));
+    const sold = partsSold(project);
+    const billed = project.partsIncludedInBill
+      ? roundMoney(jobBilledAmount(project))
+      : roundMoney(jobBilledAmount(project) + sold);
     const quoted = jobQuotedAmount(project);
     const paid = Number(project.paidToDate) || 0;
     const materials = materialCost(project);
@@ -169,7 +209,11 @@ export function buildAccountingSummary({
     const jobExpenses = recordsForJob(rangedExpenses, project).filter(
       (expense) => classifyExpense(expense).costClass === 'direct'
     );
-    const laborCost = jobLabor.reduce((sum, entry) => sum + laborAmount(entry), 0);
+    const onTicket = roundMoney(project.laborPay);
+    const onTicketHours = onTicket > 0 ? (Number(project.laborHours) || 0) : 0;
+    ticketLabor += onTicket;
+    ticketHours += onTicketHours;
+    const laborCost = jobLabor.reduce((sum, entry) => sum + laborAmount(entry), 0) + onTicket;
     const directExpenseCost = jobExpenses.reduce((sum, expense) => sum + expenseAmount(expense), 0);
     const jobCost = materials + laborCost + directExpenseCost;
     const taxRate = Number(project.taxRate) || 0;
@@ -192,7 +236,7 @@ export function buildAccountingSummary({
       billed: roundMoney(billed),
       paid: roundMoney(paid),
       balance: roundMoney(billed - paid),
-      partsSold: partsSold(project),
+      partsSold: sold,
       materialCost: roundMoney(materials),
       laborCost: roundMoney(laborCost),
       directExpenseCost: roundMoney(directExpenseCost),
@@ -255,6 +299,8 @@ export function buildAccountingSummary({
       addIndirectBucket(indirectCostCenterForLabor(entry), 'labor', amount);
     }
   });
+  direct.labor += ticketLabor;
+  direct.laborHours += ticketHours;
 
   rangedExpenses.forEach((expense) => {
     const amount = expenseAmount(expense);
@@ -263,6 +309,17 @@ export function buildAccountingSummary({
     } else {
       addIndirectBucket(expenseCostCenterCode(expense), 'expenses', amount);
     }
+  });
+
+  let otherIncome = 0;
+  let subcontractorIncome = 0;
+  rangedChecking.forEach((line) => {
+    const effect = checkingBooksEffect(line);
+    otherIncome += effect.income;
+    subcontractorIncome += effect.subcontractorIncome || 0;
+    if (!effect.expense) return;
+    if (effect.projectId) direct.expenses += effect.expense;
+    else addIndirectBucket(effect.costCenterCode, 'expenses', effect.expense);
   });
 
   direct.labor = roundMoney(direct.labor);
@@ -296,8 +353,13 @@ export function buildAccountingSummary({
     byCostCenter,
   };
 
-  const revenue = roundMoney(jobs.reduce((sum, job) => sum + job.billed, 0));
-  const contribution = roundMoney(revenue - direct.total);
+  const otherIncomeTotal = roundMoney(otherIncome);
+  const subcontractorIncomeTotal = roundMoney(subcontractorIncome);
+  const inventory = checkingInventoryPosition(checkingLines, { from, to });
+  const revenue = roundMoney(
+    jobs.reduce((sum, job) => sum + job.billed, 0) + otherIncomeTotal + subcontractorIncomeTotal + inventory.sales
+  );
+  const contribution = roundMoney(revenue - direct.total - inventory.cogs);
 
   return {
     ar: {
@@ -314,10 +376,21 @@ export function buildAccountingSummary({
     jobs,
     direct,
     indirect,
+    checking: {
+      uncategorized: rangedChecking.filter((line) => line.status === 'uncategorized').length,
+      suggested: rangedChecking.filter((line) => line.status === 'suggested').length,
+    },
+    inventory: {
+      onHand: inventory.onHand,
+    },
     period: {
       from: from || null,
       to: to || null,
       revenue,
+      otherIncome: otherIncomeTotal,
+      subcontractorIncome: subcontractorIncomeTotal,
+      sales: inventory.sales,
+      cogs: inventory.cogs,
       contribution,
       overheadRatePerHour: rateOrNull(indirect.total, direct.laborHours),
       overheadRateOnCost: rateOrNull(indirect.total, direct.total),

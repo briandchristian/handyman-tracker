@@ -1,11 +1,13 @@
 /**
- * Customer jobs are single tickets with charge lines, opened like a work order.
- * Amount due is hours × rate + travel + charge lines. Variance is paid − due.
+ * Customer jobs are single tickets. Each line has a price.
+ * Paid is optional and is the cost once the item is bought.
+ * A SKU or a Paid amount is recorded in inventory.
+ * Amount due is hours × rate + travel + line prices. Variance is paid − due.
  * A bid is a separate quote until it is imported into a job. A project only groups tickets.
  */
 
 import { laborPay, reconcileVariance } from './subcontractorWorkOrders.js';
-import { partSoldTotal } from './jobParts.js';
+import { partIdentity, partPaidTotal } from './jobParts.js';
 import { PROJECT_WORK_TYPE_VALUES, DEFAULT_PROJECT_WORK_TYPE } from './projectWorkTypes.js';
 
 export const SERVICE_JOB_STATUSES = [
@@ -89,43 +91,99 @@ export function linesTotal(lines = []) {
   return money((Array.isArray(lines) ? lines : []).reduce((sum, line) => sum + chargeLineTotal(line), 0));
 }
 
-function normalizeChargeLines(lines) {
-  return (Array.isArray(lines) ? lines : [])
-    .map((line) => ({
-      description: String(line?.description || '').trim(),
-      quantity: asNonNegative(line?.quantity),
-      price: asNonNegative(line?.price),
-    }))
-    .filter((line) => line.description || line.quantity || line.price);
+function blank(value) {
+  return value === '' || value == null;
 }
 
-function normalizeParts(lines) {
-  return (Array.isArray(lines) ? lines : [])
-    .map((line) => {
-      const hasSold = !(line?.sold === '' || line?.sold == null);
-      return {
-        description: String(line?.description || line?.item || '').trim(),
-        sku: String(line?.sku || '').trim(),
-        quantity: asNonNegative(line?.quantity),
-        paid: asNonNegative(line?.paid ?? line?.cost),
-        ...(hasSold ? { sold: asNonNegative(line.sold) } : {}),
-        ...(line?.inventoryItemId ? { inventoryItemId: line.inventoryItemId } : {}),
-      };
-    })
-    .filter((line) => line.description || line.sku || line.quantity || line.paid || line.sold != null);
+/** A SKU or a Paid amount is an inventory item. A price alone is only a charge. */
+export function lineTracksInventory(line = {}) {
+  if (String(line?.sku || '').trim()) return true;
+  const paid = line?.paid ?? line?.cost;
+  return !blank(paid);
+}
+
+function normalizedJobLine(line = {}, { priceFromSold = false } = {}) {
+  const priceRaw = priceFromSold ? line?.sold : (line?.price != null ? line.price : line?.sold);
+  const paidRaw = line?.paid ?? line?.cost;
+  const hasPaid = !blank(paidRaw);
+  const description = String(line?.description || '').trim();
+  const sku = String(line?.sku || '').trim();
+  const quantity = asNonNegative(line?.quantity);
+  const price = blank(priceRaw) ? 0 : asNonNegative(priceRaw);
+  if (!description && !sku && !quantity && !price && !hasPaid) return null;
+  return {
+    description,
+    sku,
+    quantity,
+    price,
+    ...(hasPaid ? { paid: asNonNegative(paidRaw) } : {}),
+    ...(line?.inventoryItemId ? { inventoryItemId: line.inventoryItemId } : {}),
+  };
+}
+
+/** One list. Older part rows are folded in, using Sold as the price. */
+export function normalizeServiceJobLines(input = {}) {
+  const charges = (Array.isArray(input.chargeLines) ? input.chargeLines : [])
+    .map((line) => normalizedJobLine(line))
+    .filter(Boolean);
+  const legacy = (Array.isArray(input.parts) ? input.parts : [])
+    .map((line) => normalizedJobLine(line, { priceFromSold: true }))
+    .filter(Boolean);
+  return [...charges, ...legacy];
+}
+
+/** Read a saved job, including parts that have not been folded in yet. */
+export function serviceJobLines(job = {}) {
+  const charges = (Array.isArray(job.chargeLines) ? job.chargeLines : []).map((line) => ({
+    description: line?.description || '',
+    sku: line?.sku || '',
+    quantity: line?.quantity,
+    price: line?.price,
+    paid: line?.paid,
+    inventoryItemId: line?.inventoryItemId,
+  }));
+  const legacy = (Array.isArray(job.parts) ? job.parts : []).map((line) => ({
+    description: line?.description || '',
+    sku: line?.sku || '',
+    quantity: line?.quantity,
+    price: line?.sold,
+    paid: line?.paid,
+    inventoryItemId: line?.inventoryItemId,
+  }));
+  return [...charges, ...legacy];
+}
+
+/** Copy inventory ids from the synced rows back onto the job lines. */
+export function withInventoryIds(lines = [], synced = []) {
+  const ids = new Map();
+  (Array.isArray(synced) ? synced : []).forEach((line) => {
+    if (!line?.inventoryItemId) return;
+    const key = partIdentity(line);
+    if (key) ids.set(key, line.inventoryItemId);
+  });
+  return (Array.isArray(lines) ? lines : []).map((line) => {
+    if (!lineTracksInventory(line)) {
+      const rest = { ...line };
+      delete rest.inventoryItemId;
+      return rest;
+    }
+    const id = ids.get(partIdentity(line));
+    return id ? { ...line, inventoryItemId: id } : line;
+  });
 }
 
 export function computeServiceJobTotals({ hoursWorked, hourlyRate, travelPay, chargeLines, parts } = {}) {
+  const lines = normalizeServiceJobLines({ chargeLines, parts });
   const labor = laborPay({ hoursWorked, hourlyRate });
   const travel = asNonNegative(travelPay);
-  const charges = linesTotal(chargeLines);
-  const sold = partSoldTotal(parts);
+  const charges = linesTotal(lines);
+  const lineCost = partPaidTotal(lines);
   return {
     laborPay: labor,
     travelPay: travel,
     linesTotal: charges,
-    partsSold: sold,
-    amountDue: money(labor + travel + charges + sold),
+    lineCost,
+    amountDue: money(labor + travel + charges),
   };
 }
 
@@ -169,9 +227,8 @@ export function validateServiceJob(input = {}) {
   const paidDate = optionalDate(input.paidDate);
   if (paidDate?.error) return { error: paidDate.error };
 
-  const chargeLines = normalizeChargeLines(input.chargeLines);
-  const parts = normalizeParts(input.parts);
-  const totals = computeServiceJobTotals({ hoursWorked, hourlyRate, travelPay, chargeLines, parts });
+  const chargeLines = normalizeServiceJobLines(input);
+  const totals = computeServiceJobTotals({ hoursWorked, hourlyRate, travelPay, chargeLines });
 
   return {
     value: {
@@ -185,7 +242,7 @@ export function validateServiceJob(input = {}) {
       completedDate,
       notes: String(input.notes || '').trim(),
       chargeLines,
-      parts,
+      parts: [],
       paidAmount,
       paidDate,
       variance: reconcileVariance(totals.amountDue, paidAmount),
@@ -215,9 +272,9 @@ function bidLinesTotal(lines = []) {
 }
 
 /**
- * Copy a quote onto a new job. Bid lines become charge lines at the estimate.
- * A lump-sum quote with no lines becomes one charge for the quoted amount.
- * Parts stay empty so inventory is not purchased until parts are added on the job.
+ * Copy a quote onto a new job. Bid lines become job lines at the estimate.
+ * Paid stays blank, so the quote bills and inventory waits until a cost or SKU is added.
+ * A lump-sum quote with no lines becomes one line for the quoted amount.
  */
 export function jobDraftFromBid(bid = {}) {
   const lines = (Array.isArray(bid.lines) ? bid.lines : [])

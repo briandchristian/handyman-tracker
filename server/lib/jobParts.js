@@ -114,16 +114,48 @@ export function subcontractorPartsJob(order = {}) {
     return sum + qty * unit;
   }, 0));
   return {
+    _id: order._id,
     name: order.siteName || order.workOrderNumber || 'Subcontractor',
     jobNumber: order.workOrderNumber || '',
     customerName: order.principal || 'Brinks',
     status: 'Pending',
     workType: 'service',
     billAmount: sold,
-    materials: lines.map((line) => ({
-      quantity: asNonNegative(line.quantity),
-      cost: asNonNegative(line.cost ?? line.paid),
-    })),
+    partsIncludedInBill: true,
+    materials: lines.map((line) => {
+      const quantity = asNonNegative(line.quantity);
+      const cost = asNonNegative(line.cost ?? line.paid);
+      const hasSold = !(line.sold === '' || line.sold == null);
+      const billed = line.reimbursable === false ? null : (hasSold ? asNonNegative(line.sold) : cost);
+      return {
+        quantity,
+        cost,
+        ...(billed == null ? {} : { sold: billed }),
+      };
+    }),
+    createdAt: order.completedDate || order.scheduledDate || order.createdAt || null,
+  };
+}
+
+/**
+ * Parts job when the work order has equipment. A work order with no parts
+ * stays off Job Profit unless an expense was filed on it.
+ * Labor and travel on the work order stay off the ledger.
+ */
+export function subcontractorJobForAccounting(order = {}, { includeWithoutParts = false } = {}) {
+  const parts = subcontractorPartsJob(order);
+  if (parts) return parts;
+  if (!includeWithoutParts) return null;
+  return {
+    _id: order._id,
+    name: order.siteName || order.workOrderNumber || 'Subcontractor',
+    jobNumber: order.workOrderNumber || '',
+    customerName: order.principal || 'Brinks',
+    status: 'Pending',
+    workType: 'service',
+    billAmount: 0,
+    partsIncludedInBill: true,
+    materials: [],
     createdAt: order.completedDate || order.scheduledDate || order.createdAt || null,
   };
 }
