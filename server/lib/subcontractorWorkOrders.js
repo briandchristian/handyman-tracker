@@ -222,3 +222,54 @@ export function filterWorkOrdersByStatus(orders = [], status) {
   const normalized = normalizeStatus(wanted);
   return (Array.isArray(orders) ? orders : []).filter((order) => normalizeStatus(order?.status) === normalized);
 }
+
+/** A work order is reconciled once Brinks paid amount has been recorded. */
+export function workOrderIsReconciled(order = {}) {
+  const paid = order?.paidAmount;
+  if (paid === '' || paid == null) return false;
+  return Number.isFinite(Number(paid));
+}
+
+function labeledChoice(choices, value, normalize) {
+  const normalized = normalize(value);
+  return choices.find((choice) => choice.value === normalized)?.label || '';
+}
+
+function collectSearchText(value, into) {
+  if (value == null) return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectSearchText(item, into));
+    return;
+  }
+  if (value instanceof Date) {
+    into.push(value.toISOString());
+    return;
+  }
+  if (typeof value === 'object') {
+    Object.values(value).forEach((item) => collectSearchText(item, into));
+    return;
+  }
+  into.push(String(value));
+}
+
+/**
+ * Free-text search across the work order: numbers, site, notes, equipment, and status labels.
+ * An empty query keeps every order.
+ */
+export function searchWorkOrders(orders = [], query = '') {
+  const list = Array.isArray(orders) ? orders : [];
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) return list;
+  return list.filter((order) => {
+    const parts = [];
+    collectSearchText(order, parts);
+    parts.push(labeledChoice(SUBCONTRACTOR_STATUSES, order?.status, normalizeStatus));
+    parts.push(labeledChoice(SUBCONTRACTOR_JOB_TYPES, order?.jobType, normalizeJobType));
+    return parts.join(' ').toLowerCase().includes(needle);
+  });
+}
+
+/** Status filter and free-text search together. */
+export function filterWorkOrders(orders = [], { status = '', query = '' } = {}) {
+  return searchWorkOrders(filterWorkOrdersByStatus(orders, status), query);
+}

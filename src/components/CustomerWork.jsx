@@ -2,6 +2,7 @@
  * Jobs, bids, and projects on one customer.
  * A job is a single ticket with charge lines. Amount due is computed on save.
  * A bid is a quote and does not open a job. A project only groups tickets.
+ * Generate bid prints the shared bid document from these lines and the quoted amount.
  */
 import { useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -18,6 +19,12 @@ import {
   serviceJobMatchesStatus,
 } from '../constants/customerWork';
 import { formatJobLabel } from '../constants/jobIdentity';
+import {
+  bidLineAmount,
+  bidLinesTotal,
+  buildCustomerBidDocument,
+  openBidDocument,
+} from '../utils/bidDocument';
 import { sectionIsOpen, sectionToggleKey } from '../constants/sectionToggles';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
 import SectionToggle from './SectionToggle';
@@ -149,6 +156,7 @@ export default function CustomerWork({ customer, onSaved }) {
   ));
   const [bidForm, setBidForm] = useState(emptyBid);
   const [bidError, setBidError] = useState('');
+  const [monitoringByBid, setMonitoringByBid] = useState({});
 
   const [planEditor, setPlanEditor] = useState(() => (
     sectionIsOpen(sectionToggleKey(pathname, 'New project')) ? 'new' : null
@@ -253,6 +261,20 @@ export default function CustomerWork({ customer, onSaved }) {
       await onSaved();
     } catch (err) {
       setBidError(err.response?.data?.msg || 'Failed to save bid');
+    }
+  };
+
+  const generateCustomerBid = async (bid) => {
+    setBidError('');
+    try {
+      await openBidDocument(buildCustomerBidDocument({
+        customer,
+        bid,
+        includeMonitoringAgreement: Boolean(monitoringByBid[bid._id]),
+      }));
+    } catch (err) {
+      console.error('Error generating bid:', err);
+      setBidError('Failed to generate bid');
     }
   };
 
@@ -533,17 +555,40 @@ export default function CustomerWork({ customer, onSaved }) {
                   <div>
                     <h3 className="font-semibold">{bid.quoteNumber ? `${bid.quoteNumber} · ${bid.name}` : bid.name}</h3>
                     <p className="text-sm text-slate-600 capitalize">{bid.status}</p>
+                    {bid.description ? <p className="text-sm text-slate-600">{bid.description}</p> : null}
                     {labelFor(plans, bid.planId, (plan) => plan.name)
                       ? <p className="text-sm text-slate-600">Project: {labelFor(plans, bid.planId, (plan) => plan.name)}</p>
                       : null}
+                    {(bid.lines || []).length > 0 ? (
+                      <ul className="mt-2 space-y-1 text-sm text-slate-700">
+                        {bid.lines.map((line, index) => (
+                          <li key={`${bid._id}-line-${index}`}>
+                            {line.description || 'Line'} · Qty {line.quantity ?? 0} · Est {money(line.estimate)} · {money(bidLineAmount(line))}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </div>
                   <div className="sm:text-right">
                     <p className="text-sm text-slate-600">Quoted</p>
                     <p className="text-lg font-semibold">{money(bid.quotedAmount)}</p>
-                    <div className="flex gap-2 sm:justify-end mt-2">
+                    <p className="text-sm text-slate-600">Lines {money(bid.linesTotal ?? bidLinesTotal(bid.lines))}</p>
+                    <div className="flex flex-wrap gap-2 sm:justify-end mt-2">
+                      <button type="button" className="btn-row btn-row-primary" onClick={() => generateCustomerBid(bid)}>Generate bid</button>
                       <button type="button" className="btn-row btn-row-secondary" onClick={() => editBid(bid)}>Edit</button>
                       <button type="button" className="btn-row btn-row-danger" onClick={() => deleteBid(bid)}>Delete</button>
                     </div>
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-700 sm:justify-end mt-2">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(monitoringByBid[bid._id])}
+                        onChange={(event) => setMonitoringByBid((prev) => ({
+                          ...prev,
+                          [bid._id]: event.target.checked,
+                        }))}
+                      />
+                      Include monitoring agreement
+                    </label>
                   </div>
                 </div>
               </article>

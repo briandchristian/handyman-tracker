@@ -1,12 +1,15 @@
 /**
- * Subcontractor (Brinks) work-order page: list, status filter, completion number, totals.
+ * Subcontractor work orders: a searchable list, then one order per page.
+ * Edit, reimbursable equipment, and reconciliation stay on that order.
+ * A reconciled order is shown in green.
  */
 
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { BrowserRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import axios from 'axios';
 import SubcontractorJobs from '../SubcontractorJobs';
+import SubcontractorWorkOrderPage from '../SubcontractorWorkOrderPage';
 
 jest.mock('axios');
 
@@ -48,27 +51,31 @@ const orders = [
   },
 ];
 
-async function renderPage() {
-  const view = render(
-    <BrowserRouter>
-      <SubcontractorJobs />
-    </BrowserRouter>
+function renderAt(path) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/subcontractor" element={<SubcontractorJobs />} />
+        <Route path="/subcontractor/new" element={<SubcontractorWorkOrderPage />} />
+        <Route path="/subcontractor/:workOrderId" element={<SubcontractorWorkOrderPage />} />
+      </Routes>
+    </MemoryRouter>
   );
-  const workOrders = await screen.findByRole('button', { name: 'Work orders' });
-  if (workOrders.getAttribute('aria-expanded') === 'false') {
-    fireEvent.click(workOrders);
-  }
-  const toggle = screen.getByRole('button', { name: 'New work order' });
-  if (toggle.getAttribute('aria-expanded') === 'false') {
-    fireEvent.click(toggle);
-  }
+}
+
+async function renderList() {
+  renderAt('/subcontractor');
+  expect(await screen.findByLabelText(/search work orders/i)).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Work orders' })).not.toBeInTheDocument();
+}
+
+async function openEditorSections() {
   for (const name of ['Reimbursable equipment', 'Brinks reconciliation']) {
-    const nested = screen.queryByRole('button', { name });
-    if (nested?.getAttribute('aria-expanded') === 'false') {
+    const nested = await screen.findByRole('button', { name });
+    if (nested.getAttribute('aria-expanded') === 'false') {
       fireEvent.click(nested);
     }
   }
-  return view;
 }
 
 describe('SubcontractorJobs', () => {
@@ -79,17 +86,18 @@ describe('SubcontractorJobs', () => {
 
   test('shows an empty state when there are no work orders', async () => {
     axios.get.mockResolvedValue({ data: [] });
-    await renderPage();
+    await renderList();
 
     expect(await screen.findByText(/no brinks work orders/i)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /subcontractor/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/paid by brinks/i)).not.toBeInTheDocument();
   });
 
-  test('lists work orders with completion number and amount due', async () => {
+  test('lists work orders and prints a reconciled order in green', async () => {
     axios.get.mockResolvedValue({ data: orders });
-    await renderPage();
+    await renderList();
 
     expect(await screen.findByText('BRK-1001')).toBeInTheDocument();
     expect(screen.getByText('Warehouse 12')).toBeInTheDocument();
@@ -98,14 +106,39 @@ describe('SubcontractorJobs', () => {
     expect(screen.getAllByText('$166.00').length).toBeGreaterThan(0);
     expect(screen.getByText('$32.00')).toBeInTheDocument();
     expect(screen.getByText('-$8.00')).toBeInTheDocument();
+    expect(screen.getByTestId('work-order-wo2')).toHaveClass('text-green-700');
+    expect(screen.getByTestId('work-order-wo1')).not.toHaveClass('text-green-700');
+
+    await userEvent.click(screen.getByRole('link', { name: 'BRK-2002' }));
+    const heading = await screen.findByRole('heading', { name: 'BRK-2002' });
+    expect(heading).toHaveClass('text-green-700');
+    expect(screen.queryByLabelText(/paid by brinks/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/reimbursable/i)).not.toBeInTheDocument();
   });
 
-  test('records what Brinks actually paid against amount due', async () => {
+  test('searches work orders by any field', async () => {
+    axios.get.mockResolvedValue({ data: orders });
+    await renderList();
+    await screen.findByText('BRK-1001');
+
+    await userEvent.type(screen.getByLabelText(/search work orders/i), 'Motion');
+    expect(screen.getByText('BRK-1001')).toBeInTheDocument();
+    expect(screen.queryByText('BRK-2002')).not.toBeInTheDocument();
+
+    await userEvent.clear(screen.getByLabelText(/search work orders/i));
+    await userEvent.type(screen.getByLabelText(/search work orders/i), 'CL-88');
+    expect(screen.getByText('BRK-2002')).toBeInTheDocument();
+    expect(screen.queryByText('BRK-1001')).not.toBeInTheDocument();
+  });
+
+  test('records what Brinks actually paid against amount due on the new order page', async () => {
     axios.get.mockResolvedValue({ data: [] });
     axios.post.mockResolvedValue({ data: { _id: 'new' } });
-    await renderPage();
+    await renderList();
     await screen.findByText(/no brinks work orders/i);
 
+    await userEvent.click(screen.getByRole('link', { name: /new work order/i }));
+    await openEditorSections();
     await userEvent.type(screen.getByLabelText(/work order/i), 'BRK-9');
     await userEvent.clear(screen.getByLabelText(/hours/i));
     await userEvent.type(screen.getByLabelText(/hours/i), '2');
@@ -139,7 +172,7 @@ describe('SubcontractorJobs', () => {
 
   test('filters the list by status', async () => {
     axios.get.mockResolvedValue({ data: orders });
-    await renderPage();
+    await renderList();
     await screen.findByText('BRK-1001');
 
     await userEvent.selectOptions(screen.getByLabelText(/filter by status/i), 'completed');
@@ -151,8 +184,8 @@ describe('SubcontractorJobs', () => {
   test('cannot mark complete without a completion number', async () => {
     axios.get.mockResolvedValue({ data: [] });
     axios.post.mockResolvedValue({ data: { _id: 'new' } });
-    await renderPage();
-    await screen.findByText(/no brinks work orders/i);
+    await renderList();
+    await userEvent.click(await screen.findByRole('link', { name: /new work order/i }));
 
     await userEvent.type(screen.getByLabelText(/work order/i), 'BRK-9');
     await userEvent.selectOptions(screen.getByLabelText(/^status$/i), 'completed');
@@ -167,8 +200,8 @@ describe('SubcontractorJobs', () => {
     axios.post.mockResolvedValue({
       data: { _id: 'new', workOrderNumber: 'BRK-9', amountDue: 95 },
     });
-    await renderPage();
-    await screen.findByText(/no brinks work orders/i);
+    renderAt('/subcontractor/new');
+    await openEditorSections();
 
     await userEvent.type(screen.getByLabelText(/work order/i), 'BRK-9');
     await userEvent.type(screen.getByLabelText(/site name/i), 'Clinic');
@@ -201,16 +234,19 @@ describe('SubcontractorJobs', () => {
     });
   });
 
-  test('loads an existing work order for edit', async () => {
+  test('edits one work order on its own page and cancel leaves that order', async () => {
     axios.get.mockResolvedValue({ data: orders });
     axios.put.mockResolvedValue({ data: { ...orders[1], notes: 'Done' } });
-    await renderPage();
+    await renderList();
     await screen.findByText('BRK-2002');
 
     const row = screen.getByTestId('work-order-wo2');
-    await userEvent.click(within(row).getByRole('button', { name: /edit/i }));
+    await userEvent.click(within(row).getByRole('link', { name: /^edit$/i }));
+    await openEditorSections();
     expect(screen.getByLabelText(/work order/i)).toHaveValue('BRK-2002');
     expect(screen.getByLabelText(/completion/i)).toHaveValue('CL-88');
+    expect(screen.getByRole('heading', { name: /brinks reconciliation/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /reimbursable equipment/i })).toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText(/^notes$/i), 'Done');
     await userEvent.click(screen.getByRole('button', { name: /save work order/i }));
@@ -222,23 +258,25 @@ describe('SubcontractorJobs', () => {
       );
     });
 
-    await userEvent.click(within(screen.getByTestId('work-order-wo2')).getByRole('button', { name: /edit/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
     await userEvent.click(screen.getByRole('button', { name: /cancel edit/i }));
-    expect(screen.getByLabelText(/work order/i)).toHaveValue('');
+    expect(screen.queryByLabelText(/work order/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'BRK-2002' })).toBeInTheDocument();
   });
 
-  test('adds an equipment line and deletes a work order', async () => {
+  test('adds an equipment line and deletes that work order from its page', async () => {
     axios.get.mockResolvedValue({ data: orders });
     axios.delete.mockResolvedValue({ data: { msg: 'Work order deleted' } });
     window.confirm = jest.fn(() => true);
-    await renderPage();
-    await screen.findByText('BRK-1001');
+    const editor = renderAt('/subcontractor/new');
+    await openEditorSections();
 
     await userEvent.click(screen.getByRole('button', { name: /add equipment line/i }));
     expect(screen.getAllByLabelText(/equipment description/i)).toHaveLength(2);
+    editor.unmount();
 
-    await userEvent.click(within(screen.getByTestId('work-order-wo1')).getByRole('button', { name: /edit/i }));
-    await userEvent.click(within(screen.getByTestId('work-order-wo1')).getByRole('button', { name: /delete/i }));
+    renderAt('/subcontractor/wo1');
+    await userEvent.click(await screen.findByRole('button', { name: /delete/i }));
     await waitFor(() => {
       expect(axios.delete).toHaveBeenCalledWith(
         expect.stringContaining('/api/subcontractor-work-orders/wo1'),
@@ -249,7 +287,7 @@ describe('SubcontractorJobs', () => {
 
   test('shows a load error', async () => {
     axios.get.mockRejectedValue({ response: { data: { msg: 'Failed to load work orders' } } });
-    await renderPage();
+    await renderList();
     expect(await screen.findByText(/failed to load work orders/i)).toBeInTheDocument();
   });
 
@@ -258,14 +296,15 @@ describe('SubcontractorJobs', () => {
     axios.post.mockRejectedValue({ response: { data: { msg: 'Failed to save work order' } } });
     axios.delete = jest.fn();
     window.confirm = jest.fn(() => false);
-    await renderPage();
-    await screen.findByText('BRK-1001');
+    const editor = renderAt('/subcontractor/new');
 
     await userEvent.type(screen.getByLabelText(/work order/i), 'BRK-ERR');
     await userEvent.click(screen.getByRole('button', { name: /save work order/i }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/failed to save work order/i);
+    editor.unmount();
 
-    await userEvent.click(within(screen.getByTestId('work-order-wo1')).getByRole('button', { name: /delete/i }));
+    renderAt('/subcontractor/wo1');
+    await userEvent.click(await screen.findByRole('button', { name: /delete/i }));
     expect(axios.delete).not.toHaveBeenCalled();
   });
 
@@ -288,11 +327,10 @@ describe('SubcontractorJobs', () => {
     });
     axios.delete.mockRejectedValue({ response: { data: { msg: 'Failed to delete work order' } } });
     window.confirm = jest.fn(() => true);
-    await renderPage();
+    renderAt('/subcontractor/wo3?edit=1');
+    await openEditorSections();
 
-    expect(await screen.findByText('Memphis')).toBeInTheDocument();
-    await userEvent.click(within(screen.getByTestId('work-order-wo3')).getByRole('button', { name: /edit/i }));
-
+    expect(await screen.findByDisplayValue('BRK-3003')).toBeInTheDocument();
     await userEvent.clear(screen.getByLabelText(/principal/i));
     await userEvent.type(screen.getByLabelText(/principal/i), 'ADI');
     await userEvent.type(screen.getByLabelText(/^address$/i), '9 Main');
@@ -307,7 +345,7 @@ describe('SubcontractorJobs', () => {
     await userEvent.click(screen.getByRole('button', { name: /remove/i }));
     expect(screen.getAllByLabelText(/equipment description/i)).toHaveLength(1);
 
-    await userEvent.click(within(screen.getByTestId('work-order-wo3')).getByRole('button', { name: /delete/i }));
+    await userEvent.click(screen.getByRole('button', { name: /delete/i }));
     expect(await screen.findByText(/failed to delete work order/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/work order/i)).toHaveValue('BRK-3003');
   });

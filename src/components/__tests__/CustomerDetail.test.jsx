@@ -7,9 +7,13 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import axios from 'axios';
+import { jsPDF } from 'jspdf';
 import CustomerDetail from '../CustomerDetail';
 
 jest.mock('axios');
+jest.mock('jspdf', () => ({
+  jsPDF: jest.fn(),
+}));
 
 const customer = {
   _id: 'c1',
@@ -76,12 +80,58 @@ async function renderPage() {
 }
 
 describe('CustomerDetail', () => {
+  let mockPdfDoc;
+  let OriginalImage;
+
   beforeEach(() => {
     localStorage.setItem('token', 'test-token');
     jest.clearAllMocks();
     global.alert = jest.fn();
     global.confirm = jest.fn(() => true);
     axios.get.mockResolvedValue({ data: customer });
+    global.URL.createObjectURL = jest.fn(() => 'blob:bid-pdf-url');
+    window.open = jest.fn();
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+    mockPdfDoc = {
+      internal: {
+        pageSize: {
+          getWidth: jest.fn(() => 210),
+          getHeight: jest.fn(() => 800),
+        },
+      },
+      setFontSize: jest.fn(),
+      setFont: jest.fn(),
+      setFillColor: jest.fn(),
+      setDrawColor: jest.fn(),
+      setTextColor: jest.fn(),
+      text: jest.fn(),
+      line: jest.fn(),
+      rect: jest.fn(),
+      addPage: jest.fn(),
+      addImage: jest.fn(),
+      splitTextToSize: jest.fn((value) => [String(value)]),
+      output: jest.fn(() => new Blob(['pdf'], { type: 'application/pdf' })),
+    };
+    jsPDF.mockImplementation(() => mockPdfDoc);
+    OriginalImage = global.Image;
+    global.Image = class {
+      constructor() {
+        this.naturalWidth = 0;
+        this.naturalHeight = 0;
+      }
+
+      set src(_) {
+        if (this.onerror) this.onerror(new Error('mock image load error'));
+      }
+    };
+  });
+
+  afterEach(() => {
+    global.Image = OriginalImage;
   });
 
   test('loads contact and keeps jobs, bids, and projects in separate lists', async () => {
@@ -182,6 +232,50 @@ describe('CustomerDetail', () => {
       expect.anything(),
       expect.anything()
     );
+  });
+
+  test('shows saved bid lines beside the quoted amount and prints the bid document', async () => {
+    axios.get.mockResolvedValue({
+      data: {
+        ...customer,
+        bids: [
+          {
+            ...customer.bids[0],
+            description: 'Four outdoor cameras',
+            linesTotal: 7200,
+            lines: [{ description: 'Quoted camera', quantity: 4, estimate: 1800 }],
+          },
+        ],
+      },
+    });
+    await renderPage();
+
+    const bid = await screen.findByTestId('bid-row-b1');
+    expect(bid).toHaveTextContent('Quoted camera');
+    expect(bid).toHaveTextContent('4');
+    expect(bid).toHaveTextContent('$1,800.00');
+    expect(bid).toHaveTextContent('$7,200.00');
+    expect(bid).toHaveTextContent('$9,100.00');
+    expect(bid).not.toHaveTextContent('Amount due');
+
+    await userEvent.click(within(bid).getByRole('checkbox', { name: /include monitoring agreement/i }));
+    await userEvent.click(within(bid).getByRole('button', { name: /^generate bid$/i }));
+
+    await waitFor(() => {
+      expect(jsPDF).toHaveBeenCalled();
+      expect(window.open).toHaveBeenCalledWith('blob:bid-pdf-url', '_blank');
+    });
+    expect(global.fetch).toHaveBeenCalledWith('/ALARM MONITORING SERVICES AGREEMENT.docx');
+    const printed = mockPdfDoc.text.mock.calls.map(([line]) => line).filter((line) => typeof line === 'string');
+    expect(printed.some((line) => line.includes('Quote #: Q-1001'))).toBe(true);
+    expect(printed).toContain('Bid: John Doe');
+    expect(printed).toContain('Project: Cameras and access');
+    expect(printed).toContain('Description: Four outdoor cameras');
+    expect(printed).toContain('Quoted camera');
+    expect(printed).toContain('Bid Amount: $9100.00');
+    expect(printed).toContain("What's Included:");
+    expect(printed.some((line) => String(line).includes('1800'))).toBe(false);
+    expect(axios.post).not.toHaveBeenCalled();
   });
 
   test('adds a bid without creating a job', async () => {

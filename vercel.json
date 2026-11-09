@@ -103,6 +103,14 @@
     {
       "source": "/subcontractor",
       "destination": "/index.html"
+    },
+    {
+      "source": "/subcontractor/new",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/subcontractor/:workOrderId",
+      "destination": "/index.html"
     }
   ],
   "functions": {

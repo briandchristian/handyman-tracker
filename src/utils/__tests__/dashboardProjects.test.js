@@ -1,7 +1,10 @@
 import {
+  SOURCE_FILTERS,
   STATUS_FILTERS,
   countProjectsByStatus,
+  dashboardJobFromWorkOrder,
   filterAndSortProjects,
+  jobsForSource,
   matchesSearch,
   matchesStatusFilter,
   nextStatusFilter,
@@ -50,9 +53,9 @@ describe('dashboardProjects', () => {
     }, 'a-1042')).toBe(true);
   });
 
-  test('defaults to pending + newest first', () => {
+  test('defaults to every status, newest first', () => {
     const visible = filterAndSortProjects(projects);
-    expect(visible.map((p) => p.name)).toEqual(['Alarm B', 'Alarm A']);
+    expect(visible.map((p) => p.name)).toEqual(['Gate', 'Fire', 'Alarm B', 'CCTV', 'Alarm A']);
   });
 
   test('search combines with status filter', () => {
@@ -69,6 +72,71 @@ describe('dashboardProjects', () => {
       sort: 'schedule',
     });
     expect(visible[visible.length - 1].name).toBe('CCTV');
+  });
+
+  test('subcontractor work orders join the same status cards', () => {
+    const assigned = dashboardJobFromWorkOrder({
+      _id: 'wo1',
+      workOrderNumber: 'BRK-1001',
+      siteName: 'Warehouse',
+      status: 'assigned',
+      amountDue: 166,
+    });
+    const scheduled = dashboardJobFromWorkOrder({
+      _id: 'wo2',
+      workOrderNumber: 'BRK-2002',
+      siteName: 'Lobby',
+      status: 'scheduled',
+      scheduledDate: '2024-06-02',
+      completionNumber: 'CL-88',
+    });
+    const paid = dashboardJobFromWorkOrder({
+      _id: 'wo3',
+      workOrderNumber: 'BRK-3003',
+      status: 'paid',
+      paidAmount: 80,
+      amountDue: 80,
+    });
+
+    expect(assigned).toMatchObject({
+      source: 'subcontractor',
+      status: 'Pending',
+      displayStatus: 'Assigned',
+      customerName: 'Brinks',
+      name: 'Warehouse',
+      href: '/subcontractor/wo1',
+      reconciled: false,
+    });
+    expect(scheduled.status).toBe('Scheduled');
+    expect(paid).toMatchObject({
+      status: 'Billed',
+      displayStatus: 'Paid',
+      reconciled: true,
+    });
+    expect(dashboardJobFromWorkOrder({ siteName: 'No number' })).toBeNull();
+
+    const mixed = [...projects, assigned, scheduled, paid];
+    expect(countProjectsByStatus(mixed)).toEqual({
+      total: 8,
+      pending: 3,
+      scheduled: 2,
+      completed: 3,
+    });
+    expect(jobsForSource(mixed, SOURCE_FILTERS.customers)).toHaveLength(5);
+    expect(jobsForSource(mixed, SOURCE_FILTERS.subcontractor).map((job) => job.workOrderNumber))
+      .toEqual(['BRK-1001', 'BRK-2002', 'BRK-3003']);
+    expect(matchesSearch(scheduled, 'cl-88')).toBe(true);
+    expect(matchesSearch(scheduled, 'lobby')).toBe(true);
+    expect(filterAndSortProjects(mixed, { source: SOURCE_FILTERS.subcontractor }).map((job) => job.workOrderNumber))
+      .toEqual(['BRK-1001', 'BRK-2002', 'BRK-3003']);
+    expect(filterAndSortProjects(mixed, {
+      statusFilter: STATUS_FILTERS.pending,
+      source: SOURCE_FILTERS.subcontractor,
+    }).map((job) => job.workOrderNumber)).toEqual(['BRK-1001']);
+    expect(filterAndSortProjects(mixed, {
+      statusFilter: STATUS_FILTERS.all,
+      source: SOURCE_FILTERS.customers,
+    })).toHaveLength(5);
   });
 
   test('tapping the active card clears the filter to all', () => {

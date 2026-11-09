@@ -85,6 +85,12 @@ jest.mock('../components/SubcontractorJobs', () => {
   };
 });
 
+jest.mock('../components/SubcontractorWorkOrderPage', () => {
+  return function MockSubcontractorWorkOrderPage() {
+    return <div data-testid="subcontractor-work-order-component">Work order</div>;
+  };
+});
+
 describe('App Component', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -205,6 +211,8 @@ describe('App Component', () => {
         '/inventory',
         '/accounting',
         '/subcontractor',
+        '/subcontractor/new',
+        '/subcontractor/wo1',
       ];
 
       protectedRoutes.forEach((route) => {
@@ -233,6 +241,8 @@ describe('App Component', () => {
         { path: '/inventory', testId: 'inventory-component' },
         { path: '/accounting', testId: 'accounting-component' },
         { path: '/subcontractor', testId: 'subcontractor-jobs-component' },
+        { path: '/subcontractor/new', testId: 'subcontractor-work-order-component' },
+        { path: '/subcontractor/wo1', testId: 'subcontractor-work-order-component' },
       ];
 
       authenticatedRoutes.forEach(({ path, testId }) => {

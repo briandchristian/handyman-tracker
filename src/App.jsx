@@ -14,6 +14,7 @@ import PurchaseOrders from './components/PurchaseOrders';
 import Inventory from './components/Inventory';
 import Accounting from './components/Accounting';
 import SubcontractorJobs from './components/SubcontractorJobs';
+import SubcontractorWorkOrderPage from './components/SubcontractorWorkOrderPage';
 import MobileNav from './components/MobileNav';
 import StaffNav from './components/StaffNav';
 import CustomerMyInfo from './components/CustomerMyInfo';
@@ -229,6 +230,34 @@ function App() {
             token ? (
               !isCustomer ? (
                 <SubcontractorJobs />
+              ) : (
+                <Navigate to="/customer" />
+              )
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
+        />
+        <Route
+          path="/subcontractor/new"
+          element={
+            token ? (
+              !isCustomer ? (
+                <SubcontractorWorkOrderPage />
+              ) : (
+                <Navigate to="/customer" />
+              )
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
+        />
+        <Route
+          path="/subcontractor/:workOrderId"
+          element={
+            token ? (
+              !isCustomer ? (
+                <SubcontractorWorkOrderPage />
               ) : (
                 <Navigate to="/customer" />
               )

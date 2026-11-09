@@ -16,7 +16,10 @@ import {
   reconcileVariance,
   equipmentLineTotal,
   equipmentTotal,
+  filterWorkOrders,
   filterWorkOrdersByStatus,
+  searchWorkOrders,
+  workOrderIsReconciled,
   isKnownJobType,
   isKnownStatus,
   laborPay,
@@ -119,6 +122,55 @@ describe('completion number and filters', () => {
     expect(isKnownJobType('service')).toBe(true);
     expect(normalizeStatus('Paid')).toBe('paid');
     expect(isKnownStatus('scheduled')).toBe(true);
+  });
+
+  test('a recorded Brinks payment is reconciled', () => {
+    expect(workOrderIsReconciled({ paidAmount: null })).toBe(false);
+    expect(workOrderIsReconciled({ paidAmount: '' })).toBe(false);
+    expect(workOrderIsReconciled({})).toBe(false);
+    expect(workOrderIsReconciled({ paidAmount: 'nope' })).toBe(false);
+    expect(workOrderIsReconciled({ paidAmount: 0 })).toBe(true);
+    expect(workOrderIsReconciled({ paidAmount: 32 })).toBe(true);
+  });
+
+  test('searches a work order by any field, including equipment and labels', () => {
+    const rows = [
+      {
+        workOrderNumber: 'BRK-1001',
+        completionNumber: '',
+        siteName: 'Warehouse 12',
+        siteCity: 'Selmer',
+        jobType: 'service',
+        status: 'assigned',
+        notes: 'Panel check',
+        amountDue: 166,
+        equipmentLines: [{ description: 'Motion', sku: 'MX-1' }],
+      },
+      {
+        workOrderNumber: 'BRK-2002',
+        completionNumber: 'CL-88',
+        siteName: 'Bank lobby',
+        siteAddress: '9 Main',
+        jobType: 'install',
+        status: 'completed',
+        reconciliationNotes: 'Travel not paid',
+        paidAmount: 32,
+        amountDue: 40,
+      },
+    ];
+    expect(searchWorkOrders(rows, '').map((row) => row.workOrderNumber)).toEqual(['BRK-1001', 'BRK-2002']);
+    expect(searchWorkOrders(rows, '  lobby ').map((row) => row.workOrderNumber)).toEqual(['BRK-2002']);
+    expect(searchWorkOrders(rows, 'CL-88').map((row) => row.workOrderNumber)).toEqual(['BRK-2002']);
+    expect(searchWorkOrders(rows, 'motion').map((row) => row.workOrderNumber)).toEqual(['BRK-1001']);
+    expect(searchWorkOrders(rows, 'MX-1').map((row) => row.workOrderNumber)).toEqual(['BRK-1001']);
+    expect(searchWorkOrders(rows, 'Install').map((row) => row.workOrderNumber)).toEqual(['BRK-2002']);
+    expect(searchWorkOrders(rows, 'completed').map((row) => row.workOrderNumber)).toEqual(['BRK-2002']);
+    expect(searchWorkOrders(rows, 'travel not paid').map((row) => row.workOrderNumber)).toEqual(['BRK-2002']);
+    expect(searchWorkOrders(rows, '166').map((row) => row.workOrderNumber)).toEqual(['BRK-1001']);
+    expect(searchWorkOrders(rows, 'nowhere')).toEqual([]);
+    expect(searchWorkOrders(null, 'lobby')).toEqual([]);
+    expect(filterWorkOrders(rows, { status: 'assigned', query: 'warehouse' }).map((row) => row.workOrderNumber)).toEqual(['BRK-1001']);
+    expect(filterWorkOrders(rows, { status: 'completed', query: 'warehouse' })).toEqual([]);
   });
 
   test('filters the list by status and keeps all when unset', () => {

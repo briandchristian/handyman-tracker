@@ -3,8 +3,13 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { jsPDF } from 'jspdf';
-import { strFromU8, unzipSync } from 'fflate';
 import API_BASE_URL from '../config/api';
+import {
+  buildProjectBidDocument,
+  layoutBidPdfHeader,
+  loadBidHeaderImage,
+  openBidDocument,
+} from '../utils/bidDocument';
 import {
   buildProposedSystemStatement,
   EQUIPMENT_CATEGORY_OPTIONS,
@@ -33,57 +38,6 @@ import { jobQuotedAmount, bidWorksheetTotal } from '../../server/lib/accountingS
 import { formatCustomerLabel, formatJobLabel, jobLinesToDate } from '../constants/jobIdentity';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
 
-/**
- * Company header block for generated bid PDFs (aligned with CHRISTIAN SECURITY SERVICES BID template).
- * Logo uses /logo.png with preserved aspect ratio; text fills the rest of the header row.
- */
-const BID_PDF_COMPANY = {
-  /** Stacked company name (3 lines, all caps) */
-  nameLine1: 'CHRISTIAN',
-  nameLine2: 'SECURITY',
-  nameLine3: 'SERVICES',
-  subtitle: 'ALARM SYSTEM CONTRACTOR',
-  license: 'Tennessee Alarm Systems Contractor License #: 2622',
-  phone: '(931) 279-7879'
-};
-
-const MONITORING_AGREEMENT_DOCX_URL = '/ALARM MONITORING SERVICES AGREEMENT.docx';
-
-function extractDocxPlainText(arrayBuffer) {
-  try {
-    const files = unzipSync(new Uint8Array(arrayBuffer));
-    const xmlBytes = files['word/document.xml'];
-    if (!xmlBytes) return [];
-    const xml = strFromU8(xmlBytes);
-    const paragraphs = xml.match(/<w:p[\s\S]*?<\/w:p>/g) || [];
-    return paragraphs
-      .map((p) => {
-        const texts = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => m[1] || '');
-        return texts.join('').replace(/\s+/g, ' ').trim();
-      })
-      .filter(Boolean);
-  } catch (err) {
-    console.error('Failed to parse monitoring agreement DOCX:', err);
-    return [];
-  }
-}
-
-function classifyContractLine(line) {
-  const trimmed = (line || '').trim();
-  if (!trimmed) return { type: 'blank', text: '' };
-  if (/^[-*•]\s+/.test(trimmed)) return { type: 'bullet', text: trimmed.replace(/^[-*•]\s+/, '') };
-  if (/^(\d+[\.\)]|[A-Za-z][\.\)])\s+/.test(trimmed)) return { type: 'numbered', text: trimmed };
-  if (
-    /:$/.test(trimmed) ||
-    (trimmed.length <= 90 &&
-      trimmed === trimmed.toUpperCase() &&
-      /[A-Z]/.test(trimmed))
-  ) {
-    return { type: 'heading', text: trimmed };
-  }
-  return { type: 'paragraph', text: trimmed };
-}
-
 function getLastIssuedQuoteFromNotes(notes = []) {
   if (!Array.isArray(notes)) return null;
   for (let i = notes.length - 1; i >= 0; i -= 1) {
@@ -97,53 +51,6 @@ function getLastIssuedQuoteFromNotes(notes = []) {
     }
   }
   return null;
-}
-
-function layoutBidPdfHeader(doc, headerLogo, left, right, headerY) {
-  const maxLogoW = 42;
-  const maxLogoH = 32;
-  let drawW = 0;
-  let drawH = 0;
-
-  if (headerLogo?.naturalWidth && headerLogo?.naturalHeight) {
-    const nw = headerLogo.naturalWidth;
-    const nh = headerLogo.naturalHeight;
-    const scale = Math.min(maxLogoW / nw, maxLogoH / nh);
-    drawW = nw * scale;
-    drawH = nh * scale;
-    doc.addImage(headerLogo, 'PNG', left, headerY, drawW, drawH);
-  }
-
-  const textX = left + drawW + 5;
-  const textMaxW = right - textX;
-  let ty = headerY + 5;
-
-  doc.setFontSize(12);
-  doc.setFont('helvetica', 'bold');
-  doc.text(BID_PDF_COMPANY.nameLine1, textX, ty);
-  ty += 6;
-  doc.text(BID_PDF_COMPANY.nameLine2, textX, ty);
-  ty += 6;
-  doc.text(BID_PDF_COMPANY.nameLine3, textX, ty);
-  ty += 7;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  const subLines = doc.splitTextToSize(BID_PDF_COMPANY.subtitle, textMaxW);
-  subLines.forEach((ln) => {
-    doc.text(ln, textX, ty);
-    ty += 4.5;
-  });
-  const licLines = doc.splitTextToSize(BID_PDF_COMPANY.license, textMaxW);
-  licLines.forEach((ln) => {
-    doc.text(ln, textX, ty);
-    ty += 4.5;
-  });
-  doc.text(BID_PDF_COMPANY.phone, textX, ty);
-  ty += 6;
-
-  const textBottom = ty;
-  const logoBottom = headerY + drawH;
-  return Math.max(textBottom, logoBottom) + 8;
 }
 
 export default function ProjectDetails() {
@@ -1054,44 +961,15 @@ export default function ProjectDetails() {
   const totalRemaining = Math.max(originalInvoiceTotal - paidToDateTotal, 0);
 
   /**
-   * Phase 1 Bid PDF:
-   * Includes project information + materials list summary (without individual pricing)
-   * and uses computed total material cost.
+   * Bid PDF uses the shared document: worksheet lines, the project quote, and the standard terms.
    */
-  const loadBidHeaderImage = () => new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = '/logo.png';
-  });
-
   const generateBidPdf = async (options = {}) => {
     const { incrementQuote = true } = options;
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const left = 14;
-    const right = pageWidth - 14;
-    const headerY = 10;
-    const bottomMargin = 14;
-    const defaultTopY = 20;
-
-    const headerLogo = await loadBidHeaderImage();
-    let y = layoutBidPdfHeader(doc, headerLogo, left, right, headerY);
-    const ensurePageSpace = (neededHeight = 8) => {
-      if (y + neededHeight > pageHeight - bottomMargin) {
-        doc.addPage();
-        y = defaultTopY;
-      }
-    };
-
-    /** Phase 3: quote metadata (matches standard bid template line). */
     const noteQuoteNum = getLastIssuedQuoteFromNotes(project?.notes);
     const quoteNum = incrementQuote
       ? getNextBidQuoteNumber()
       : (noteQuoteNum ?? getLastIssuedBidQuoteNumber());
     if (incrementQuote) {
-      // Keep a project note with the newly issued quote number for audit/history.
       try {
         await axios.post(
           `${API_BASE_URL}/api/customers/${customerId}/projects/${projectId}/notes`,
@@ -1103,323 +981,16 @@ export default function ProjectDetails() {
         console.error('Error saving bid quote note:', err);
       }
     }
-    const quoteMetaLine = `Date: ${format(new Date(), 'M/d/yyyy')} | Quote #: ${quoteNum} | Valid for 30 days`;
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    ensurePageSpace(8);
-    doc.text(quoteMetaLine, left, y);
-    y += 8;
-
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'normal');
-    ensurePageSpace(9);
-    doc.text(`Bid: ${customer?.name || 'N/A'}`, left, y);
-    y += 9;
-
-    doc.setFontSize(11);
-    ensurePageSpace(28);
-    doc.text(`Project: ${project?.name || 'N/A'}`, left, y); y += 7;
-    doc.text(`Address: ${customer?.address || 'N/A'}`, left, y); y += 7;
-    doc.text(`Phone: ${customer?.phone || 'N/A'}`, left, y); y += 7;
-    doc.text(`Description: ${project?.description || 'No description'}`, left, y); y += 7;
-    doc.setDrawColor(38, 131, 198);
-    doc.line(left, y, right, y);
-    y += 8;
-    const proposedSystemText = buildProposedSystemStatement(project?.equipmentCategories);
-    if (proposedSystemText) {
-      ensurePageSpace(16);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Proposed System:', left, y);
-      y += 6;
-      doc.setFont('helvetica', 'normal');
-      const proposedLines = doc.splitTextToSize(proposedSystemText, right - left);
-      proposedLines.forEach((line) => {
-        ensurePageSpace(6);
-        doc.text(line, left, y);
-        y += 5;
-      });
-      y += 6;
-    }
-
-    ensurePageSpace(12);
-    doc.setFontSize(13);
-    doc.text('Materials', left, y);
-    y += 8;
-    doc.setFontSize(10.5);
-
-    const materials = project?.bidMaterials || [];
-    const tableLeft = left;
-    const tableRight = right;
-    const tableWidth = tableRight - tableLeft;
-    const itemColW = 20;
-    const qtyColW = 22;
-    const descColW = tableWidth - itemColW - qtyColW;
-    const itemX = tableLeft + 2;
-    const descX = tableLeft + itemColW + 2;
-    const qtyX = tableRight - 4;
-    const rowPadY = 3;
-    const lineH = 5;
-    const headerH = 8;
-    const headerBlue = [38, 131, 198];
-    const stripeBlue = [230, 240, 249];
-
-    const drawMaterialsHeader = () => {
-      ensurePageSpace(headerH + 2);
-      // Header row: dark blue background with white text.
-      doc.setFont('helvetica', 'normal');
-      doc.setFillColor(...headerBlue);
-      doc.rect(tableLeft, y, tableWidth, headerH, 'F');
-      doc.setDrawColor(38, 131, 198);
-      doc.rect(tableLeft, y, tableWidth, headerH);
-      doc.line(tableLeft + itemColW, y, tableLeft + itemColW, y + headerH);
-      doc.line(tableRight - qtyColW, y, tableRight - qtyColW, y + headerH);
-      doc.setTextColor(255, 255, 255);
-      doc.text('Item', itemX, y + 5.3);
-      doc.text('Description', descX, y + 5.3);
-      doc.text('Quantity', qtyX, y + 5.3, { align: 'right' });
-      doc.setTextColor(0, 0, 0);
-      y += headerH;
-    };
-    drawMaterialsHeader();
-
-    if (materials.length === 0) {
-      const rowH = rowPadY * 2 + lineH;
-      doc.rect(tableLeft, y, tableWidth, rowH);
-      doc.line(tableLeft + itemColW, y, tableLeft + itemColW, y + rowH);
-      doc.line(tableRight - qtyColW, y, tableRight - qtyColW, y + rowH);
-      doc.text('-', itemX, y + rowPadY + 3.8);
-      doc.text('No materials listed', descX, y + rowPadY + 3.8);
-      doc.text('0', qtyX, y + rowPadY + 3.8, { align: 'right' });
-      y += rowH;
-    } else {
-      materials.forEach((mat, idx) => {
-        const partNumber = adiItemNumberFromSku(mat.sku);
-        const descText = partNumber
-          ? `${mat.item || 'Material'} · ${partNumber}`
-          : (mat.item || 'Material');
-        const descLines = doc.splitTextToSize(descText, descColW - 4);
-        const rowH = Math.max(rowPadY * 2 + (descLines.length * lineH), rowPadY * 2 + lineH);
-        if (y + rowH > pageHeight - bottomMargin) {
-          doc.addPage();
-          y = defaultTopY;
-          drawMaterialsHeader();
-        }
-
-        if (idx % 2 === 0) {
-          doc.setFillColor(...stripeBlue);
-          doc.rect(tableLeft, y, tableWidth, rowH, 'F');
-        }
-        doc.rect(tableLeft, y, tableWidth, rowH);
-        doc.line(tableLeft + itemColW, y, tableLeft + itemColW, y + rowH);
-        doc.line(tableRight - qtyColW, y, tableRight - qtyColW, y + rowH);
-
-        doc.text(String(idx + 1), itemX, y + rowPadY + 3.8);
-        descLines.forEach((ln, lnIdx) => {
-          doc.text(ln, descX, y + rowPadY + 3.8 + (lnIdx * lineH));
-        });
-        doc.text(String(mat.quantity || 0), qtyX, y + rowPadY + 3.8, { align: 'right' });
-        y += rowH;
-      });
-    }
-
-    y += 8;
-    doc.setFontSize(12);
-    ensurePageSpace(8);
-    doc.setTextColor(38, 131, 198);
-    doc.text(`Bid Amount: $${jobQuotedAmount(project).toFixed(2)}`, left, y);
-    doc.setTextColor(0, 0, 0);
-    y += 6;
-    ensurePageSpace(10);
-    doc.setDrawColor(38, 131, 198);
-    doc.line(left, y, right, y);
-    y += 8;
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    ensurePageSpace(8);
-    doc.text("What's Included:", left, y);
-    y += 6;
-    doc.setFont('helvetica', 'normal');
-    ensurePageSpace(6);
-    doc.text('- All equipment and materials', left + 2, y);
-    y += 5;
-    ensurePageSpace(6);
-    doc.text('- Professional installation (typically 1 day)', left + 2, y);
-    y += 5;
-    ensurePageSpace(6);
-    doc.text('- Testing and walkthrough', left + 2, y);
-    y += 5;
-    ensurePageSpace(6);
-    doc.text('- Full programming, testing, and on-site training', left + 2, y);
-    y += 5;
-    ensurePageSpace(6);
-    doc.text('- 1-year equipment warranty + lifetime installation labor warranty', left + 2, y);
-    y += 8;
-    doc.setFont('helvetica', 'bold');
-    ensurePageSpace(8);
-    doc.text("What's Not Included:", left, y);
-    y += 6;
-    doc.setFont('helvetica', 'normal');
-    ensurePageSpace(6);
-    doc.text('- Monitoring (separate contract, ~$35 /month)', left + 2, y);
-    y += 5;
-    ensurePageSpace(6);
-    doc.text('- Any electrical upgrades or drywall repairs', left + 2, y);
-    y += 5;
-    ensurePageSpace(6);
-    doc.text('- Local permits (if required beyond low-voltage)', left + 2, y);
-    y += 8;
-    doc.setFont('helvetica', 'bold');
-    ensurePageSpace(8);
-    doc.text('Payment Terms:', left, y);
-    y += 6;
-    doc.setFont('helvetica', 'normal');
-    ensurePageSpace(6);
-    doc.text('- 50% deposit to schedule and order equipment', left + 2, y);
-    y += 5;
-    ensurePageSpace(6);
-    doc.text('- Balance due on completion (after testing and your approval)', left + 2, y);
-    y += 8;
-
-    doc.setFont('helvetica', 'bold');
-    ensurePageSpace(8);
-    doc.text('Clarifications & Project Assumptions:', left, y);
-    y += 6;
-    doc.setFont('helvetica', 'normal');
-
-    const clarifications = [
-      'Limitation of Liability: Contractor’s total liability for any claims arising from this project is capped at the total contract value.',
-      'Waiver of Damages: Contractor is not liable for any indirect, incidental, or consequential damages, including loss of profits or business interruption.',
-      'Pricing & Validity: This bid is an estimate based on provided specifications and remains valid for 30 days. Final pricing is subject to a mutually signed agreement and may be adjusted for unforeseen site conditions or scope changes.'
-    ];
-    clarifications.forEach((line) => {
-      const wrapped = doc.splitTextToSize(line, right - left);
-      wrapped.forEach((ln) => {
-        ensurePageSpace(6);
-        doc.text(ln, left, y);
-        y += 5;
-      });
-      y += 2;
-    });
-    y += 4;
-
-    doc.setFont('helvetica', 'bold');
-    ensurePageSpace(8);
-    doc.text('Next Steps:', left, y);
-    y += 6;
-    doc.setFont('helvetica', 'normal');
-    ensurePageSpace(8);
-    const nextStepsLine = "Accept by signing below or contacting us. We'll schedule a final walkthrough if needed. We look forward to protecting you!";
-    const nextStepsLines = doc.splitTextToSize(nextStepsLine, right - left);
-    nextStepsLines.forEach((ln) => {
-      ensurePageSpace(6);
-      doc.text(ln, left, y);
-      y += 5;
-    });
-    y += 6;
-
-    doc.setFont('helvetica', 'bold');
-    ensurePageSpace(8);
-    doc.text('Accepted & Agreed:', left, y);
-    y += 7;
-    doc.setFont('helvetica', 'normal');
-    ensurePageSpace(8);
-    doc.text('Customer Signature: ____________________________ Date: _______________', left, y);
-    y += 7;
-    ensurePageSpace(8);
-    doc.text('Contractor:', left, y);
-    y += 6;
-    ensurePageSpace(8);
-    doc.text('Name/Title ____________________________ Date: _______________', left, y);
-    y += 7;
-    ensurePageSpace(8);
-    doc.text(`Phone: ${BID_PDF_COMPANY.phone} | Email: brian_christian@hotmail.com`, left, y);
-
-    if (includeMonitoringAgreement) {
-      let agreementLines = [];
-      try {
-        const response = await fetch(MONITORING_AGREEMENT_DOCX_URL);
-        if (response.ok) {
-          const agreementBuffer = await response.arrayBuffer();
-          agreementLines = extractDocxPlainText(agreementBuffer);
-        } else {
-          console.error('Monitoring agreement download failed:', response.status);
-        }
-      } catch (err) {
-        console.error('Monitoring agreement fetch failed:', err);
-      }
-
-      doc.addPage();
-      y = 20;
-
-      // Contract attachment header to visually separate from bid content.
-      doc.setFillColor(235, 241, 252);
-      doc.setDrawColor(22, 58, 120);
-      doc.rect(left, y - 6, right - left, 22, 'FD');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.text('Attachment A', left + (right - left) / 2, y + 1, { align: 'center' });
-      doc.setFontSize(11);
-      doc.text('Monitoring Agreement Contract', left + (right - left) / 2, y + 8, { align: 'center' });
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9.5);
-      doc.text('Attached to Bid - Optional Addendum', left + (right - left) / 2, y + 14, { align: 'center' });
-      y += 24;
-      doc.setDrawColor(22, 58, 120);
-      doc.line(left, y, right, y);
-      y += 8;
-
-      doc.setFont('helvetica', 'bold');
-      ensurePageSpace(8);
-      doc.text('Monitoring Agreement Contract', left, y);
-      y += 7;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-
-      const linesToRender = agreementLines.length > 0
-        ? agreementLines
-        : ['Monitoring agreement source file could not be parsed.'];
-
-      linesToRender.forEach((line) => {
-        const classified = classifyContractLine(line);
-        if (classified.type === 'blank') {
-          y += 2;
-          return;
-        }
-
-        if (classified.type === 'heading') {
-          ensurePageSpace(8);
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(10.5);
-          doc.text(classified.text, left, y);
-          y += 6;
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(10);
-          return;
-        }
-
-        const text = classified.type === 'bullet'
-          ? `• ${classified.text}`
-          : classified.text;
-        const x = classified.type === 'bullet' || classified.type === 'numbered' ? left + 2 : left;
-        const width = classified.type === 'bullet' || classified.type === 'numbered' ? right - left - 2 : right - left;
-        const wrapped = doc.splitTextToSize(text, width);
-        wrapped.forEach((ln) => {
-          ensurePageSpace(6);
-          doc.text(ln, x, y);
-          y += 5;
-        });
-        y += 1;
-      });
-    }
-
-    const pdfBlob = doc.output('blob');
-    const pdfUrl = URL.createObjectURL(pdfBlob);
-    window.open(pdfUrl, '_blank');
+    await openBidDocument(buildProjectBidDocument({
+      customer,
+      project,
+      quoteNumber: quoteNum,
+      proposedSystemText: buildProposedSystemStatement(project?.equipmentCategories),
+      includeMonitoringAgreement,
+    }));
   };
 
-  /**
-   * Invoice PDF uses bid styling, but summarizes totals only.
-   */
+
   const generateInvoicePdf = async () => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();

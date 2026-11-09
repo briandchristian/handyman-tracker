@@ -38,6 +38,7 @@ describe('Dashboard Component', () => {
 
   beforeEach(() => {
     localStorage.setItem('token', 'test-token');
+    window.history.pushState({}, '', '/dashboard');
     jest.clearAllMocks();
   });
 
@@ -148,6 +149,11 @@ describe('Dashboard Component', () => {
     await waitFor(() => {
       expect(screen.getAllByText('Alarm A').length).toBeGreaterThan(0);
     });
+    expect(screen.getAllByText('CCTV').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Fire').length).toBeGreaterThan(0);
+
+    await userEvent.click(screen.getByRole('button', { name: /^pending/i }));
+    expect(screen.getAllByText('Alarm A').length).toBeGreaterThan(0);
     expect(screen.queryByText('CCTV')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /scheduled/i }));
@@ -212,6 +218,95 @@ describe('Dashboard Component', () => {
       );
     });
     expect(screen.queryByRole('link', { name: 'New Customer Bid!' })).not.toBeInTheDocument();
+  });
+
+  test('divides customer jobs and subcontractor work orders and can show all of them', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/subcontractor-work-orders')) {
+        return Promise.resolve({
+          data: [
+            {
+              _id: 'wo1',
+              workOrderNumber: 'BRK-1001',
+              siteName: 'Warehouse',
+              principal: 'Brinks',
+              status: 'assigned',
+              amountDue: 166,
+              createdAt: '2024-01-03',
+            },
+            {
+              _id: 'wo2',
+              workOrderNumber: 'BRK-2002',
+              siteName: 'Lobby',
+              principal: 'Brinks',
+              status: 'paid',
+              amountDue: 80,
+              paidAmount: 80,
+              createdAt: '2024-01-04',
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ data: mockCustomers });
+    });
+
+    await renderDashboard();
+
+    expect(screen.getByRole('button', { name: 'All jobs' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText('Project 1').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('BRK-1001').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('BRK-2002').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'BRK-1001' })[0]).toHaveAttribute(
+      'href',
+      '/subcontractor/wo1'
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Customer jobs' }));
+    expect(screen.getAllByText('Project 1').length).toBeGreaterThan(0);
+    expect(screen.queryByText('BRK-1001')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Subcontractor jobs' }));
+    expect(screen.queryByText('Project 1')).not.toBeInTheDocument();
+    expect(screen.getAllByText('BRK-1001').length).toBeGreaterThan(0);
+
+    await userEvent.click(screen.getByRole('button', { name: /total jobs/i }));
+    expect(screen.getAllByText('BRK-2002').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('BRK-2002')[0].className).toContain('text-green-700');
+
+    await userEvent.click(screen.getByRole('button', { name: 'All jobs' }));
+    expect(screen.getAllByText('Project 1').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('BRK-2002').length).toBeGreaterThan(0);
+  });
+
+  test('shows a scheduled subcontractor work order in All jobs', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/subcontractor-work-orders')) {
+        return Promise.resolve({
+          data: [
+            {
+              _id: 'wo-sched',
+              workOrderNumber: 'BRK-SCHED',
+              siteName: 'Lobby',
+              status: 'scheduled',
+              scheduledDate: '2024-06-02',
+              createdAt: '2024-06-01',
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ data: mockCustomers });
+    });
+
+    await renderDashboard();
+
+    expect(screen.getByRole('button', { name: 'All jobs' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText('BRK-SCHED').length).toBeGreaterThan(0);
+
+    await userEvent.click(screen.getByRole('button', { name: /^pending/i }));
+    expect(screen.queryByText('BRK-SCHED')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'All jobs' }));
+    expect(screen.getAllByText('BRK-SCHED').length).toBeGreaterThan(0);
   });
 
   test('does not show New Customer Bid when no hero bid is unread', async () => {

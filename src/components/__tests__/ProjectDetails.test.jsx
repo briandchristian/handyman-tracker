@@ -1902,7 +1902,7 @@ describe('ProjectDetails Component', () => {
           </w:body>
         </w:document>
       `;
-      const zipped = zipSync({ 'word/document.xml': strToU8(agreementXml) });
+      const zipped = zipSync({ 'word/document.xml': strToU8(agreementXml, true) });
       global.fetch.mockResolvedValue({
         ok: true,
         status: 200,
@@ -1943,8 +1943,7 @@ describe('ProjectDetails Component', () => {
         mockPdfDoc.text.mock.calls.some(
           ([line]) =>
             typeof line === 'string' &&
-            (line.includes('Monitoring term is 36 months.') ||
-              line.includes('Monitoring agreement source file could not be parsed.'))
+            line.includes('Monitoring term is 36 months.')
         )
       ).toBe(true);
     });

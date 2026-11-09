@@ -63,6 +63,8 @@ describe('canonical host routing', () => {
       '/inventory',
       '/accounting',
       '/subcontractor',
+      '/subcontractor/new',
+      '/subcontractor/:workOrderId',
     ]);
     expect(destinations.some((line) => line.startsWith('/services/:slug'))).toBe(false);
     expect(shellSources.some((source) => source.includes('.*') || source.includes(':path'))).toBe(false);
