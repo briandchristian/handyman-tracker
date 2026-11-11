@@ -12,6 +12,9 @@
  * Keep in inventory leaves the purchase on the shelf. Use on this job records the purchase, then uses it.
  * The line supplier is who that part was bought from.
  * Entering Line paid fills Price with that cost plus 30%. A price typed by hand stays until Line paid changes.
+ * A bid line can take a quick pick. The price becomes the estimate, and paid stays off the quote.
+ * Each bid line can be removed. Removing the last one leaves a blank line.
+ * Quoted amount is the sum of each line, quantity times its estimate.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
@@ -30,7 +33,7 @@ import {
 } from '../constants/customerWork';
 import { formatJobLabel } from '../constants/jobIdentity';
 import { purchaseOrderDraftFromJob } from '../utils/purchaseOrders';
-import { applyQuickPick, compareQuickPicks, moveQuickPick, normalizeQuickPick, orderQuickPicks, quickPickAvailability, quickPickLabel, quickPickStock } from '../utils/quickPicks';
+import { applyQuickPick, applyQuickPickToBid, compareQuickPicks, moveQuickPick, normalizeQuickPick, orderQuickPicks, quickPickAvailability, quickPickLabel, quickPickStock } from '../utils/quickPicks';
 import { priceFromPaid } from '../utils/linePrice';
 import QuickPickList from './QuickPickList';
 import {
@@ -38,6 +41,7 @@ import {
   bidLinesTotal,
   buildCustomerBidDocument,
   openBidDocument,
+  quotedAmountForBid,
 } from '../utils/bidDocument';
 import { sectionIsOpen, sectionToggleKey } from '../constants/sectionToggles';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
@@ -223,8 +227,9 @@ export default function CustomerWork({ customer, onSaved }) {
     [jobs, statusFilter]
   );
 
+  const quickPicksOpen = jobFormOpen || Boolean(bidEditor);
   useEffect(() => {
-    if (!jobFormOpen) return undefined;
+    if (!quickPicksOpen) return undefined;
     let cancelled = false;
     axios.get(`${API_BASE_URL}/api/quick-picks`, auth)
       .then((res) => {
@@ -238,7 +243,7 @@ export default function CustomerWork({ customer, onSaved }) {
     return () => {
       cancelled = true;
     };
-  }, [jobFormOpen]);
+  }, [quickPicksOpen]);
 
   useEffect(() => {
     if (!jobFormOpen) return undefined;
@@ -286,6 +291,12 @@ export default function CustomerWork({ customer, onSaved }) {
       : String(line.description || '').trim().toLowerCase() === String(pick?.description || '').trim().toLowerCase();
     return same ? sum + (Number(line.quantity) || 0) : sum;
   }, 0);
+
+  const addQuickPickToBid = (id) => {
+    const pick = quickPicks.find((item) => item._id === id);
+    if (!pick) return;
+    setBidForm((prev) => ({ ...prev, lines: applyQuickPickToBid(prev.lines, pick) }));
+  };
 
   const addQuickPick = (id) => {
     const pick = quickPicks.find((item) => item._id === id);
@@ -564,7 +575,7 @@ export default function CustomerWork({ customer, onSaved }) {
     setBidError('');
     const payload = {
       ...bidForm,
-      quotedAmount: bidForm.quotedAmount === '' ? null : bidForm.quotedAmount,
+      quotedAmount: bidLinesTotal(bidForm.lines),
     };
     try {
       if (bidEditor && bidEditor !== 'new') {
@@ -640,6 +651,13 @@ export default function CustomerWork({ customer, onSaved }) {
     }));
   };
 
+  const removeBidLine = (index) => {
+    setBidForm((prev) => {
+      const lines = prev.lines.filter((_, lineIndex) => lineIndex !== index);
+      return { ...prev, lines: lines.length ? lines : [emptyBidLine()] };
+    });
+  };
+
   return (
     <div className="space-y-6">
       <p className="text-sm text-slate-600">
@@ -679,7 +697,7 @@ export default function CustomerWork({ customer, onSaved }) {
                       <p className="text-sm text-slate-600 capitalize">{job.workType} · {job.status}</p>
                       {job.siteName ? <p className="text-sm">{job.siteName}</p> : null}
                       {relatedBid ? (
-                        <p className="text-sm text-slate-600">Quoted {money(relatedBid.quotedAmount)} · {bidLabel}</p>
+                        <p className="text-sm text-slate-600">Quoted {money(quotedAmountForBid(relatedBid))} · {bidLabel}</p>
                       ) : null}
                     </div>
                     <div className="md:text-right">
@@ -1099,7 +1117,7 @@ export default function CustomerWork({ customer, onSaved }) {
                   </div>
                   <div className="sm:text-right">
                     <p className="text-sm text-slate-600">Quoted</p>
-                    <p className="text-lg font-semibold">{money(bid.quotedAmount)}</p>
+                    <p className="text-lg font-semibold">{money(quotedAmountForBid(bid))}</p>
                     <p className="text-sm text-slate-600">Lines {money(bid.linesTotal ?? bidLinesTotal(bid.lines))}</p>
                     <div className="flex flex-wrap gap-2 sm:justify-end mt-2">
                       <button type="button" className="btn-row btn-row-primary" onClick={() => generateCustomerBid(bid)}>Generate bid</button>
@@ -1151,12 +1169,57 @@ export default function CustomerWork({ customer, onSaved }) {
                 </select>
               </AlignedFormField>
               <AlignedFormField label="Quoted amount" htmlFor="bid-quoted" className="col-span-12 md:col-span-2">
-                <input id="bid-quoted" type="number" min="0" step="0.01" value={bidForm.quotedAmount} onChange={(event) => setBidForm({ ...bidForm, quotedAmount: event.target.value })} className={compactFieldClass} />
+                <input
+                  id="bid-quoted"
+                  type="number"
+                  readOnly
+                  value={bidLinesTotal(bidForm.lines)}
+                  className={`${compactFieldClass} bg-slate-50`}
+                />
               </AlignedFormField>
               <AlignedFormField label="Description" htmlFor="bid-description" className="col-span-12">
                 <input id="bid-description" value={bidForm.description} onChange={(event) => setBidForm({ ...bidForm, description: event.target.value })} className={compactFieldClass} />
               </AlignedFormField>
             </AlignedFormGrid>
+            <p className="mb-2 text-sm leading-relaxed text-slate-600">
+              Add to line fills an empty bid line, or adds another line when this one already has a part.
+              The price on the quick pick becomes the estimate.
+            </p>
+            <AlignedFormField label="Bid quick pick" htmlFor="bid-quick-pick" className="mb-3">
+              <select
+                id="bid-quick-pick"
+                value=""
+                onChange={(event) => {
+                  if (event.target.value) addQuickPickToBid(event.target.value);
+                }}
+                className={compactFieldClass}
+              >
+                <option value="">Add a saved part</option>
+                {[...quickPicks].sort(compareQuickPicks).map((pick) => (
+                  <option key={pick._id} value={pick._id}>{quickPickLabel(pick)}</option>
+                ))}
+              </select>
+            </AlignedFormField>
+            <QuickPickList
+              picks={quickPicks}
+              onMove={reorderQuickPicks}
+              label="Bid quick picks"
+              className="mb-3"
+            >
+              {(pick) => (
+                <>
+                  <span className="min-w-0">{quickPickLabel(pick)}</span>
+                  <button
+                    type="button"
+                    className="btn-row btn-row-primary shrink-0"
+                    aria-label={`Add ${String(pick.description || pick.sku || 'part').trim()} to the bid line`}
+                    onClick={() => addQuickPickToBid(pick._id)}
+                  >
+                    Add to line
+                  </button>
+                </>
+              )}
+            </QuickPickList>
             {bidForm.lines.map((line, index) => (
               <AlignedFormGrid key={`bid-line-${index}`} className="mb-2">
                 <AlignedFormField label="Bid line description" htmlFor={`bid-line-desc-${index}`} className="col-span-12 md:col-span-6">
@@ -1168,6 +1231,11 @@ export default function CustomerWork({ customer, onSaved }) {
                 <AlignedFormField label="Estimate" htmlFor={`bid-line-est-${index}`} className="col-span-6 md:col-span-2">
                   <input id={`bid-line-est-${index}`} type="number" min="0" step="0.01" value={line.estimate} onChange={(event) => updateBidLine(index, 'estimate', event.target.value)} className={compactFieldClass} />
                 </AlignedFormField>
+                <div className="col-span-12 flex items-end justify-end md:col-span-2">
+                  <button type="button" className="btn-row btn-row-danger" onClick={() => removeBidLine(index)}>
+                    Remove bid line
+                  </button>
+                </div>
               </AlignedFormGrid>
             ))}
             <button

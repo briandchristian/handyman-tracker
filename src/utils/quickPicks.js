@@ -5,6 +5,9 @@
  * unless the blank starter line already has a quantity.
  * A reimbursable equipment line uses the same pick: paid is the cost,
  * and the price is what is sold to the principal.
+ * A bid line uses the description and the price as the estimate.
+ * Paid stays off the quote. A blank bid line is filled, and a line that
+ * already names a part gets another line after it.
  * The visible list keeps a dragged order. Lines with no saved position
  * stay in name order. The dropdown is always name order.
  */
@@ -144,6 +147,36 @@ export function applyQuickPick(lines, pick) {
   const next = lineFromQuickPick(pick);
   const current = Array.isArray(lines) && lines.length ? lines : [];
   if (current.length === 1 && blankIdentity(current[0])) {
+    const quantity = current[0].quantity;
+    return [{
+      ...next,
+      quantity: quantity === '' || quantity == null ? 1 : quantity,
+    }];
+  }
+  return [...current, next];
+}
+
+/** The pick's price is the bid estimate. Paid stays off the quote. */
+export function bidLineFromQuickPick(pick) {
+  const description = String(pick?.description || '').trim() || String(pick?.sku || '').trim();
+  const estimate = pick?.price == null || pick?.price === '' ? '' : pick.price;
+  return {
+    description,
+    quantity: 1,
+    estimate,
+  };
+}
+
+function blankBidLine(line) {
+  return !String(line?.description || '').trim()
+    && (line?.estimate === '' || line?.estimate == null);
+}
+
+/** Fill the empty bid line, or add another line when the quote already has a part. */
+export function applyQuickPickToBid(lines, pick) {
+  const next = bidLineFromQuickPick(pick);
+  const current = Array.isArray(lines) && lines.length ? lines : [];
+  if (current.length === 1 && blankBidLine(current[0])) {
     const quantity = current[0].quantity;
     return [{
       ...next,

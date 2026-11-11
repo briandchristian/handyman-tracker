@@ -132,7 +132,7 @@ describe('customer job tickets, bids, and projects', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.quoteNumber).toBe('A-1044-B0001');
-    expect(res.body.quotedAmount).toBe(9100);
+    expect(res.body.quotedAmount).toBe(7200);
     expect(res.body.linesTotal).toBe(7200);
 
     const saved = await mongoose.model('Customer').findById(customer._id);

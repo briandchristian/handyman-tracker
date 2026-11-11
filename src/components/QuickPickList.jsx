@@ -12,14 +12,14 @@ function dropPlace(event) {
   return y < rect.top + rect.height / 2 ? 'above' : 'below';
 }
 
-export default function QuickPickList({ picks, onMove, className = '', itemClassName, children }) {
+export default function QuickPickList({ picks, onMove, className = '', itemClassName, label = 'Quick picks', children }) {
   const draggingId = useRef('');
   const [over, setOver] = useState(null);
   const rows = Array.isArray(picks) ? picks : [];
   if (!rows.length) return null;
 
   return (
-    <ul aria-label="Quick picks" className={`space-y-2 ${className}`.trim()}>
+    <ul aria-label={label} className={`space-y-2 ${className}`.trim()}>
       {rows.map((pick) => {
         const id = String(pick._id);
         const tone = itemClassName?.(pick) || 'border-emerald-200 bg-white';

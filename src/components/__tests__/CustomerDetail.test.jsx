@@ -628,7 +628,7 @@ describe('CustomerDetail', () => {
     expect(bid).toHaveTextContent('4');
     expect(bid).toHaveTextContent('$1,800.00');
     expect(bid).toHaveTextContent('$7,200.00');
-    expect(bid).toHaveTextContent('$9,100.00');
+    expect(bid).not.toHaveTextContent('$9,100.00');
     expect(bid).not.toHaveTextContent('Amount due');
 
     await userEvent.click(within(bid).getByRole('checkbox', { name: /include monitoring agreement/i }));
@@ -645,7 +645,7 @@ describe('CustomerDetail', () => {
     expect(printed).toContain('Project: Cameras and access');
     expect(printed).toContain('Description: Four outdoor cameras');
     expect(printed).toContain('Quoted camera');
-    expect(printed).toContain('Bid Amount: $9100.00');
+    expect(printed).toContain('Bid Amount: $7200.00');
     expect(printed).toContain("What's Included:");
     expect(printed.some((line) => String(line).includes('1800'))).toBe(false);
     expect(axios.post).not.toHaveBeenCalled();
@@ -760,6 +760,124 @@ describe('CustomerDetail', () => {
     );
   });
 
+  test('adds a quick pick onto a bid line as the description and estimate', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/quick-picks')) {
+        return Promise.resolve({
+          data: {
+            quickPicks: [{
+              _id: 'qp1',
+              description: 'Switch',
+              sku: 'SW-1',
+              price: 500,
+              paid: 180,
+            }],
+          },
+        });
+      }
+      return Promise.resolve({ data: customer });
+    });
+    axios.post.mockResolvedValue({ data: { _id: 'b2' } });
+    await renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add bid' }));
+    const bid = screen.getByRole('form', { name: 'Bid' });
+    expect(await within(bid).findByRole('option', { name: /Switch · SW-1/ })).toBeInTheDocument();
+    await userEvent.selectOptions(within(bid).getByLabelText('Bid quick pick'), 'qp1');
+
+    expect(within(bid).getByLabelText('Bid line description')).toHaveValue('Switch');
+    expect(within(bid).getByLabelText('Bid quantity')).toHaveValue(1);
+    expect(within(bid).getByLabelText('Estimate')).toHaveValue(500);
+    expect(within(bid).getByLabelText('Estimate')).not.toHaveValue(180);
+
+    await userEvent.type(screen.getByLabelText('Bid name'), 'Cameras');
+    await userEvent.click(screen.getByRole('button', { name: 'Save bid' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/customers/c1/bids'),
+        expect.objectContaining({
+          name: 'Cameras',
+          lines: [expect.objectContaining({ description: 'Switch', quantity: 1, estimate: 500 })],
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  test('removes a bid line and leaves a blank line when it was the last one', async () => {
+    axios.get.mockResolvedValue({
+      data: {
+        ...customer,
+        bids: [{
+          ...customer.bids[0],
+          lines: [
+            { description: 'Quoted camera', quantity: 4, estimate: 1800 },
+            { description: 'Keypad', quantity: 1, estimate: 85 },
+          ],
+        }],
+      },
+    });
+    axios.put.mockResolvedValue({ data: { _id: 'b1' } });
+    await renderPage();
+
+    const row = await screen.findByTestId('bid-row-b1');
+    await userEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    const form = screen.getByRole('form', { name: 'Bid' });
+
+    expect(within(form).getAllByLabelText('Bid line description')).toHaveLength(2);
+    await userEvent.click(within(form).getAllByRole('button', { name: 'Remove bid line' })[0]);
+
+    expect(within(form).getAllByLabelText('Bid line description')).toHaveLength(1);
+    expect(within(form).getByLabelText('Bid line description')).toHaveValue('Keypad');
+    expect(within(form).queryByDisplayValue('Quoted camera')).not.toBeInTheDocument();
+
+    await userEvent.click(within(form).getByRole('button', { name: 'Remove bid line' }));
+    expect(within(form).getByLabelText('Bid line description')).toHaveValue('');
+    expect(within(form).getAllByLabelText('Bid line description')).toHaveLength(1);
+  });
+
+  test('quoted amount is the sum of each line quantity times its estimate', async () => {
+    axios.post.mockResolvedValue({ data: { _id: 'b2' } });
+    await renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add bid' }));
+    const form = screen.getByRole('form', { name: 'Bid' });
+    await userEvent.type(within(form).getByLabelText('Bid line description'), 'Camera');
+    await userEvent.type(within(form).getByLabelText('Bid quantity'), '4');
+    await userEvent.type(within(form).getByLabelText('Estimate'), '1800');
+    expect(within(form).getByLabelText('Quoted amount')).toHaveValue(7200);
+
+    await userEvent.click(within(form).getByRole('button', { name: 'Add bid line' }));
+    const descriptions = within(form).getAllByLabelText('Bid line description');
+    const quantities = within(form).getAllByLabelText('Bid quantity');
+    const estimates = within(form).getAllByLabelText('Estimate');
+    await userEvent.type(descriptions[1], 'Keypad');
+    await userEvent.type(quantities[1], '1');
+    await userEvent.type(estimates[1], '50');
+    expect(within(form).getByLabelText('Quoted amount')).toHaveValue(7250);
+
+    await userEvent.click(within(form).getAllByRole('button', { name: 'Remove bid line' })[1]);
+    expect(within(form).getByLabelText('Quoted amount')).toHaveValue(7200);
+
+    await userEvent.type(within(form).getByLabelText('Bid name'), 'Cameras');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save bid' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/customers/c1/bids'),
+        expect.objectContaining({
+          name: 'Cameras',
+          quotedAmount: 7200,
+          lines: [
+            expect.objectContaining({ description: 'Camera', quantity: '4', estimate: '1800' }),
+          ],
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
   test('adds a bid without creating a job', async () => {
     axios.post.mockResolvedValue({ data: { _id: 'b2' } });
     await renderPage();
@@ -767,7 +885,7 @@ describe('CustomerDetail', () => {
     await screen.findByRole('heading', { name: 'Bids' });
     await userEvent.click(screen.getByRole('button', { name: 'Add bid' }));
     await userEvent.type(screen.getByLabelText('Bid name'), 'Cameras');
-    await userEvent.type(screen.getByLabelText('Quoted amount'), '9100');
+    expect(screen.getByLabelText('Quoted amount')).toHaveValue(0);
     await userEvent.selectOptions(screen.getByLabelText('Bid status'), 'declined');
     await userEvent.click(screen.getByRole('button', { name: 'Save bid' }));
 
@@ -776,7 +894,7 @@ describe('CustomerDetail', () => {
         expect.stringContaining('/api/customers/c1/bids'),
         expect.objectContaining({
           name: 'Cameras',
-          quotedAmount: '9100',
+          quotedAmount: 0,
           status: 'declined',
         }),
         expect.any(Object)

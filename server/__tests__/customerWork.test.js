@@ -188,19 +188,26 @@ describe('customer job tickets', () => {
 });
 
 describe('customer bids and projects', () => {
-  test('keeps a quoted amount that differs from the worksheet lines', () => {
+  test('sets the quoted amount to the sum of quantity times estimate', () => {
     const checked = validateBid({
       name: 'Cameras and access',
       status: 'revised',
       quotedAmount: 9100,
       lines: [
         { description: 'Cameras', quantity: 4, estimate: 1800 },
+        { description: 'Keypad', quantity: 1, estimate: 50 },
       ],
     });
     expect(checked.error).toBeUndefined();
     expect(checked.value.status).toBe('revised');
-    expect(checked.value.linesTotal).toBe(7200);
-    expect(checked.value.quotedAmount).toBe(9100);
+    expect(checked.value.linesTotal).toBe(7250);
+    expect(checked.value.quotedAmount).toBe(7250);
+  });
+
+  test('a bid with no priced lines quotes zero', () => {
+    const checked = validateBid({ name: 'Lump sum', quotedAmount: 5000, lines: [] });
+    expect(checked.value.quotedAmount).toBe(0);
+    expect(checked.value.linesTotal).toBe(0);
   });
 
   test('uses the line total when no quoted amount is entered', () => {

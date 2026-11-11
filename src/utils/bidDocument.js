@@ -67,6 +67,13 @@ export function bidLinesTotal(lines = []) {
   return money((Array.isArray(lines) ? lines : []).reduce((sum, line) => sum + bidLineAmount(line), 0));
 }
 
+/** Priced lines set the quote. A bid with none keeps the amount already stored. */
+export function quotedAmountForBid(bid = {}) {
+  const total = bidLinesTotal(bid?.lines);
+  if (total > 0) return total;
+  return money(nonNegative(bid?.quotedAmount));
+}
+
 function printLines(lines = []) {
   return (Array.isArray(lines) ? lines : []).map((line) => ({
     description: String(line?.description ?? line?.item ?? '').trim(),
@@ -82,7 +89,8 @@ function issuedDate(value) {
 
 /**
  * Customer quote. The quote number already on the bid is the number that prints.
- * quotedAmount stays the customer price when it differs from the line estimates.
+ * The bid amount is the sum of each line, quantity times its estimate.
+ * A bid with no priced lines keeps its stored quoted amount.
  */
 export function buildCustomerBidDocument({
   customer = {},
@@ -100,7 +108,7 @@ export function buildCustomerBidDocument({
     date: date ? issuedDate(date) : new Date(),
     proposedSystemText: '',
     lines: printLines(bid?.lines),
-    bidAmount: money(nonNegative(bid?.quotedAmount)),
+    bidAmount: quotedAmountForBid(bid),
     includeMonitoringAgreement: Boolean(includeMonitoringAgreement),
   };
 }

@@ -375,12 +375,6 @@ export function validateBid(input = {}) {
 
   const lines = normalizeBidLines(input.lines);
   const total = bidLinesTotal(lines);
-  const rawQuoted = input.quotedAmount;
-  const hasQuoted = !(rawQuoted === '' || rawQuoted == null);
-  const quotedAmount = hasQuoted ? Number(rawQuoted) : total;
-  if (hasQuoted && (!Number.isFinite(quotedAmount) || quotedAmount < 0)) {
-    return { error: 'quotedAmount must be a non-negative number' };
-  }
 
   return {
     value: {
@@ -391,7 +385,7 @@ export function validateBid(input = {}) {
       planId: String(input.planId || '').trim(),
       lines,
       linesTotal: total,
-      quotedAmount: money(quotedAmount),
+      quotedAmount: total,
     },
   };
 }

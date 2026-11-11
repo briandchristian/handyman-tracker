@@ -1,10 +1,13 @@
 /**
  * Quick picks reuse a job line's description, SKU, price, and paid amount.
  * Quantity is chosen on the job, not stored on the pick.
+ * A bid line takes the description and uses the price as the estimate.
+ * A blank bid line is filled. A line that already names a part gets another line.
  */
 
 import {
   applyQuickPick,
+  applyQuickPickToBid,
   applyQuickPickToEquipment,
   moveQuickPick,
   orderQuickPicks,
@@ -172,6 +175,33 @@ describe('quick picks', () => {
       sold: 32.5,
       reimbursable: true,
     });
+  });
+
+  test('fills a blank bid line with the description and the price as the estimate', () => {
+    expect(applyQuickPickToBid(
+      [{ description: '', quantity: 4, estimate: '' }],
+      { description: 'Switch', sku: 'SW-1', price: 500, paid: 180 },
+    )).toEqual([
+      { description: 'Switch', quantity: 4, estimate: 500 },
+    ]);
+  });
+
+  test('uses the SKU as the bid description when the pick has no description', () => {
+    expect(applyQuickPickToBid(
+      [{ description: '', quantity: '', estimate: '' }],
+      { description: '', sku: 'SW-1', price: null, paid: 12 },
+    )).toEqual([
+      { description: 'SW-1', quantity: 1, estimate: '' },
+    ]);
+  });
+
+  test('adds another bid line when the quote already has a part', () => {
+    const lines = applyQuickPickToBid(
+      [{ description: 'Keypad', quantity: 1, estimate: 85 }],
+      { description: 'Switch', sku: 'SW-1', price: 500, paid: 180 },
+    );
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toEqual({ description: 'Switch', quantity: 1, estimate: 500 });
   });
 
   test('adds a new line when the job already has a part', () => {

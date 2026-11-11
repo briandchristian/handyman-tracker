@@ -68,14 +68,14 @@ describe('bid document model', () => {
       phone: '555-0100',
       description: 'Four outdoor cameras',
       quoteNumber: 'A-1001-B0004',
-      bidAmount: 9100,
+      bidAmount: 7200,
       includeMonitoringAgreement: true,
     });
     expect(document.date).toBe(issuedOn);
     expect(document.lines).toEqual([
       { description: 'Quoted camera', quantity: 4, sku: '' },
     ]);
-    expect(document.bidAmount).not.toBe(bidLineAmount({ quantity: 4, estimate: 1800 }));
+    expect(document.bidAmount).toBe(bidLineAmount({ quantity: 4, estimate: 1800 }));
     expect(document.amountDue).toBeUndefined();
     expect(document.billAmount).toBeUndefined();
   });
@@ -206,7 +206,7 @@ describe('renderBidDocument', () => {
     expect(lines).toContain('Quoted camera · 3W-MX922');
     expect(lines).toContain('4');
     expect(lines.some((line) => line.includes('1800'))).toBe(false);
-    expect(lines).toContain('Bid Amount: $9100.00');
+    expect(lines).toContain('Bid Amount: $7200.00');
     expect(lines).toContain("What's Included:");
     expect(lines).toContain("What's Not Included:");
     expect(lines).toContain('Payment Terms:');
