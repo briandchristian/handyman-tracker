@@ -1,12 +1,14 @@
 /**
  * Entering a line's paid amount suggests a price of that cost plus 30%.
- * A blank paid amount does not suggest a price.
+ * $100 paid becomes $130. A blank paid amount does not suggest a price.
  */
 
 import { priceFromPaid } from '../linePrice';
 
 describe('price from paid', () => {
-  test('adds 30 percent to a paid amount and rounds to cents', () => {
+  test('sets the price to the paid amount plus 30 percent', () => {
+    expect(priceFromPaid(32.07)).toBe(41.69);
+    expect(priceFromPaid(265.25)).toBe(344.83);
     expect(priceFromPaid(100)).toBe(130);
     expect(priceFromPaid('13.92')).toBe(18.1);
     expect(priceFromPaid(0)).toBe(0);
