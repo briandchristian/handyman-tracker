@@ -5,6 +5,9 @@
 
 import {
   applyQuickPick,
+  applyQuickPickToEquipment,
+  moveQuickPick,
+  orderQuickPicks,
   compareQuickPicks,
   matchingQuickPick,
   normalizeQuickPick,
@@ -65,6 +68,26 @@ describe('quick picks', () => {
       .toBe('Switch · SW-1 · $500.00 · paid $180.00');
   });
 
+  test('keeps a saved list order and falls back to name when a line has none', () => {
+    const ordered = orderQuickPicks([
+      { _id: 'sw', description: 'Switch', sku: 'SW-1' },
+      { _id: 'rl', description: 'Relay', sku: 'RL-1', sortOrder: 1 },
+      { _id: 'dc', description: 'Contact', sku: 'DC-1', sortOrder: 0 },
+    ]);
+    expect(ordered.map((pick) => pick._id)).toEqual(['dc', 'rl', 'sw']);
+  });
+
+  test('moves a quick pick above or below another line', () => {
+    const picks = [
+      { _id: 'sw', description: 'Switch', sortOrder: 0 },
+      { _id: 'rl', description: 'Relay', sortOrder: 1 },
+      { _id: 'dc', description: 'Contact', sortOrder: 2 },
+    ];
+    expect(moveQuickPick(picks, 'dc', 'sw', 'above').map((pick) => pick._id)).toEqual(['dc', 'sw', 'rl']);
+    expect(moveQuickPick(picks, 'sw', 'rl', 'below').map((pick) => pick._id)).toEqual(['rl', 'sw', 'dc']);
+    expect(moveQuickPick(picks, 'sw', 'sw', 'below').map((pick) => pick._id)).toEqual(['sw', 'rl', 'dc']);
+  });
+
   test('sorts picks by description, then SKU', () => {
     const picks = [
       { description: 'Switch', sku: 'SW-2' },
@@ -110,6 +133,45 @@ describe('quick picks', () => {
       cue: 'In stock, 3 on hand',
     });
     expect(quickPickAvailability({ sku: 'SW-1' }, [item], 4).cue).toBe('Out of stock');
+  });
+
+  test('fills a blank reimbursable equipment line from a quick pick', () => {
+    expect(applyQuickPickToEquipment(
+      [{ description: '', sku: '', quantity: 2, cost: '', sold: '', reimbursable: true }],
+      { description: 'Door contact', sku: 'DC-1', price: 32.5, paid: 13.92 },
+    )).toEqual([
+      {
+        description: 'Door contact',
+        sku: 'DC-1',
+        quantity: 2,
+        cost: 13.92,
+        sold: 32.5,
+        reimbursable: true,
+      },
+    ]);
+  });
+
+  test('keeps an equipment line that is not reimbursable when the starter line was unchecked', () => {
+    expect(applyQuickPickToEquipment(
+      [{ description: '', sku: '', quantity: '', cost: '', sold: '', reimbursable: false }],
+      { description: 'Door contact', sku: 'DC-1', price: null, paid: null },
+    )[0]).toMatchObject({ cost: '', sold: '', reimbursable: false, quantity: 1 });
+  });
+
+  test('adds another equipment line when reimbursable equipment is already entered', () => {
+    const lines = applyQuickPickToEquipment(
+      [{ description: 'Motion', sku: '', quantity: 1, cost: 18, sold: '', reimbursable: true }],
+      { description: 'Door contact', sku: 'DC-1', price: 32.5, paid: 13.92 },
+    );
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toEqual({
+      description: 'Door contact',
+      sku: 'DC-1',
+      quantity: 1,
+      cost: 13.92,
+      sold: 32.5,
+      reimbursable: true,
+    });
   });
 
   test('adds a new line when the job already has a part', () => {

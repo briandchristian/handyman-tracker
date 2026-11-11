@@ -265,6 +265,58 @@ describe('SubcontractorJobs', () => {
     expect(screen.getByRole('heading', { name: 'BRK-2002' })).toBeInTheDocument();
   });
 
+  test('adds a saved quick pick onto a reimbursable equipment line', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/quick-picks')) {
+        return Promise.resolve({
+          data: {
+            quickPicks: [{
+              _id: 'qp1',
+              description: 'Door contact',
+              sku: 'DC-1',
+              price: 32.5,
+              paid: 13.92,
+            }],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    axios.post.mockResolvedValue({
+      data: { _id: 'qp1', description: 'Door contact', sku: 'DC-1', price: 32.5, paid: 13.92 },
+    });
+    renderAt('/subcontractor/new');
+    await openEditorSections();
+
+    const picks = await screen.findByRole('list', { name: 'Quick picks' });
+    await userEvent.click(within(picks).getByRole('button', { name: 'Add Door contact to the line' }));
+
+    expect(screen.getByLabelText(/equipment description/i)).toHaveValue('Door contact');
+    expect(screen.getByLabelText(/^sku$/i)).toHaveValue('DC-1');
+    expect(screen.getByLabelText(/^paid$/i)).toHaveValue(13.92);
+    expect(screen.getByLabelText(/^sold$/i)).toHaveValue(32.5);
+    expect(screen.getByLabelText(/^quantity$/i)).toHaveValue(1);
+    expect(screen.getByLabelText(/reimbursable/i)).toBeChecked();
+
+    await userEvent.click(within(picks).getByRole('button', { name: 'Add Door contact to the line' }));
+    expect(screen.getAllByLabelText(/equipment description/i)).toHaveLength(2);
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save to Quick Pick' })[0]);
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/quick-picks'),
+        expect.objectContaining({
+          description: 'Door contact',
+          sku: 'DC-1',
+          price: 32.5,
+          paid: 13.92,
+        }),
+        expect.any(Object)
+      );
+    });
+    expect(await screen.findByRole('status')).toHaveTextContent('Saved to Quick Pick');
+  });
+
   test('adds an equipment line and deletes that work order from its page', async () => {
     axios.get.mockResolvedValue({ data: orders });
     axios.delete.mockResolvedValue({ data: { msg: 'Work order deleted' } });

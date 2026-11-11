@@ -2,6 +2,8 @@
  * One Brinks work order.
  * The page shows that order. Edit opens the work-order fields, reimbursable
  * equipment, and Brinks reconciliation on this order only.
+ * Quick picks saved from a job fill an equipment line: paid is the cost,
+ * and the price is sold to the principal. The line stays reimbursable.
  * A reconciled order is shown in green.
  */
 import { useEffect, useMemo, useState } from 'react';
@@ -21,6 +23,8 @@ import {
 } from '../constants/subcontractorWorkOrders';
 import { AlignedFormGrid, AlignedFormField } from './common/AlignedFormGrid';
 import SectionToggle from './SectionToggle';
+import { applyQuickPickToEquipment, compareQuickPicks, moveQuickPick, normalizeQuickPick, orderQuickPicks, quickPickLabel } from '../utils/quickPicks';
+import QuickPickList from './QuickPickList';
 
 const money = (value) =>
   `$${(Number(value) || 0).toLocaleString('en-US', {
@@ -127,6 +131,8 @@ export default function SubcontractorWorkOrderPage() {
   const [error, setError] = useState('');
   const [formError, setFormError] = useState('');
   const [draft, setDraft] = useState(() => (creating ? emptyForm() : null));
+  const [quickPicks, setQuickPicks] = useState([]);
+  const [quickPickNotice, setQuickPickNotice] = useState(null);
 
   const loadOrders = async () => {
     const res = await axios.get(`${API_BASE_URL}/api/subcontractor-work-orders`, authHeaders());
@@ -150,6 +156,23 @@ export default function SubcontractorWorkOrderPage() {
       cancelled = true;
     };
   }, [creating, workOrderId]);
+
+  useEffect(() => {
+    if (!editing) return undefined;
+    let cancelled = false;
+    axios.get(`${API_BASE_URL}/api/quick-picks`, authHeaders())
+      .then((res) => {
+        if (cancelled) return;
+        const list = res.data?.quickPicks;
+        setQuickPicks(Array.isArray(list) ? orderQuickPicks(list) : []);
+      })
+      .catch(() => {
+        if (!cancelled) setQuickPicks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editing]);
 
   const order = useMemo(
     () => orders.find((row) => String(row._id) === String(workOrderId)) || null,
@@ -178,6 +201,59 @@ export default function SubcontractorWorkOrderPage() {
         lineIndex === index ? { ...line, [field]: value } : line
       )),
     }));
+  };
+
+  const addQuickPick = (id) => {
+    const pick = quickPicks.find((item) => item._id === id);
+    if (!pick) return;
+    replaceForm((prev) => ({
+      ...prev,
+      equipmentLines: applyQuickPickToEquipment(prev.equipmentLines, pick),
+    }));
+    setQuickPickNotice(null);
+  };
+
+  const saveLineToQuickPick = async (line, index) => {
+    const checked = normalizeQuickPick({
+      description: line.description,
+      sku: line.sku,
+      price: line.sold,
+      paid: line.cost,
+    });
+    if (!checked.ok) {
+      setQuickPickNotice({ index, ok: false, text: checked.error });
+      return;
+    }
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/quick-picks`, {
+        description: line.description,
+        sku: line.sku,
+        price: line.sold,
+        paid: line.cost,
+      }, authHeaders());
+      const saved = res.data;
+      setQuickPicks((prev) => orderQuickPicks([...prev.filter((item) => item._id !== saved._id), saved]));
+      setQuickPickNotice({ index, id: saved._id, ok: true, text: 'Saved to Quick Pick' });
+    } catch (err) {
+      setQuickPickNotice({
+        index,
+        ok: false,
+        text: err.response?.data?.msg || 'Failed to save quick pick',
+      });
+    }
+  };
+
+  const reorderQuickPicks = async (fromId, toId, place) => {
+    const previous = quickPicks;
+    const next = moveQuickPick(previous, fromId, toId, place);
+    if (next.every((pick, index) => String(pick._id) === String(previous[index]?._id))) return;
+    setQuickPicks(next);
+    try {
+      await axios.put(`${API_BASE_URL}/api/quick-picks/order`, { ids: next.map((pick) => pick._id) }, authHeaders());
+    } catch (err) {
+      setQuickPicks(previous);
+      setQuickPickNotice({ index: -1, ok: false, text: err.response?.data?.msg || 'Failed to save quick pick order' });
+    }
   };
 
   const addEquipmentLine = () => {
@@ -368,8 +444,58 @@ export default function SubcontractorWorkOrderPage() {
           </AlignedFormGrid>
 
           <SectionToggle nested title="Reimbursable equipment">
+            <p className="text-sm leading-relaxed text-slate-600 mb-3">
+              Add to line fills an empty equipment line, or adds another line when this one already has a part.
+              Paid on the quick pick becomes the cost. The price becomes Sold.
+            </p>
+            <AlignedFormField label="Quick pick" htmlFor="wo-quick-pick" className="mb-3">
+              <select
+                id="wo-quick-pick"
+                value=""
+                onChange={(event) => {
+                  if (event.target.value) addQuickPick(event.target.value);
+                }}
+                className={fieldClass}
+              >
+                <option value="">Add a saved part</option>
+                {[...quickPicks].sort(compareQuickPicks).map((pick) => (
+                  <option key={pick._id} value={pick._id}>{quickPickLabel(pick)}</option>
+                ))}
+              </select>
+            </AlignedFormField>
+            <QuickPickList
+              picks={quickPicks}
+              onMove={reorderQuickPicks}
+              className="mb-4"
+              itemClassName={(pick) => (
+                quickPickNotice?.ok && quickPickNotice.id === pick._id
+                  ? 'border-emerald-400 bg-emerald-50'
+                  : 'border-emerald-200 bg-white'
+              )}
+            >
+              {(pick) => {
+                const justSaved = quickPickNotice?.ok && quickPickNotice.id === pick._id;
+                return (
+                  <>
+                    <span className="min-w-0">
+                      {quickPickLabel(pick)}
+                      {justSaved ? <span className="ml-2 font-semibold text-emerald-800">Saved</span> : null}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-row btn-row-primary shrink-0"
+                      aria-label={`Add ${String(pick.description || pick.sku || 'part').trim()} to the line`}
+                      onClick={() => addQuickPick(pick._id)}
+                    >
+                      Add to line
+                    </button>
+                  </>
+                );
+              }}
+            </QuickPickList>
             {form.equipmentLines.map((line, index) => (
-              <AlignedFormGrid key={`eq-${index}`} className="mb-2">
+              <div key={`eq-${index}`} className="mb-3 rounded-2xl border border-emerald-200 bg-white p-4 shadow-md">
+              <AlignedFormGrid className="mb-2">
                 <AlignedFormField label="Equipment description" htmlFor={`wo-eq-desc-${index}`} className="col-span-12 md:col-span-4">
                   <input id={`wo-eq-desc-${index}`} value={line.description} onChange={(event) => updateLine(index, 'description', event.target.value)} className={fieldClass} />
                 </AlignedFormField>
@@ -385,8 +511,8 @@ export default function SubcontractorWorkOrderPage() {
                 <AlignedFormField label="Sold" htmlFor={`wo-eq-sold-${index}`} className="col-span-6 md:col-span-2">
                   <input id={`wo-eq-sold-${index}`} type="number" min="0" step="0.01" value={line.sold} onChange={(event) => updateLine(index, 'sold', event.target.value)} className={fieldClass} />
                 </AlignedFormField>
-                <div className="col-span-6 md:col-span-2 flex items-end gap-2 pb-1">
-                  <label className="flex items-center gap-2 text-sm">
+                <div className="col-span-12 flex flex-wrap items-center justify-end gap-2">
+                  <label className="mr-auto flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={line.reimbursable}
@@ -394,11 +520,25 @@ export default function SubcontractorWorkOrderPage() {
                     />
                     Reimbursable
                   </label>
+                  {quickPickNotice?.index === index ? (
+                    <p
+                      role="status"
+                      className={quickPickNotice.ok
+                        ? 'rounded-full bg-emerald-100 px-3 py-1 text-sm font-semibold text-emerald-800'
+                        : 'text-sm font-semibold text-red-700'}
+                    >
+                      {quickPickNotice.text}
+                    </p>
+                  ) : null}
+                  <button type="button" className="btn-row btn-row-secondary" onClick={() => saveLineToQuickPick(line, index)}>
+                    Save to Quick Pick
+                  </button>
                   <button type="button" className="text-red-700 text-sm underline" onClick={() => removeEquipmentLine(index)}>
                     Remove
                   </button>
                 </div>
               </AlignedFormGrid>
+              </div>
             ))}
             <button type="button" className="btn-staff text-sm mb-4" onClick={addEquipmentLine}>
               Add equipment line

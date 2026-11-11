@@ -3,6 +3,10 @@
  * Description, SKU, price (what you charge), and paid (what it cost) are kept.
  * Quantity stays on the job. Adding a pick starts that line at quantity 1
  * unless the blank starter line already has a quantity.
+ * A reimbursable equipment line uses the same pick: paid is the cost,
+ * and the price is what is sold to the principal.
+ * The visible list keeps a dragged order. Lines with no saved position
+ * stay in name order. The dropdown is always name order.
  */
 
 export function normalizeQuickPick(input) {
@@ -48,6 +52,35 @@ export function compareQuickPicks(a, b) {
   const description = String(a?.description || '').localeCompare(String(b?.description || ''), undefined, { sensitivity: 'base' });
   if (description) return description;
   return String(a?.sku || '').localeCompare(String(b?.sku || ''), undefined, { sensitivity: 'base' });
+}
+
+function savedOrder(pick) {
+  return typeof pick?.sortOrder === 'number' && Number.isFinite(pick.sortOrder)
+    ? pick.sortOrder
+    : Number.POSITIVE_INFINITY;
+}
+
+/** Dragged positions first. A line that has never been placed stays in name order after those. */
+export function orderQuickPicks(list) {
+  return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
+    const order = savedOrder(a) - savedOrder(b);
+    if (order) return order;
+    return compareQuickPicks(a, b);
+  });
+}
+
+/** Place one line above or below another and number the list from the top. */
+export function moveQuickPick(list, fromId, toId, place) {
+  const items = orderQuickPicks(list);
+  const fromIndex = items.findIndex((item) => String(item._id) === String(fromId));
+  const toIndex = items.findIndex((item) => String(item._id) === String(toId));
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return items;
+  const next = items.slice();
+  const [moved] = next.splice(fromIndex, 1);
+  let insertAt = next.findIndex((item) => String(item._id) === String(toId));
+  if (place === 'below') insertAt += 1;
+  next.splice(insertAt, 0, moved);
+  return next.map((item, index) => ({ ...item, sortOrder: index }));
 }
 
 const dollars = (value) => `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -115,6 +148,40 @@ export function applyQuickPick(lines, pick) {
     return [{
       ...next,
       quantity: quantity === '' || quantity == null ? 1 : quantity,
+    }];
+  }
+  return [...current, next];
+}
+
+/** Paid on the pick is the equipment cost. The pick's price is what is sold. */
+export function equipmentLineFromQuickPick(pick) {
+  return {
+    description: pick?.description || '',
+    sku: pick?.sku || '',
+    quantity: 1,
+    cost: pick?.paid ?? '',
+    sold: pick?.price ?? '',
+    reimbursable: true,
+  };
+}
+
+function blankEquipment(line) {
+  return !String(line?.description || '').trim()
+    && !String(line?.sku || '').trim()
+    && (line?.cost === '' || line?.cost == null)
+    && (line?.sold === '' || line?.sold == null);
+}
+
+/** Fill the empty equipment line, or add another line when one is already entered. */
+export function applyQuickPickToEquipment(lines, pick) {
+  const next = equipmentLineFromQuickPick(pick);
+  const current = Array.isArray(lines) && lines.length ? lines : [];
+  if (current.length === 1 && blankEquipment(current[0])) {
+    const quantity = current[0].quantity;
+    return [{
+      ...next,
+      quantity: quantity === '' || quantity == null ? 1 : quantity,
+      reimbursable: current[0].reimbursable !== false,
     }];
   }
   return [...current, next];

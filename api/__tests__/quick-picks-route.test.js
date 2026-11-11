@@ -132,6 +132,38 @@ describe('quick pick routes', () => {
     expect(empty.body.quickPicks).toEqual([]);
   });
 
+  test('saves a dragged quick pick order and lists that order next time', async () => {
+    const first = await request(app)
+      .post('/api/quick-picks')
+      .set(auth())
+      .send({ description: 'Switch', sku: 'SW-1', price: 10, paid: 4 });
+    const second = await request(app)
+      .post('/api/quick-picks')
+      .set(auth())
+      .send({ description: 'Relay', sku: 'RL-1', price: 8, paid: 3 });
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+
+    const named = await request(app).get('/api/quick-picks').set(auth());
+    expect(named.body.quickPicks.map((pick) => pick.description)).toEqual(['Relay', 'Switch']);
+
+    const moved = await request(app)
+      .put('/api/quick-picks/order')
+      .set(auth())
+      .send({ ids: [first.body._id, second.body._id] });
+    expect(moved.status).toBe(200);
+    expect(moved.body.quickPicks.map((pick) => pick.description)).toEqual(['Switch', 'Relay']);
+
+    const listed = await request(app).get('/api/quick-picks').set(auth());
+    expect(listed.body.quickPicks.map((pick) => pick.description)).toEqual(['Switch', 'Relay']);
+
+    const partial = await request(app)
+      .put('/api/quick-picks/order')
+      .set(auth())
+      .send({ ids: [first.body._id] });
+    expect(partial.status).toBe(400);
+  });
+
   test('rejects a part with no description and no SKU', async () => {
     const res = await request(app)
       .post('/api/quick-picks')

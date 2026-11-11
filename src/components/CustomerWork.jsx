@@ -8,8 +8,10 @@
  * Create PO copies the job lines onto a draft purchase order. Cost is the supplier price.
  * Generate bid prints the shared bid document from these lines and the quoted amount.
  * Quick pick stores a line's description, SKU, price, and paid amount for the next job.
+ * The list keeps a dragged order. The dropdown stays in name order.
  * Keep in inventory leaves the purchase on the shelf. Use on this job records the purchase, then uses it.
  * The line supplier is who that part was bought from.
+ * Entering Line paid fills Price with that cost plus 30%. A price typed by hand stays until Line paid changes.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
@@ -28,7 +30,9 @@ import {
 } from '../constants/customerWork';
 import { formatJobLabel } from '../constants/jobIdentity';
 import { purchaseOrderDraftFromJob } from '../utils/purchaseOrders';
-import { applyQuickPick, compareQuickPicks, normalizeQuickPick, quickPickAvailability, quickPickLabel, quickPickStock } from '../utils/quickPicks';
+import { applyQuickPick, compareQuickPicks, moveQuickPick, normalizeQuickPick, orderQuickPicks, quickPickAvailability, quickPickLabel, quickPickStock } from '../utils/quickPicks';
+import { priceFromPaid } from '../utils/linePrice';
+import QuickPickList from './QuickPickList';
 import {
   bidLineAmount,
   bidLinesTotal,
@@ -226,7 +230,7 @@ export default function CustomerWork({ customer, onSaved }) {
       .then((res) => {
         if (cancelled) return;
         const list = Array.isArray(res.data) ? res.data : (res.data?.quickPicks || []);
-        setQuickPicks(Array.isArray(list) ? [...list].sort(compareQuickPicks) : []);
+        setQuickPicks(Array.isArray(list) ? orderQuickPicks(list) : []);
       })
       .catch(() => {
         if (!cancelled) setQuickPicks([]);
@@ -342,7 +346,7 @@ export default function CustomerWork({ customer, onSaved }) {
         paid: line.paid,
       }, auth);
       const saved = res.data;
-      setQuickPicks((prev) => [...prev.filter((item) => item._id !== saved._id), saved].sort(compareQuickPicks));
+      setQuickPicks((prev) => orderQuickPicks([...prev.filter((item) => item._id !== saved._id), saved]));
       setQuickPickLineNotice({ index, id: saved._id, ok: true, text: 'Saved to Quick Pick' });
     } catch (err) {
       setQuickPickLineNotice({
@@ -350,6 +354,19 @@ export default function CustomerWork({ customer, onSaved }) {
         ok: false,
         text: err.response?.data?.msg || 'Failed to save quick pick',
       });
+    }
+  };
+
+  const reorderQuickPicks = async (fromId, toId, place) => {
+    const previous = quickPicks;
+    const next = moveQuickPick(previous, fromId, toId, place);
+    if (next.every((pick, index) => String(pick._id) === String(previous[index]?._id))) return;
+    setQuickPicks(next);
+    try {
+      await axios.put(`${API_BASE_URL}/api/quick-picks/order`, { ids: next.map((pick) => pick._id) }, auth);
+    } catch (err) {
+      setQuickPicks(previous);
+      setQuickPickMessage(err.response?.data?.msg || 'Failed to save quick pick order');
     }
   };
 
@@ -369,9 +386,15 @@ export default function CustomerWork({ customer, onSaved }) {
   const updateCharge = (index, field, value) => {
     setJobForm((prev) => ({
       ...prev,
-      chargeLines: prev.chargeLines.map((line, lineIndex) => (
-        lineIndex === index ? { ...line, [field]: value } : line
-      )),
+      chargeLines: prev.chargeLines.map((line, lineIndex) => {
+        if (lineIndex !== index) return line;
+        const next = { ...line, [field]: value };
+        if (field === 'paid') {
+          const price = priceFromPaid(value);
+          if (price != null) next.price = price;
+        }
+        return next;
+      }),
     }));
   };
 
@@ -873,7 +896,7 @@ export default function CustomerWork({ customer, onSaved }) {
                 className={fieldClass}
               >
                 <option value="">Add a saved part</option>
-                {quickPicks.map((pick) => {
+                {[...quickPicks].sort(compareQuickPicks).map((pick) => {
                   const availability = quickPickAvailability(pick, inventoryItems, reservedForPick(pick, jobForm.chargeLines));
                   return (
                     <option key={pick._id} value={pick._id}>{`${quickPickLabel(pick)} · ${availability.cue}`}</option>
@@ -882,47 +905,53 @@ export default function CustomerWork({ customer, onSaved }) {
               </select>
             </JobField>
             {quickPickMessage ? <p className="text-sm font-medium text-slate-800">{quickPickMessage}</p> : null}
-            {quickPicks.length ? (
-              <ul aria-label="Quick picks" className="space-y-2">
-                {quickPicks.map((pick) => {
-                  const stock = quickPickStock(pick, inventoryItems);
-                  const availability = quickPickAvailability(pick, inventoryItems, reservedForPick(pick, jobForm.chargeLines));
-                  const cueClass = availability.cue === 'Out of stock'
-                    ? 'font-semibold text-amber-700'
-                    : availability.cue === 'Not in inventory'
-                      ? 'font-semibold text-slate-500'
-                      : 'font-semibold text-emerald-700';
-                  const justSaved = quickPickLineNotice?.ok && quickPickLineNotice.id === pick._id;
-                  return (
-                    <li key={pick._id} className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-sm text-slate-800 shadow-md ${justSaved ? 'border-emerald-400 bg-emerald-50' : 'border-emerald-200 bg-white'}`}>
-                      <span className="min-w-0">
-                        {quickPickLabel(pick)}
-                        <span className={`ml-2 ${cueClass}`}>{availability.cue}</span>
-                        {justSaved ? <span className="ml-2 font-semibold text-emerald-800">Saved</span> : null}
-                      </span>
-                      <span className="flex shrink-0 gap-2">
-                        <button
-                          type="button"
-                          className="btn-row btn-row-primary"
-                          aria-label={`Add ${String(pick.description || pick.sku || 'part').trim()} to the line`}
-                          onClick={() => addQuickPick(pick._id)}
-                        >
-                          Add to line
+            <QuickPickList
+              picks={quickPicks}
+              onMove={reorderQuickPicks}
+              itemClassName={(pick) => (
+                quickPickLineNotice?.ok && quickPickLineNotice.id === pick._id
+                  ? 'border-emerald-400 bg-emerald-50'
+                  : 'border-emerald-200 bg-white'
+              )}
+            >
+              {(pick) => {
+                const stock = quickPickStock(pick, inventoryItems);
+                const availability = quickPickAvailability(pick, inventoryItems, reservedForPick(pick, jobForm.chargeLines));
+                const cueClass = availability.cue === 'Out of stock'
+                  ? 'font-semibold text-amber-700'
+                  : availability.cue === 'Not in inventory'
+                    ? 'font-semibold text-slate-500'
+                    : 'font-semibold text-emerald-700';
+                const justSaved = quickPickLineNotice?.ok && quickPickLineNotice.id === pick._id;
+                return (
+                  <>
+                    <span className="min-w-0">
+                      {quickPickLabel(pick)}
+                      <span className={`ml-2 ${cueClass}`}>{availability.cue}</span>
+                      {justSaved ? <span className="ml-2 font-semibold text-emerald-800">Saved</span> : null}
+                    </span>
+                    <span className="flex shrink-0 gap-2">
+                      <button
+                        type="button"
+                        className="btn-row btn-row-primary"
+                        aria-label={`Add ${String(pick.description || pick.sku || 'part').trim()} to the line`}
+                        onClick={() => addQuickPick(pick._id)}
+                      >
+                        Add to line
+                      </button>
+                      {stock.status === 'missing' ? (
+                        <button type="button" className="btn-row btn-row-accent" onClick={() => addPickToInventory(pick)}>
+                          Add to inventory
                         </button>
-                        {stock.status === 'missing' ? (
-                          <button type="button" className="btn-row btn-row-accent" onClick={() => addPickToInventory(pick)}>
-                            Add to inventory
-                          </button>
-                        ) : null}
-                        <button type="button" className="btn-row btn-row-danger" onClick={() => removeQuickPick(pick)}>
-                          Remove quick pick
-                        </button>
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : null}
+                      ) : null}
+                      <button type="button" className="btn-row btn-row-danger" onClick={() => removeQuickPick(pick)}>
+                        Remove quick pick
+                      </button>
+                    </span>
+                  </>
+                );
+              }}
+            </QuickPickList>
             {jobForm.chargeLines.map((line, index) => (
               <div key={`charge-${index}`} className="space-y-3 rounded-2xl border border-emerald-200 bg-white p-4 shadow-md">
                 <JobField label="Line description" htmlFor={`charge-desc-${index}`}>

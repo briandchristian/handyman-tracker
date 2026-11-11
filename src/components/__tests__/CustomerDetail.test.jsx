@@ -297,6 +297,55 @@ describe('CustomerDetail', () => {
     });
   });
 
+  test('drags a quick pick above or below another and leaves the dropdown in name order', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/quick-picks')) {
+        return Promise.resolve({
+          data: {
+            quickPicks: [
+              { _id: 'sw', description: 'Switch', sku: 'SW-1', price: 10, paid: 4, sortOrder: 0 },
+              { _id: 'rl', description: 'Relay', sku: 'RL-1', price: 8, paid: 3, sortOrder: 1 },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: customer });
+    });
+    axios.put.mockResolvedValue({ data: { quickPicks: [] } });
+    await renderPage();
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+
+    const picks = await screen.findByRole('list', { name: 'Quick picks' });
+    const rows = within(picks).getAllByRole('listitem');
+    expect(rows.map((row) => row.textContent).join(' ')).toMatch(/Switch.*Relay/);
+
+    const dropdown = screen.getByLabelText('Quick pick');
+    expect(within(dropdown).getAllByRole('option').map((option) => option.textContent).join(' ')).toMatch(/Relay.*Switch/);
+
+    const dataTransfer = {
+      data: {},
+      setData(type, value) { this.data[type] = value; },
+      getData(type) { return this.data[type] || ''; },
+    };
+    rows[0].getBoundingClientRect = () => ({
+      top: 0, left: 0, bottom: 48, right: 320, width: 320, height: 48, x: 0, y: 0, toJSON() { return {}; },
+    });
+    fireEvent.dragStart(rows[1], { dataTransfer });
+    fireEvent.dragOver(rows[0], { dataTransfer, clientY: 8 });
+    fireEvent.drop(rows[0], { dataTransfer, clientY: 8 });
+
+    expect(within(picks).getAllByRole('listitem').map((row) => row.textContent).join(' ')).toMatch(/Relay.*Switch/);
+    expect(within(dropdown).getAllByRole('option').map((option) => option.textContent).join(' ')).toMatch(/Relay.*Switch/);
+    await waitFor(() => {
+      expect(axios.put).toHaveBeenCalledWith(
+        expect.stringContaining('/api/quick-picks/order'),
+        { ids: ['rl', 'sw'] },
+        expect.any(Object)
+      );
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+  });
+
   test('adds a saved part onto a job line from the quick pick list', async () => {
     axios.get.mockImplementation((url) => {
       if (String(url).includes('/api/quick-picks')) {
@@ -328,6 +377,32 @@ describe('CustomerDetail', () => {
     await userEvent.click(screen.getByRole('button', { name: 'New job' }));
   });
 
+  test('fills price with line paid plus 30 percent and updates it when paid changes', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/quick-picks')) {
+        return Promise.resolve({ data: { quickPicks: [] } });
+      }
+      return Promise.resolve({ data: customer });
+    });
+    await renderPage();
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+
+    await userEvent.type(screen.getByLabelText('Line paid'), '100');
+    expect(screen.getByLabelText('Price')).toHaveValue(130);
+
+    await userEvent.clear(screen.getByLabelText('Price'));
+    await userEvent.type(screen.getByLabelText('Price'), '150');
+    expect(screen.getByLabelText('Price')).toHaveValue(150);
+    expect(screen.getByLabelText('Line paid')).toHaveValue(100);
+
+    await userEvent.clear(screen.getByLabelText('Line paid'));
+    expect(screen.getByLabelText('Price')).toHaveValue(150);
+    await userEvent.type(screen.getByLabelText('Line paid'), '200');
+    expect(screen.getByLabelText('Price')).toHaveValue(260);
+
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+  });
+
   test('saves a job line onto the quick pick list', async () => {
     axios.get.mockImplementation((url) => {
       if (String(url).includes('/api/quick-picks')) {
@@ -354,8 +429,9 @@ describe('CustomerDetail', () => {
     await userEvent.click(screen.getByRole('button', { name: 'New job' }));
     await userEvent.type(screen.getByLabelText('Line description'), 'Relay');
     await userEvent.type(screen.getByLabelText('SKU'), 'RL-1');
-    await userEvent.type(screen.getByLabelText('Price'), '40');
     await userEvent.type(screen.getByLabelText('Line paid'), '22');
+    await userEvent.clear(screen.getByLabelText('Price'));
+    await userEvent.type(screen.getByLabelText('Price'), '40');
     await userEvent.click(screen.getByRole('button', { name: 'Save to Quick Pick' }));
 
     await waitFor(() => {

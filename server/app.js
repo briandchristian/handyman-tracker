@@ -42,7 +42,7 @@ import { reorderByIds } from '../src/utils/bidMaterialsOrder.js';
 import { inventoryItemsFromBidLines, inventoryConflictMessage } from '../src/utils/inventoryFromBid.js';
 import { mergedInventoryFields } from '../src/utils/inventoryIdentity.js';
 import { supplierPriceLookupAccount } from '../src/utils/adiIntegration.js';
-import { compareQuickPicks, matchingQuickPick, normalizeQuickPick } from '../src/utils/quickPicks.js';
+import { matchingQuickPick, normalizeQuickPick, orderQuickPicks } from '../src/utils/quickPicks.js';
 import { normalizeCostCenterCode } from './lib/costCenters.js';
 import { isKnownLaborWorkType, normalizeLaborWorkType } from './lib/laborWorkTypes.js';
 import { normalizeProjectWorkType, serviceHistoryTypeFromProjectWorkType } from './lib/projectWorkTypes.js';
@@ -764,6 +764,7 @@ const quickPickSchema = new mongoose.Schema({
   sku: { type: String, default: '', trim: true },
   price: { type: Number, default: null },
   paid: { type: Number, default: null },
+  sortOrder: Number,
   updatedAt: { type: Date, default: Date.now },
 });
 const QuickPick = mongoose.model('QuickPick', quickPickSchema);
@@ -3771,10 +3772,28 @@ app.delete('/api/inventory/:id', authMiddleware, async (req, res) => {
 app.get('/api/quick-picks', authMiddleware, async (req, res) => {
   try {
     const picks = await QuickPick.find({}).lean();
-    picks.sort(compareQuickPicks);
-    res.json({ quickPicks: picks });
+    res.json({ quickPicks: orderQuickPicks(picks) });
   } catch (err) {
     console.error('Error listing quick picks:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.put('/api/quick-picks/order', authMiddleware, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((id) => String(id)) : [];
+    const picks = await QuickPick.find({}).lean();
+    const known = new Set(picks.map((pick) => String(pick._id)));
+    const unique = new Set(ids);
+    const valid = ids.length === picks.length
+      && unique.size === ids.length
+      && ids.every((id) => known.has(id) && mongoose.Types.ObjectId.isValid(id));
+    if (!valid) return res.status(400).json({ msg: 'Quick pick order must include every saved part' });
+    await Promise.all(ids.map((id, index) => QuickPick.updateOne({ _id: id }, { sortOrder: index })));
+    const next = await QuickPick.find({}).lean();
+    res.json({ quickPicks: orderQuickPicks(next) });
+  } catch (err) {
+    console.error('Error ordering quick picks:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });
