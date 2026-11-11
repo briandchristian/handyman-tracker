@@ -3,8 +3,9 @@
  * A bid is stored on its own and does not create a job.
  */
 
+import mongoose from 'mongoose';
 import {
-  lineTracksInventory,
+  changeServiceJobNotes,
   nextCustomerRecordNumber,
   serviceJobLines,
   validateBid,
@@ -28,12 +29,17 @@ function storedNumbers(records, field) {
     .filter(Boolean);
 }
 
-async function savedChargeLines({ syncParts, previousJob, nextLines, source, reason, userId }) {
-  const previous = serviceJobLines(previousJob || {}).filter(lineTracksInventory);
-  const next = (nextLines || []).filter(lineTracksInventory);
-  const synced = syncParts
-    ? await syncParts({ previous, next, source, reason, userId })
-    : { lines: next };
+function routeError(res, err, label) {
+  if (err.statusCode === 400) return res.status(400).json({ msg: err.message });
+  console.error(label, err);
+  return res.status(500).json({ msg: 'Server error', error: err.message });
+}
+
+async function savedChargeLines({ syncInventory, previousJob, nextLines, source, reason, userId }) {
+  const previous = serviceJobLines(previousJob || {});
+  const synced = syncInventory
+    ? await syncInventory({ previous, next: nextLines, source, reason, userId })
+    : { lines: nextLines };
   return withInventoryIds(nextLines || [], synced?.lines || []);
 }
 
@@ -43,7 +49,7 @@ function issuedNumber(customer, kind, records, field, current = '') {
   return nextCustomerRecordNumber(customer.accountNumber, kind, storedNumbers(records, field));
 }
 
-export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, adminMiddleware, syncParts }) {
+export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, adminMiddleware, syncInventory }) {
   const guard = [authMiddleware, adminMiddleware];
 
   app.post('/api/customers/:customerId/service-jobs', ...guard, async (req, res) => {
@@ -54,20 +60,20 @@ export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, admi
       if (checked.error) return res.status(400).json({ msg: checked.error });
       const assigned = issuedNumber(customer, 'job', customer.serviceJobs, 'jobNumber');
       if (assigned.error) return res.status(400).json({ msg: assigned.error });
-      const chargeLines = await savedChargeLines({
-        syncParts,
+      customer.serviceJobs.push({ ...checked.value, parts: [], jobNumber: assigned.value });
+      const job = customer.serviceJobs[customer.serviceJobs.length - 1];
+      job.chargeLines = await savedChargeLines({
+        syncInventory,
         previousJob: {},
         nextLines: checked.value.chargeLines,
-        source: { kind: 'service-job', id: String(customer._id) },
+        source: { kind: 'service-job', id: `${customer._id}:${job._id}` },
         reason: checked.value.name,
         userId: req.user.id,
       });
-      customer.serviceJobs.push({ ...checked.value, chargeLines, parts: [], jobNumber: assigned.value });
       await customer.save();
-      res.status(201).json(customer.serviceJobs[customer.serviceJobs.length - 1]);
+      res.status(201).json(job);
     } catch (err) {
-      console.error('Error creating service job:', err);
-      res.status(500).json({ msg: 'Server error', error: err.message });
+      routeError(res, err, 'Error creating service job:');
     }
   });
 
@@ -82,7 +88,7 @@ export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, admi
       const assigned = issuedNumber(customer, 'job', customer.serviceJobs, 'jobNumber', job.jobNumber);
       if (assigned.error) return res.status(400).json({ msg: assigned.error });
       const chargeLines = await savedChargeLines({
-        syncParts,
+        syncInventory,
         previousJob: job,
         nextLines: checked.value.chargeLines,
         source: { kind: 'service-job', id: `${customer._id}:${job._id}` },
@@ -90,11 +96,11 @@ export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, admi
         userId: req.user.id,
       });
       job.set({ ...checked.value, chargeLines, parts: [], jobNumber: assigned.value });
+      if (Object.prototype.hasOwnProperty.call(checked.value, 'notes')) job.markModified('notes');
       await customer.save();
       res.json(job);
     } catch (err) {
-      console.error('Error updating service job:', err);
-      res.status(500).json({ msg: 'Server error', error: err.message });
+      routeError(res, err, 'Error updating service job:');
     }
   });
 
@@ -104,9 +110,9 @@ export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, admi
       if (!customer) return;
       const job = customer.serviceJobs.id(req.params.jobId);
       if (!job) return res.status(404).json({ msg: 'Job not found' });
-      if (syncParts) {
-        await syncParts({
-          previous: serviceJobLines(job).filter(lineTracksInventory),
+      if (syncInventory) {
+        await syncInventory({
+          previous: serviceJobLines(job),
           next: [],
           source: { kind: 'service-job', id: `${customer._id}:${job._id}` },
           reason: job.name,
@@ -117,7 +123,76 @@ export function registerCustomerWorkRoutes(app, { Customer, authMiddleware, admi
       await customer.save();
       res.json({ msg: 'Job deleted' });
     } catch (err) {
-      console.error('Error deleting service job:', err);
+      routeError(res, err, 'Error deleting service job:');
+    }
+  });
+
+  function stampedNotes(notes) {
+    return notes.map((note) => ({
+      _id: note._id && mongoose.Types.ObjectId.isValid(String(note._id))
+        ? note._id
+        : new mongoose.Types.ObjectId(),
+      text: note.text,
+      addedAt: note.addedAt || new Date(),
+    }));
+  }
+
+  async function saveJobNotes(res, customerId, jobId, change) {
+    const customer = await loadCustomer(Customer, customerId, res);
+    if (!customer) return null;
+    const job = customer.serviceJobs.id(jobId);
+    if (!job) {
+      res.status(404).json({ msg: 'Job not found' });
+      return null;
+    }
+    const changed = changeServiceJobNotes(job.notes, change);
+    if (changed.error) {
+      const status = changed.error === 'Note not found' ? 404 : 400;
+      res.status(status).json({ msg: changed.error });
+      return null;
+    }
+    job.notes = stampedNotes(changed.notes);
+    job.markModified('notes');
+    await customer.save();
+    return job.notes;
+  }
+
+  app.post('/api/customers/:customerId/service-jobs/:jobId/notes', ...guard, async (req, res) => {
+    try {
+      const notes = await saveJobNotes(res, req.params.customerId, req.params.jobId, {
+        type: 'add',
+        text: req.body?.text,
+      });
+      if (notes) res.status(201).json(notes);
+    } catch (err) {
+      console.error('Error adding job note:', err);
+      res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+  });
+
+  app.put('/api/customers/:customerId/service-jobs/:jobId/notes/:noteId', ...guard, async (req, res) => {
+    try {
+      const notes = await saveJobNotes(res, req.params.customerId, req.params.jobId, {
+        type: 'update',
+        noteId: req.params.noteId,
+        text: req.body?.text,
+      });
+      if (notes) res.json({ msg: 'Note updated', notes });
+    } catch (err) {
+      console.error('Error updating job note:', err);
+      res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+  });
+
+  app.delete('/api/customers/:customerId/service-jobs/:jobId/notes/:noteId', ...guard, async (req, res) => {
+    try {
+      const notes = await saveJobNotes(res, req.params.customerId, req.params.jobId, {
+        type: 'delete',
+        noteId: req.params.noteId,
+      });
+      if (notes) res.json({ msg: 'Note deleted', notes });
+    } catch (err) {
+      console.error('Error deleting job note:', err);
       res.status(500).json({ msg: 'Server error', error: err.message });
     }
   });

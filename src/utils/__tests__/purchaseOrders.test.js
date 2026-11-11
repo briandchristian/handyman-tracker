@@ -4,6 +4,7 @@ import {
   filterPurchaseOrders,
   matchesPoStatusFilter,
   nextPoStatusFilter,
+  purchaseOrderDraftFromJob,
 } from '../purchaseOrders';
 
 const pos = [
@@ -55,5 +56,39 @@ describe('purchaseOrders filters', () => {
     expect(nextPoStatusFilter(PO_FILTERS.draft, PO_FILTERS.draft)).toBe(PO_FILTERS.all);
     expect(nextPoStatusFilter(PO_FILTERS.draft, PO_FILTERS.sent)).toBe(PO_FILTERS.sent);
     expect(nextPoStatusFilter(PO_FILTERS.draft, PO_FILTERS.all)).toBe(PO_FILTERS.all);
+  });
+});
+
+describe('purchase order from a job', () => {
+  test('copies job lines onto a draft and uses the cost, not the customer price', () => {
+    const draft = purchaseOrderDraftFromJob({
+      jobNumber: 'J-2001',
+      name: 'Replace keypad',
+      chargeLines: [
+        { description: 'Switch', sku: 'SW-1', quantity: 1, price: 500, paid: 180 },
+        { description: 'Labor trip', quantity: 1, price: 85 },
+        { description: '', quantity: 1, price: 10 },
+      ],
+      parts: [{ description: 'Contact', sku: 'DC-1', quantity: 3, paid: 13.92, sold: 32 }],
+    }, {
+      supplierId: 's1',
+      jobLabel: 'J-2001 · Replace keypad',
+      customerName: 'John Doe',
+    });
+
+    expect(draft).toMatchObject({
+      supplier: 's1',
+      status: 'Draft',
+      tax: 0,
+      shipping: 0,
+      subtotal: 221.76,
+      total: 221.76,
+      notes: 'From job J-2001 · Replace keypad · John Doe',
+    });
+    expect(draft.items).toEqual([
+      { sku: 'SW-1', description: 'Switch', quantity: 1, unit: 'each', unitPrice: 180, total: 180 },
+      { sku: '', description: 'Labor trip', quantity: 1, unit: 'each', unitPrice: 0, total: 0 },
+      { sku: 'DC-1', description: 'Contact', quantity: 3, unit: 'each', unitPrice: 13.92, total: 41.76 },
+    ]);
   });
 });

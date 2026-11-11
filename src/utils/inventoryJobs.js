@@ -54,7 +54,35 @@ export function filterJobs(jobs = [], query) {
     String(job.label || '').toLowerCase().includes(q)
     || String(job.customerName || '').toLowerCase().includes(q)
     || String(job.projectName || '').toLowerCase().includes(q)
+    || String(job.jobName || '').toLowerCase().includes(q)
     || String(job.jobNumber || '').toLowerCase().includes(q)
     || String(job.accountNumber || '').toLowerCase().includes(q)
   );
+}
+
+/** Service jobs a part can be added to. Older project records stay out of this list. */
+export function serviceJobsForInventory(customers = []) {
+  const jobs = [];
+  for (const customer of customers || []) {
+    const customerName = formatCustomerLabel({
+      name: customer.name,
+      accountNumber: customer.accountNumber,
+    });
+    for (const job of customer.serviceJobs || []) {
+      const jobName = formatJobLabel({ name: job.name, jobNumber: job.jobNumber });
+      jobs.push({
+        customerId: String(customer._id),
+        jobId: String(job._id),
+        value: `${customer._id}:${job._id}`,
+        customerName,
+        jobName,
+        jobNumber: job.jobNumber || '',
+        accountNumber: customer.accountNumber || '',
+        status: job.status || '',
+        label: `${jobName} (${customerName})`,
+      });
+    }
+  }
+  jobs.sort((a, b) => a.label.localeCompare(b.label));
+  return jobs;
 }

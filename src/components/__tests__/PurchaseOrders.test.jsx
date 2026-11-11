@@ -26,7 +26,7 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     {
       _id: 'po1',
       poNumber: 'PO-2024-001',
-      supplier: { _id: 'sup1', name: 'Home Depot', phone: '555-1234' },
+      supplier: { _id: 'sup1', name: 'ADI', phone: '555-1234' },
       status: 'Draft',
       adiIntegration: {
         customerNumber: 'CUST-EXISTING',
@@ -53,7 +53,7 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     {
       _id: 'po2',
       poNumber: 'PO-2024-002',
-      supplier: { _id: 'sup2', name: "Lowe's", phone: '555-5678' },
+      supplier: { _id: 'sup2', name: 'ADI', phone: '555-5678' },
       status: 'Sent',
       items: [
         { sku: 'HW-SCREW', description: 'Drywall Screws', quantity: 10, unit: 'box', unitPrice: 12.99, total: 129.90 }
@@ -423,7 +423,7 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     
     await waitFor(() => {
       // Supplier name should be visible
-      expect(screen.getAllByText(/Home Depot/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/^ADI$/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -440,12 +440,12 @@ describe('PurchaseOrders Component - Phase 2B', () => {
     
     await waitFor(() => {
       // Supplier name should be visible
-      expect(screen.getAllByText(/Home Depot/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/^ADI$/i).length).toBeGreaterThan(0);
       // Phone number may not be displayed in the modal - just verify supplier info is present
       // The supplier object has phone, but it may not be rendered in the UI
       const bodyText = document.body.textContent;
       // Just verify the modal is open and supplier name is visible
-      expect(bodyText).toMatch(/Home Depot|Supplier/i);
+      expect(bodyText).toMatch(/\bADI\b|Supplier/i);
     }, { timeout: 3000 });
   });
 
@@ -643,6 +643,34 @@ describe('PurchaseOrders Component - Phase 2B', () => {
       'href',
       '/suppliers?openQuickReorder=1'
     );
+  });
+
+  test('hides the ADI section when the supplier is not ADI', () => {
+    render(
+      <BrowserRouter>
+        <PODetailModal
+          po={{
+            _id: 'po-wave',
+            poNumber: 'PO-2026-0009',
+            supplier: { _id: 'wave', name: 'Wave Electronics' },
+            status: 'Draft',
+            items: [{ sku: 'SW-1', description: 'Switch', quantity: 1, unit: 'each', unitPrice: 180, total: 180 }],
+            subtotal: 180,
+            tax: 0,
+            shipping: 0,
+            total: 180,
+          }}
+          onClose={jest.fn()}
+          onUpdate={jest.fn()}
+        />
+      </BrowserRouter>
+    );
+
+    expect(screen.queryByRole('button', { name: 'ADI' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'ADI item' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'ADI price' })).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'SKU' })).toBeInTheDocument();
+    expect(screen.getByText('Switch')).toBeInTheDocument();
   });
 
   test('should call ADI price lookup wrapper from PO detail modal', async () => {

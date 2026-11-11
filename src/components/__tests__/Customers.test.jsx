@@ -3,7 +3,7 @@
  * Testing: Customer CRUD, Project management, Search/Filter, Navigation
  */
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import axios from 'axios';
@@ -11,21 +11,9 @@ import Customers from '../Customers';
 
 jest.mock('axios');
 
-const renderWithRouter = (component, { expandLists = true } = {}) => {
-  const view = render(<BrowserRouter>{component}</BrowserRouter>);
-  if (!expandLists) return view;
-  const management = screen.getByRole('button', { name: 'Customer Management' });
-  if (management.getAttribute('aria-expanded') === 'false') fireEvent.click(management);
-  const list = screen.getByRole('button', { name: 'Customer List' });
-  if (list.getAttribute('aria-expanded') === 'false') fireEvent.click(list);
-  return view;
-};
+const renderWithRouter = (component) => render(<BrowserRouter>{component}</BrowserRouter>);
 
 async function openAddCustomer() {
-  const management = screen.getByRole('button', { name: 'Customer Management' });
-  if (management.getAttribute('aria-expanded') === 'false') {
-    await userEvent.click(management);
-  }
   const toggle = screen.getByRole('button', { name: 'Add New Customer' });
   if (toggle.getAttribute('aria-expanded') === 'false') {
     await userEvent.click(toggle);
@@ -137,21 +125,15 @@ describe('Customers Component', () => {
       expect(root.className).toContain('mx-auto');
     });
 
-    test('should expose mobile section toggles with default expanded states', async () => {
-      // Mobile-only controls (md:hidden) should be tested in an explicit mobile viewport mock.
+    test('shows the directory without a Customers toggle', async () => {
       window.matchMedia = createMatchMediaMock(true);
-      axios.get.mockResolvedValue({ data: [] });
-      renderWithRouter(<Customers />, { expandLists: false });
+      axios.get.mockResolvedValue({ data: mockCustomers });
+      renderWithRouter(<Customers />);
 
-      const customerManagementToggle = await screen.findByRole('button', { name: /Customer Management/i });
-      expect(customerManagementToggle).toHaveAttribute('aria-expanded', 'false');
-      fireEvent.click(customerManagementToggle);
-
-      const addCustomerToggle = screen.getByRole('button', { name: /Add New Customer/i });
-      const customerListToggle = screen.getByRole('button', { name: /Customer List/i });
-
-      expect(addCustomerToggle).toHaveAttribute('aria-expanded', 'false');
-      expect(customerListToggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('button', { name: 'Customer Management' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Customer List' })).not.toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: 'John Doe' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Add New Customer' })).toHaveAttribute('aria-expanded', 'false');
       expect(screen.queryByRole('button', { name: /Add Job to Customer/i })).not.toBeInTheDocument();
     });
 

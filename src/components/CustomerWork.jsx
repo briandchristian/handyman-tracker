@@ -1,14 +1,18 @@
 /**
- * Jobs, bids, and projects on one customer.
+ * Jobs and bids on one customer.
  * A job is a single ticket. Each line has a price, and Paid is the optional cost.
  * A bid stays a quote until Import into job copies it onto a job.
  * A bid that a job already carries is shown in green with the job number.
  * That job reports the bid's quoted amount.
- * A project only groups tickets.
+ * Notes on a job are a list, separate from the job form, so saving the job leaves them in place.
+ * Create PO copies the job lines onto a draft purchase order. Cost is the supplier price.
  * Generate bid prints the shared bid document from these lines and the quoted amount.
+ * Quick pick stores a line's description, SKU, price, and paid amount for the next job.
+ * Keep in inventory leaves the purchase on the shelf. Use on this job records the purchase, then uses it.
+ * The line supplier is who that part was bought from.
  */
-import { useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import API_BASE_URL from '../config/api';
 import { PROJECT_WORK_TYPES, DEFAULT_PROJECT_WORK_TYPE } from '../constants/projectWorkTypes';
@@ -19,10 +23,12 @@ import {
   SERVICE_JOB_STATUSES,
   computeServiceJobTotals,
   jobDraftFromBid,
-  planRollup,
+  normalizeServiceJobNotes,
   serviceJobMatchesStatus,
 } from '../constants/customerWork';
 import { formatJobLabel } from '../constants/jobIdentity';
+import { purchaseOrderDraftFromJob } from '../utils/purchaseOrders';
+import { applyQuickPick, compareQuickPicks, normalizeQuickPick, quickPickAvailability, quickPickLabel, quickPickStock } from '../utils/quickPicks';
 import {
   bidLineAmount,
   bidLinesTotal,
@@ -49,7 +55,16 @@ const toDateInput = (value) => {
   return date.toISOString().slice(0, 10);
 };
 
-const emptyLine = () => ({ description: '', sku: '', quantity: '', price: '', paid: '' });
+const emptyLine = () => ({
+  description: '',
+  sku: '',
+  quantity: '',
+  price: '',
+  paid: '',
+  inventoryDisposition: '',
+  supplierId: '',
+  inventoryItemId: '',
+});
 const emptyBidLine = () => ({ description: '', quantity: '', estimate: '' });
 
 function emptyJob(customer) {
@@ -65,22 +80,28 @@ function emptyJob(customer) {
     hoursWorked: '',
     hourlyRate: '',
     travelPay: '',
-    notes: '',
     paidAmount: '',
     paidDate: '',
-    planId: '',
     bidId: '',
     chargeLines: [emptyLine()],
   };
 }
 
 function formLine(line, price) {
+  const disposition = line.inventoryDisposition === 'stock' || line.inventoryDisposition === 'used' || line.inventoryDisposition === 'draw'
+    ? line.inventoryDisposition
+    : (line.inventoryItemId ? 'used' : '');
+  const supplierId = line.supplierId?._id || line.supplierId || '';
+  const inventoryItemId = line.inventoryItemId?._id || line.inventoryItemId || '';
   return {
     description: line.description || '',
     sku: line.sku || '',
     quantity: line.quantity ?? '',
     price: price ?? '',
     paid: line.paid ?? '',
+    inventoryDisposition: disposition,
+    supplierId: supplierId ? String(supplierId) : '',
+    inventoryItemId: inventoryItemId ? String(inventoryItemId) : '',
   };
 }
 
@@ -106,10 +127,8 @@ function jobFromRecord(job) {
     hoursWorked: job.hoursWorked ?? '',
     hourlyRate: job.hourlyRate ?? '',
     travelPay: job.travelPay ?? '',
-    notes: job.notes || '',
     paidAmount: job.paidAmount ?? '',
     paidDate: toDateInput(job.paidDate),
-    planId: job.planId || '',
     bidId: job.bidId || '',
     chargeLines: linesFromJob(job),
   };
@@ -121,7 +140,6 @@ const emptyBid = () => ({
   status: DEFAULT_BID_STATUS,
   quotedAmount: '',
   notes: '',
-  planId: '',
   lines: [emptyBidLine()],
 });
 
@@ -139,33 +157,55 @@ function bidFromRecord(bid) {
     status: bid.status || DEFAULT_BID_STATUS,
     quotedAmount: bid.quotedAmount ?? '',
     notes: bid.notes || '',
-    planId: bid.planId || '',
     lines,
   };
 }
 
-const emptyPlan = () => ({ name: '', description: '', targetDate: '' });
+const fieldClass = 'field';
+const compactFieldClass = 'w-full p-2 border border-slate-300 rounded bg-white text-slate-900';
 
-function labelFor(records, id, fallback) {
-  if (!id) return '';
-  const match = (records || []).find((record) => String(record._id) === String(id));
-  return match ? fallback(match) : '';
+function JobField({ label, htmlFor, className = '', children }) {
+  return (
+    <div className={className}>
+      <label className="field-label" htmlFor={htmlFor}>{label}</label>
+      {children}
+    </div>
+  );
 }
 
-const fieldClass = 'w-full p-2 border border-slate-300 rounded bg-white text-slate-900';
+function JobSection({ title, children }) {
+  return (
+    <section className="border-t border-slate-200 pt-6 first:border-t-0 first:pt-0">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-emerald-700">{title}</h4>
+      <div className="mt-3 space-y-3">{children}</div>
+    </section>
+  );
+}
 
 export default function CustomerWork({ customer, onSaved }) {
   const { pathname } = useLocation();
   const auth = { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } };
   const jobs = customer.serviceJobs || [];
   const bids = customer.bids || [];
-  const plans = customer.plans || [];
 
   const [statusFilter, setStatusFilter] = useState('');
   const [jobFormOpen, setJobFormOpen] = useState(false);
   const [jobForm, setJobForm] = useState(() => emptyJob(customer));
   const [editingJobId, setEditingJobId] = useState(null);
   const [jobError, setJobError] = useState('');
+  const [noteDrafts, setNoteDrafts] = useState({});
+  const [editingNote, setEditingNote] = useState(null);
+  const [noteError, setNoteError] = useState('');
+  const [poJobId, setPoJobId] = useState(null);
+  const [poSuppliers, setPoSuppliers] = useState([]);
+  const [poSupplier, setPoSupplier] = useState('');
+  const [poError, setPoError] = useState('');
+  const [poResult, setPoResult] = useState(null);
+  const [quickPicks, setQuickPicks] = useState([]);
+  const [quickPickMessage, setQuickPickMessage] = useState('');
+  const [quickPickLineNotice, setQuickPickLineNotice] = useState(null);
+  const [lineSuppliers, setLineSuppliers] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([]);
 
   const [bidEditor, setBidEditor] = useState(() => (
     sectionIsOpen(sectionToggleKey(pathname, 'New bid')) ? 'new' : null
@@ -174,21 +214,156 @@ export default function CustomerWork({ customer, onSaved }) {
   const [bidError, setBidError] = useState('');
   const [monitoringByBid, setMonitoringByBid] = useState({});
 
-  const [planEditor, setPlanEditor] = useState(() => (
-    sectionIsOpen(sectionToggleKey(pathname, 'New project')) ? 'new' : null
-  ));
-  const [planForm, setPlanForm] = useState(emptyPlan);
-  const [planError, setPlanError] = useState('');
-
   const visibleJobs = useMemo(
     () => jobs.filter((job) => serviceJobMatchesStatus(job, statusFilter)),
     [jobs, statusFilter]
   );
 
+  useEffect(() => {
+    if (!jobFormOpen) return undefined;
+    let cancelled = false;
+    axios.get(`${API_BASE_URL}/api/quick-picks`, auth)
+      .then((res) => {
+        if (cancelled) return;
+        const list = Array.isArray(res.data) ? res.data : (res.data?.quickPicks || []);
+        setQuickPicks(Array.isArray(list) ? [...list].sort(compareQuickPicks) : []);
+      })
+      .catch(() => {
+        if (!cancelled) setQuickPicks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobFormOpen]);
+
+  useEffect(() => {
+    if (!jobFormOpen) return undefined;
+    let cancelled = false;
+    axios.get(`${API_BASE_URL}/api/suppliers`, auth)
+      .then((res) => {
+        if (cancelled) return;
+        const list = Array.isArray(res.data) ? res.data : (res.data?.suppliers || []);
+        setLineSuppliers(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (!cancelled) setLineSuppliers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobFormOpen]);
+
+  useEffect(() => {
+    if (!jobFormOpen) return undefined;
+    let cancelled = false;
+    axios.get(`${API_BASE_URL}/api/inventory`, auth)
+      .then((res) => {
+        if (!cancelled) setInventoryItems(Array.isArray(res.data) ? res.data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setInventoryItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobFormOpen]);
+
   const liveTotals = useMemo(() => computeServiceJobTotals(jobForm), [jobForm]);
   const liveVariance = jobForm.paidAmount === '' || jobForm.paidAmount == null
     ? null
     : Math.round(((Number(jobForm.paidAmount) || 0) - liveTotals.amountDue) * 100) / 100;
+
+  const reservedForPick = (pick, lines) => (Array.isArray(lines) ? lines : []).reduce((sum, line) => {
+    if (line.inventoryDisposition !== 'draw') return sum;
+    const lineSku = String(line.sku || '').trim().toLowerCase();
+    const pickSku = String(pick?.sku || '').trim().toLowerCase();
+    const same = lineSku || pickSku
+      ? lineSku === pickSku
+      : String(line.description || '').trim().toLowerCase() === String(pick?.description || '').trim().toLowerCase();
+    return same ? sum + (Number(line.quantity) || 0) : sum;
+  }, 0);
+
+  const addQuickPick = (id) => {
+    const pick = quickPicks.find((item) => item._id === id);
+    if (!pick) return;
+    setJobForm((prev) => {
+      const availability = quickPickAvailability(pick, inventoryItems, reservedForPick(pick, prev.chargeLines));
+      const draw = availability.status === 'in' && availability.available > 0;
+      const chargeLines = applyQuickPick(prev.chargeLines, pick).map((line) => ({
+        inventoryDisposition: '',
+        supplierId: '',
+        inventoryItemId: '',
+        ...line,
+      }));
+      const index = chargeLines.length - 1;
+      if (draw) {
+        chargeLines[index] = {
+          ...chargeLines[index],
+          inventoryDisposition: 'draw',
+          inventoryItemId: availability.item?._id || '',
+        };
+      }
+      return { ...prev, chargeLines };
+    });
+    setQuickPickMessage('');
+  };
+
+  const addPickToInventory = async (pick) => {
+    setQuickPickMessage('');
+    try {
+      await axios.post(`${API_BASE_URL}/api/inventory`, {
+        name: String(pick.description || pick.sku || '').trim(),
+        sku: String(pick.sku || '').trim(),
+        description: pick.description || '',
+        currentStock: 0,
+        lastPrice: Number(pick.paid) || 0,
+        unit: 'each',
+      }, auth);
+      const res = await axios.get(`${API_BASE_URL}/api/inventory`, auth);
+      setInventoryItems(Array.isArray(res.data) ? res.data : []);
+      setQuickPickMessage(`${pick.description || pick.sku} added to inventory`);
+    } catch (err) {
+      setQuickPickMessage(err.response?.data?.msg || 'Failed to add to inventory');
+    }
+  };
+
+  const saveLineToQuickPick = async (line, index) => {
+    const checked = normalizeQuickPick(line);
+    if (!checked.ok) {
+      setQuickPickLineNotice({ index, ok: false, text: checked.error });
+      return;
+    }
+    setQuickPickMessage('');
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/quick-picks`, {
+        description: line.description,
+        sku: line.sku,
+        price: line.price,
+        paid: line.paid,
+      }, auth);
+      const saved = res.data;
+      setQuickPicks((prev) => [...prev.filter((item) => item._id !== saved._id), saved].sort(compareQuickPicks));
+      setQuickPickLineNotice({ index, id: saved._id, ok: true, text: 'Saved to Quick Pick' });
+    } catch (err) {
+      setQuickPickLineNotice({
+        index,
+        ok: false,
+        text: err.response?.data?.msg || 'Failed to save quick pick',
+      });
+    }
+  };
+
+  const removeQuickPick = async (pick) => {
+    const name = String(pick.description || pick.sku || 'this part').trim();
+    if (!window.confirm(`Remove ${name} from quick pick?`)) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/api/quick-picks/${pick._id}`, auth);
+      setQuickPicks((prev) => prev.filter((item) => item._id !== pick._id));
+      setQuickPickMessage('');
+    } catch (err) {
+      setQuickPickMessage(err.response?.data?.msg || 'Failed to remove quick pick');
+    }
+  };
 
   const updateJob = (field, value) => setJobForm((prev) => ({ ...prev, [field]: value }));
   const updateCharge = (index, field, value) => {
@@ -215,6 +390,16 @@ export default function CustomerWork({ customer, onSaved }) {
       parts: [],
       paidAmount: jobForm.paidAmount === '' ? null : jobForm.paidAmount,
     };
+    delete payload.notes;
+    const missingSupplier = payload.chargeLines.some((line) => (
+      (line.inventoryDisposition === 'stock' || line.inventoryDisposition === 'used')
+      && !String(line.supplierId || '').trim()
+      && !String(line.inventoryItemId || '').trim()
+    ));
+    if (missingSupplier) {
+      setJobError('Choose a supplier');
+      return;
+    }
     try {
       if (editingJobId) {
         await axios.put(
@@ -229,6 +414,94 @@ export default function CustomerWork({ customer, onSaved }) {
       await onSaved();
     } catch (err) {
       setJobError(err.response?.data?.msg || 'Failed to save job');
+    }
+  };
+
+  const addJobNote = async (job) => {
+    const text = String(noteDrafts[job._id] || '').trim();
+    if (!text) return;
+    setNoteError('');
+    try {
+      await axios.post(
+        `${API_BASE_URL}/api/customers/${customer._id}/service-jobs/${job._id}/notes`,
+        { text },
+        auth
+      );
+      setNoteDrafts((prev) => ({ ...prev, [job._id]: '' }));
+      await onSaved();
+    } catch (err) {
+      setNoteError(err.response?.data?.msg || 'Failed to add note');
+    }
+  };
+
+  const saveJobNote = async (job, noteId) => {
+    const text = String(editingNote?.text || '').trim();
+    if (!text) return;
+    setNoteError('');
+    try {
+      await axios.put(
+        `${API_BASE_URL}/api/customers/${customer._id}/service-jobs/${job._id}/notes/${noteId}`,
+        { text },
+        auth
+      );
+      setEditingNote(null);
+      await onSaved();
+    } catch (err) {
+      setNoteError(err.response?.data?.msg || 'Failed to save note');
+    }
+  };
+
+  const deleteJobNote = async (job, noteId) => {
+    if (!window.confirm('Delete this note?')) return;
+    setNoteError('');
+    try {
+      await axios.delete(
+        `${API_BASE_URL}/api/customers/${customer._id}/service-jobs/${job._id}/notes/${noteId}`,
+        auth
+      );
+      if (editingNote?.jobId === job._id && editingNote?.noteId === noteId) setEditingNote(null);
+      await onSaved();
+    } catch (err) {
+      setNoteError(err.response?.data?.msg || 'Failed to delete note');
+    }
+  };
+
+  const openPurchaseOrder = async (job) => {
+    setPoJobId(job._id);
+    setPoSupplier('');
+    setPoError('');
+    setPoResult(null);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/suppliers`, auth);
+      const list = Array.isArray(res.data) ? res.data : (res.data?.suppliers || []);
+      setPoSuppliers(list);
+    } catch (err) {
+      setPoSuppliers([]);
+      setPoError(err.response?.data?.msg || 'Failed to load suppliers');
+    }
+  };
+
+  const createPurchaseOrder = async (job) => {
+    if (!poSupplier) {
+      setPoError('Choose a supplier');
+      return;
+    }
+    const draft = purchaseOrderDraftFromJob(job, {
+      supplierId: poSupplier,
+      jobLabel: formatJobLabel(job),
+      customerName: customer.name,
+    });
+    if (!draft.items.length) {
+      setPoError('Add a line with a quantity before creating a purchase order');
+      return;
+    }
+    setPoError('');
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/purchase-orders`, draft, auth);
+      setPoResult({ jobId: job._id, poNumber: res.data?.poNumber || 'Purchase order' });
+      setPoJobId(null);
+    } catch (err) {
+      setPoError(err.response?.data?.msg || 'Failed to create purchase order');
     }
   };
 
@@ -335,50 +608,6 @@ export default function CustomerWork({ customer, onSaved }) {
     }
   };
 
-  const openNewPlan = () => {
-    setPlanEditor('new');
-    setPlanForm(emptyPlan());
-    setPlanError('');
-  };
-
-  const editPlan = (plan) => {
-    setPlanEditor(plan._id);
-    setPlanForm({
-      name: plan.name || '',
-      description: plan.description || '',
-      targetDate: toDateInput(plan.targetDate),
-    });
-    setPlanError('');
-  };
-
-  const savePlan = async (event) => {
-    event.preventDefault();
-    setPlanError('');
-    try {
-      if (planEditor && planEditor !== 'new') {
-        await axios.put(`${API_BASE_URL}/api/customers/${customer._id}/plans/${planEditor}`, planForm, auth);
-      } else {
-        await axios.post(`${API_BASE_URL}/api/customers/${customer._id}/plans`, planForm, auth);
-      }
-      setPlanEditor(null);
-      setPlanForm(emptyPlan());
-      await onSaved();
-    } catch (err) {
-      setPlanError(err.response?.data?.msg || 'Failed to save project');
-    }
-  };
-
-  const deletePlan = async (plan) => {
-    if (!window.confirm(`Delete project ${plan.name}? Jobs on it stay as their own tickets.`)) return;
-    try {
-      await axios.delete(`${API_BASE_URL}/api/customers/${customer._id}/plans/${plan._id}`, auth);
-      if (planEditor === plan._id) setPlanEditor(null);
-      await onSaved();
-    } catch (err) {
-      setPlanError(err.response?.data?.msg || 'Failed to delete project');
-    }
-  };
-
   const updateBidLine = (index, field, value) => {
     setBidForm((prev) => ({
       ...prev,
@@ -392,7 +621,6 @@ export default function CustomerWork({ customer, onSaved }) {
     <div className="space-y-6">
       <p className="text-sm text-slate-600">
         Jobs are single tickets with line items. Bids are quotes and stay separate.
-        A project groups tickets when the work needs a plan.
       </p>
 
       <SectionToggle title="Jobs">
@@ -418,17 +646,15 @@ export default function CustomerWork({ customer, onSaved }) {
         ) : (
           <div className="space-y-3 mb-6">
             {visibleJobs.map((job) => {
-              const projectName = labelFor(plans, job.planId, (plan) => plan.name);
               const relatedBid = (bids || []).find((bid) => job.bidId && String(bid._id) === String(job.bidId));
               const bidLabel = relatedBid ? (relatedBid.quoteNumber || relatedBid.name) : '';
               return (
-                <article key={job._id} data-testid={`job-ticket-${job._id}`} className="border border-slate-200 rounded-xl p-4">
+                <article key={job._id} data-testid={`job-ticket-${job._id}`} className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-md">
                   <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                     <div>
                       <h3 className="font-semibold">{formatJobLabel(job)}</h3>
                       <p className="text-sm text-slate-600 capitalize">{job.workType} · {job.status}</p>
                       {job.siteName ? <p className="text-sm">{job.siteName}</p> : null}
-                      {projectName ? <p className="text-sm text-slate-600">Project: {projectName}</p> : null}
                       {relatedBid ? (
                         <p className="text-sm text-slate-600">Quoted {money(relatedBid.quotedAmount)} · {bidLabel}</p>
                       ) : null}
@@ -447,9 +673,103 @@ export default function CustomerWork({ customer, onSaved }) {
                         <p className="text-sm text-slate-500 mt-1">Not reconciled</p>
                       )}
                       <div className="flex gap-2 md:justify-end mt-2">
+                        {purchaseOrderDraftFromJob(job).items.length > 0 ? (
+                          <button type="button" className="btn-row btn-row-secondary" onClick={() => openPurchaseOrder(job)}>Create PO</button>
+                        ) : null}
                         <button type="button" className="btn-row btn-row-secondary" onClick={() => editJob(job)}>Edit</button>
                         <button type="button" className="btn-row btn-row-danger" onClick={() => deleteJob(job)}>Delete</button>
                       </div>
+                    </div>
+                  </div>
+                  {poJobId === job._id ? (
+                    <div className="mt-3 border-t border-slate-200 pt-3">
+                      <h4 className="font-medium mb-2">Purchase order</h4>
+                      <p className="text-sm text-slate-600 mb-2">
+                        {purchaseOrderDraftFromJob(job).items.length} lines. Cost is the supplier price. A blank cost stays zero until you set it on the order.
+                      </p>
+                      {poError ? <p role="alert" className="text-red-700 mb-2">{poError}</p> : null}
+                      <div className="flex flex-wrap gap-2 items-end">
+                        <label className="text-sm text-slate-700">
+                          PO supplier
+                          <select
+                            aria-label="PO supplier"
+                            value={poSupplier}
+                            onChange={(event) => setPoSupplier(event.target.value)}
+                            className={`${compactFieldClass} mt-1`}
+                          >
+                            <option value="">Choose a supplier</option>
+                            {poSuppliers.map((supplier) => (
+                              <option key={supplier._id} value={supplier._id}>{supplier.name}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <button type="button" className="btn-primary" onClick={() => createPurchaseOrder(job)}>Create purchase order</button>
+                        <button type="button" className="btn-secondary" onClick={() => setPoJobId(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {poResult?.jobId === job._id ? (
+                    <p className="text-sm text-emerald-800 mt-2">
+                      Draft{' '}
+                      <Link to="/purchase-orders" className="underline font-medium">{poResult.poNumber}</Link>
+                    </p>
+                  ) : null}
+                  <div className="mt-3 border-t border-slate-200 pt-3">
+                    <h4 className="font-medium mb-2">Notes</h4>
+                    {noteError ? <p role="alert" className="text-red-700 mb-2">{noteError}</p> : null}
+                    {normalizeServiceJobNotes(job.notes).length === 0 ? (
+                      <p className="text-sm text-slate-600 mb-2">No notes yet.</p>
+                    ) : (
+                      <ul className="space-y-2 mb-3">
+                        {normalizeServiceJobNotes(job.notes).map((note, index) => {
+                          const noteId = String(note._id || index);
+                          const editing = editingNote?.jobId === job._id && editingNote?.noteId === noteId;
+                          return (
+                            <li key={noteId} className="border-l-4 border-blue-400 pl-3 py-1">
+                              {editing ? (
+                                <div className="space-y-2">
+                                  <textarea
+                                    aria-label="Edit note text"
+                                    rows={3}
+                                    value={editingNote.text}
+                                    onChange={(event) => setEditingNote((prev) => ({ ...prev, text: event.target.value }))}
+                                    className={compactFieldClass}
+                                  />
+                                  <div className="flex flex-wrap gap-2">
+                                    <button type="button" className="btn-row btn-row-primary" onClick={() => saveJobNote(job, noteId)}>Save note</button>
+                                    <button type="button" className="btn-row btn-row-secondary" onClick={() => setEditingNote(null)}>Cancel</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <p className="whitespace-pre-wrap">{note.text}</p>
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    <button
+                                      type="button"
+                                      className="btn-row btn-row-secondary"
+                                      onClick={() => setEditingNote({ jobId: job._id, noteId, text: note.text })}
+                                    >
+                                      Edit note
+                                    </button>
+                                    <button type="button" className="btn-row btn-row-danger" onClick={() => deleteJobNote(job, noteId)}>Delete note</button>
+                                  </div>
+                                </>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                    <div className="flex gap-2 flex-wrap items-end">
+                      <textarea
+                        aria-label={`Note for ${job.jobNumber || job.name}`}
+                        rows={2}
+                        placeholder="Add a note..."
+                        value={noteDrafts[job._id] || ''}
+                        onChange={(event) => setNoteDrafts((prev) => ({ ...prev, [job._id]: event.target.value }))}
+                        className={`${compactFieldClass} flex-1 min-w-[200px]`}
+                      />
+                      <button type="button" className="btn-primary" onClick={() => addJobNote(job)}>Add note</button>
                     </div>
                   </div>
                 </article>
@@ -464,132 +784,249 @@ export default function CustomerWork({ customer, onSaved }) {
           open={jobFormOpen}
           onOpenChange={setJobFormOpen}
         >
-        <form aria-label="Job ticket" onSubmit={saveJob}>
+        <form aria-label="Job ticket" onSubmit={saveJob} className="card-surface space-y-6 p-4 text-slate-900 md:p-6">
           {editingJobId ? (
-            <p className="text-sm text-slate-600 mb-3">
+            <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">
               {jobs.find((job) => job._id === editingJobId)?.jobNumber}
             </p>
           ) : null}
-          {jobError ? <p role="alert" className="text-red-700 mb-3">{jobError}</p> : null}
-          <AlignedFormGrid className="mb-3">
-            <AlignedFormField label="Job name" htmlFor="job-name" className="col-span-12 md:col-span-5">
+          {jobError ? <p role="alert" className="text-red-700">{jobError}</p> : null}
+          <JobSection title="Job">
+            <JobField label="Job name" htmlFor="job-name">
               <input id="job-name" value={jobForm.name} onChange={(event) => updateJob('name', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-            <AlignedFormField label="Work type" htmlFor="job-work-type" className="col-span-12 md:col-span-4">
-              <select id="job-work-type" value={jobForm.workType} onChange={(event) => updateJob('workType', event.target.value)} className={fieldClass}>
-                {PROJECT_WORK_TYPES.map((type) => (
-                  <option key={type.value} value={type.value}>{type.label}</option>
-                ))}
-              </select>
-            </AlignedFormField>
-            <AlignedFormField label="Ticket status" htmlFor="job-status" className="col-span-12 md:col-span-2">
-              <select id="job-status" value={jobForm.status} onChange={(event) => updateJob('status', event.target.value)} className={fieldClass}>
-                {SERVICE_JOB_STATUSES.map((status) => (
-                  <option key={status.value} value={status.value}>{status.label}</option>
-                ))}
-              </select>
-            </AlignedFormField>
-            <AlignedFormField label="Site name" htmlFor="job-site" className="col-span-12 md:col-span-4">
-              <input id="job-site" value={jobForm.siteName} onChange={(event) => updateJob('siteName', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-            <AlignedFormField label="Site address" htmlFor="job-address" className="col-span-12 md:col-span-5">
-              <input id="job-address" value={jobForm.siteAddress} onChange={(event) => updateJob('siteAddress', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-            <AlignedFormField label="City" htmlFor="job-city" className="col-span-12 md:col-span-3">
-              <input id="job-city" value={jobForm.siteCity} onChange={(event) => updateJob('siteCity', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-            <AlignedFormField label="Scheduled date" htmlFor="job-scheduled" className="col-span-12 md:col-span-3">
-              <input id="job-scheduled" type="date" value={jobForm.scheduledDate} onChange={(event) => updateJob('scheduledDate', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-            <AlignedFormField label="Completed date" htmlFor="job-completed" className="col-span-12 md:col-span-3">
-              <input id="job-completed" type="date" value={jobForm.completedDate} onChange={(event) => updateJob('completedDate', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-            <AlignedFormField label="Hours worked" htmlFor="job-hours" className="col-span-12 md:col-span-2">
-              <input id="job-hours" type="number" min="0" step="0.25" value={jobForm.hoursWorked} onChange={(event) => updateJob('hoursWorked', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-            <AlignedFormField label="Hourly rate" htmlFor="job-rate" className="col-span-12 md:col-span-2">
-              <input id="job-rate" type="number" min="0" step="0.01" value={jobForm.hourlyRate} onChange={(event) => updateJob('hourlyRate', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-            <AlignedFormField label="Travel" htmlFor="job-travel" className="col-span-12 md:col-span-2">
-              <input id="job-travel" type="number" min="0" step="0.01" value={jobForm.travelPay} onChange={(event) => updateJob('travelPay', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-            <AlignedFormField label="Project" htmlFor="job-plan" className="col-span-12 md:col-span-6">
-              <select id="job-plan" value={jobForm.planId} onChange={(event) => updateJob('planId', event.target.value)} className={fieldClass}>
-                <option value="">No project</option>
-                {plans.map((plan) => (
-                  <option key={plan._id} value={plan._id}>{plan.planNumber ? `${plan.planNumber} · ${plan.name}` : plan.name}</option>
-                ))}
-              </select>
-            </AlignedFormField>
-            <AlignedFormField label="Related bid" htmlFor="job-bid" className="col-span-12 md:col-span-6">
+            </JobField>
+            <div className="grid gap-3 md:grid-cols-2">
+              <JobField label="Work type" htmlFor="job-work-type">
+                <select id="job-work-type" value={jobForm.workType} onChange={(event) => updateJob('workType', event.target.value)} className={fieldClass}>
+                  {PROJECT_WORK_TYPES.map((type) => (
+                    <option key={type.value} value={type.value}>{type.label}</option>
+                  ))}
+                </select>
+              </JobField>
+              <JobField label="Ticket status" htmlFor="job-status">
+                <select id="job-status" value={jobForm.status} onChange={(event) => updateJob('status', event.target.value)} className={fieldClass}>
+                  {SERVICE_JOB_STATUSES.map((status) => (
+                    <option key={status.value} value={status.value}>{status.label}</option>
+                  ))}
+                </select>
+              </JobField>
+            </div>
+            <JobField label="Related bid" htmlFor="job-bid">
               <select id="job-bid" value={jobForm.bidId} onChange={(event) => updateJob('bidId', event.target.value)} className={fieldClass}>
                 <option value="">No related bid</option>
                 {bids.map((bid) => (
                   <option key={bid._id} value={bid._id}>{bid.quoteNumber ? `${bid.quoteNumber} · ${bid.name}` : bid.name}</option>
                 ))}
               </select>
-            </AlignedFormField>
-          </AlignedFormGrid>
+            </JobField>
+          </JobSection>
 
-          <h4 className="font-medium mb-2">Lines</h4>
-          <p className="text-sm text-slate-600 mb-2">
-            Price is what you charge. Leave Paid blank until you buy the item. A SKU or a Paid amount records it in inventory.
-          </p>
-          {jobForm.chargeLines.map((line, index) => (
-            <AlignedFormGrid key={`charge-${index}`} className="mb-2">
-              <AlignedFormField label="Line description" htmlFor={`charge-desc-${index}`} className="col-span-12 md:col-span-4">
-                <input id={`charge-desc-${index}`} value={line.description} onChange={(event) => updateCharge(index, 'description', event.target.value)} className={fieldClass} />
-              </AlignedFormField>
-              <AlignedFormField label="SKU" htmlFor={`charge-sku-${index}`} className="col-span-6 md:col-span-2">
-                <input id={`charge-sku-${index}`} value={line.sku || ''} onChange={(event) => updateCharge(index, 'sku', event.target.value)} className={fieldClass} />
-              </AlignedFormField>
-              <AlignedFormField label="Line quantity" htmlFor={`charge-qty-${index}`} className="col-span-6 md:col-span-1">
-                <input id={`charge-qty-${index}`} type="number" min="0" step="1" value={line.quantity} onChange={(event) => updateCharge(index, 'quantity', event.target.value)} className={fieldClass} />
-              </AlignedFormField>
-              <AlignedFormField label="Price" htmlFor={`charge-price-${index}`} className="col-span-6 md:col-span-2">
-                <input id={`charge-price-${index}`} type="number" min="0" step="0.01" value={line.price} onChange={(event) => updateCharge(index, 'price', event.target.value)} className={fieldClass} />
-              </AlignedFormField>
-              <AlignedFormField label="Line paid" htmlFor={`charge-paid-${index}`} className="col-span-6 md:col-span-2">
-                <input id={`charge-paid-${index}`} type="number" min="0" step="0.01" value={line.paid ?? ''} onChange={(event) => updateCharge(index, 'paid', event.target.value)} className={fieldClass} />
-              </AlignedFormField>
-              <div className="col-span-12 md:col-span-1">
-                <button
-                  type="button"
-                  className="btn-row btn-row-danger"
-                  onClick={() => setJobForm((prev) => {
-                    const next = prev.chargeLines.filter((_, lineIndex) => lineIndex !== index);
-                    return { ...prev, chargeLines: next.length ? next : [emptyLine()] };
-                  })}
-                >
-                  Remove line
-                </button>
+          <JobSection title="Site">
+            <JobField label="Site name" htmlFor="job-site">
+              <input id="job-site" value={jobForm.siteName} onChange={(event) => updateJob('siteName', event.target.value)} className={fieldClass} />
+            </JobField>
+            <div className="grid gap-3 md:grid-cols-2">
+              <JobField label="Site address" htmlFor="job-address">
+                <input id="job-address" value={jobForm.siteAddress} onChange={(event) => updateJob('siteAddress', event.target.value)} className={fieldClass} />
+              </JobField>
+              <JobField label="City" htmlFor="job-city">
+                <input id="job-city" value={jobForm.siteCity} onChange={(event) => updateJob('siteCity', event.target.value)} className={fieldClass} />
+              </JobField>
+            </div>
+          </JobSection>
+
+          <JobSection title="Schedule">
+            <div className="grid gap-3 md:grid-cols-2">
+              <JobField label="Scheduled date" htmlFor="job-scheduled">
+                <input id="job-scheduled" type="date" value={jobForm.scheduledDate} onChange={(event) => updateJob('scheduledDate', event.target.value)} className={fieldClass} />
+              </JobField>
+              <JobField label="Completed date" htmlFor="job-completed">
+                <input id="job-completed" type="date" value={jobForm.completedDate} onChange={(event) => updateJob('completedDate', event.target.value)} className={fieldClass} />
+              </JobField>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <JobField label="Hours worked" htmlFor="job-hours">
+                <input id="job-hours" type="number" min="0" step="0.25" value={jobForm.hoursWorked} onChange={(event) => updateJob('hoursWorked', event.target.value)} className={fieldClass} />
+              </JobField>
+              <JobField label="Hourly rate" htmlFor="job-rate">
+                <input id="job-rate" type="number" min="0" step="0.01" value={jobForm.hourlyRate} onChange={(event) => updateJob('hourlyRate', event.target.value)} className={fieldClass} />
+              </JobField>
+              <JobField label="Travel" htmlFor="job-travel">
+                <input id="job-travel" type="number" min="0" step="0.01" value={jobForm.travelPay} onChange={(event) => updateJob('travelPay', event.target.value)} className={fieldClass} />
+              </JobField>
+            </div>
+          </JobSection>
+
+          <JobSection title="Lines">
+            <p className="text-sm leading-relaxed text-slate-600">
+              Price is what you charge. Leave Paid blank until you buy the item.
+              Add to line fills an empty line, or adds another line when this one already has a part.
+              In stock is used from the shelf when you save. Out of stock and parts not in inventory can still be added.
+            </p>
+            <JobField label="Quick pick" htmlFor="job-quick-pick">
+              <select
+                id="job-quick-pick"
+                value=""
+                onChange={(event) => {
+                  if (event.target.value) addQuickPick(event.target.value);
+                }}
+                className={fieldClass}
+              >
+                <option value="">Add a saved part</option>
+                {quickPicks.map((pick) => {
+                  const availability = quickPickAvailability(pick, inventoryItems, reservedForPick(pick, jobForm.chargeLines));
+                  return (
+                    <option key={pick._id} value={pick._id}>{`${quickPickLabel(pick)} · ${availability.cue}`}</option>
+                  );
+                })}
+              </select>
+            </JobField>
+            {quickPickMessage ? <p className="text-sm font-medium text-slate-800">{quickPickMessage}</p> : null}
+            {quickPicks.length ? (
+              <ul aria-label="Quick picks" className="space-y-2">
+                {quickPicks.map((pick) => {
+                  const stock = quickPickStock(pick, inventoryItems);
+                  const availability = quickPickAvailability(pick, inventoryItems, reservedForPick(pick, jobForm.chargeLines));
+                  const cueClass = availability.cue === 'Out of stock'
+                    ? 'font-semibold text-amber-700'
+                    : availability.cue === 'Not in inventory'
+                      ? 'font-semibold text-slate-500'
+                      : 'font-semibold text-emerald-700';
+                  const justSaved = quickPickLineNotice?.ok && quickPickLineNotice.id === pick._id;
+                  return (
+                    <li key={pick._id} className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-sm text-slate-800 shadow-md ${justSaved ? 'border-emerald-400 bg-emerald-50' : 'border-emerald-200 bg-white'}`}>
+                      <span className="min-w-0">
+                        {quickPickLabel(pick)}
+                        <span className={`ml-2 ${cueClass}`}>{availability.cue}</span>
+                        {justSaved ? <span className="ml-2 font-semibold text-emerald-800">Saved</span> : null}
+                      </span>
+                      <span className="flex shrink-0 gap-2">
+                        <button
+                          type="button"
+                          className="btn-row btn-row-primary"
+                          aria-label={`Add ${String(pick.description || pick.sku || 'part').trim()} to the line`}
+                          onClick={() => addQuickPick(pick._id)}
+                        >
+                          Add to line
+                        </button>
+                        {stock.status === 'missing' ? (
+                          <button type="button" className="btn-row btn-row-accent" onClick={() => addPickToInventory(pick)}>
+                            Add to inventory
+                          </button>
+                        ) : null}
+                        <button type="button" className="btn-row btn-row-danger" onClick={() => removeQuickPick(pick)}>
+                          Remove quick pick
+                        </button>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+            {jobForm.chargeLines.map((line, index) => (
+              <div key={`charge-${index}`} className="space-y-3 rounded-2xl border border-emerald-200 bg-white p-4 shadow-md">
+                <JobField label="Line description" htmlFor={`charge-desc-${index}`}>
+                  <input id={`charge-desc-${index}`} value={line.description} onChange={(event) => updateCharge(index, 'description', event.target.value)} className={fieldClass} />
+                </JobField>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <JobField label="SKU" htmlFor={`charge-sku-${index}`}>
+                    <input id={`charge-sku-${index}`} value={line.sku || ''} onChange={(event) => updateCharge(index, 'sku', event.target.value)} className={fieldClass} />
+                  </JobField>
+                  <JobField label="Line quantity" htmlFor={`charge-qty-${index}`}>
+                    <input id={`charge-qty-${index}`} type="number" min="0" step="1" value={line.quantity} onChange={(event) => updateCharge(index, 'quantity', event.target.value)} className={fieldClass} />
+                  </JobField>
+                  <JobField label="Price" htmlFor={`charge-price-${index}`}>
+                    <input id={`charge-price-${index}`} type="number" min="0" step="0.01" value={line.price} onChange={(event) => updateCharge(index, 'price', event.target.value)} className={fieldClass} />
+                  </JobField>
+                  <JobField label="Line paid" htmlFor={`charge-paid-${index}`}>
+                    <input id={`charge-paid-${index}`} type="number" min="0" step="0.01" value={line.paid ?? ''} onChange={(event) => updateCharge(index, 'paid', event.target.value)} className={fieldClass} />
+                  </JobField>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <JobField label="Inventory" htmlFor={`charge-inventory-${index}`}>
+                    <select
+                      id={`charge-inventory-${index}`}
+                      value={line.inventoryDisposition || ''}
+                      onChange={(event) => updateCharge(index, 'inventoryDisposition', event.target.value)}
+                      className={fieldClass}
+                    >
+                      <option value="">Not in inventory</option>
+                      <option value="stock">Keep in inventory</option>
+                      <option value="used">Use on this job</option>
+                      <option value="draw">Use stock on hand</option>
+                    </select>
+                  </JobField>
+                  {line.inventoryDisposition === 'stock' || line.inventoryDisposition === 'used' ? (
+                    <JobField label="Supplier" htmlFor={`charge-supplier-${index}`}>
+                      <select
+                        id={`charge-supplier-${index}`}
+                        value={line.supplierId || ''}
+                        onChange={(event) => updateCharge(index, 'supplierId', event.target.value)}
+                        className={fieldClass}
+                      >
+                        <option value="">Choose a supplier</option>
+                        {lineSuppliers.map((supplier) => (
+                          <option key={supplier._id} value={supplier._id}>{supplier.name}</option>
+                        ))}
+                      </select>
+                    </JobField>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {quickPickLineNotice?.index === index ? (
+                    <p
+                      role="status"
+                      className={quickPickLineNotice.ok
+                        ? 'mr-auto rounded-full bg-emerald-100 px-3 py-1 text-sm font-semibold text-emerald-800'
+                        : 'mr-auto text-sm font-semibold text-red-700'}
+                    >
+                      {quickPickLineNotice.text}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn-row btn-row-secondary"
+                    onClick={() => saveLineToQuickPick(line, index)}
+                  >
+                    Save to Quick Pick
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-row btn-row-danger"
+                    onClick={() => setJobForm((prev) => {
+                      const next = prev.chargeLines.filter((_, lineIndex) => lineIndex !== index);
+                      return { ...prev, chargeLines: next.length ? next : [emptyLine()] };
+                    })}
+                  >
+                    Remove line
+                  </button>
+                </div>
               </div>
-            </AlignedFormGrid>
-          ))}
-          <button
-            type="button"
-            className="btn-secondary mb-4"
-            onClick={() => setJobForm((prev) => ({ ...prev, chargeLines: [...prev.chargeLines, emptyLine()] }))}
-          >
-            Add line
-          </button>
+            ))}
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setJobForm((prev) => ({ ...prev, chargeLines: [...prev.chargeLines, emptyLine()] }))}
+            >
+              Add line
+            </button>
+          </JobSection>
 
-          <AlignedFormGrid className="mb-3">
-            <AlignedFormField label="Paid amount" htmlFor="job-paid" className="col-span-12 md:col-span-3">
-              <input id="job-paid" type="number" min="0" step="0.01" value={jobForm.paidAmount} onChange={(event) => updateJob('paidAmount', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-            <AlignedFormField label="Paid date" htmlFor="job-paid-date" className="col-span-12 md:col-span-3">
-              <input id="job-paid-date" type="date" value={jobForm.paidDate} onChange={(event) => updateJob('paidDate', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-            <AlignedFormField label="Notes" htmlFor="job-notes" className="col-span-12 md:col-span-6">
-              <input id="job-notes" value={jobForm.notes} onChange={(event) => updateJob('notes', event.target.value)} className={fieldClass} />
-            </AlignedFormField>
-          </AlignedFormGrid>
-          <p className="text-sm text-slate-700 mb-3">
-            Labor {money(liveTotals.laborPay)} · Lines {money(liveTotals.linesTotal)} · Cost {money(liveTotals.lineCost)} · Amount due {money(liveTotals.amountDue)}
-            {liveVariance == null ? ' · Not reconciled' : ` · Variance ${signedMoney(liveVariance)}`}
-          </p>
-          <div className="flex gap-2">
+          <JobSection title="Payment">
+            <div className="grid gap-3 md:grid-cols-2">
+              <JobField label="Paid amount" htmlFor="job-paid">
+                <input id="job-paid" type="number" min="0" step="0.01" value={jobForm.paidAmount} onChange={(event) => updateJob('paidAmount', event.target.value)} className={fieldClass} />
+              </JobField>
+              <JobField label="Paid date" htmlFor="job-paid-date">
+                <input id="job-paid-date" type="date" value={jobForm.paidDate} onChange={(event) => updateJob('paidDate', event.target.value)} className={fieldClass} />
+              </JobField>
+            </div>
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm leading-relaxed text-slate-700">
+              Labor {money(liveTotals.laborPay)} · Lines {money(liveTotals.linesTotal)} · Cost {money(liveTotals.lineCost)} · Amount due {money(liveTotals.amountDue)}
+              {liveVariance == null ? ' · Not reconciled' : ` · Variance ${signedMoney(liveVariance)}`}
+            </p>
+          </JobSection>
+          <div className="sticky bottom-0 z-10 -mx-4 flex gap-2 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
             <button type="submit" className="btn-primary">{editingJobId ? 'Save job' : 'Add job'}</button>
             {editingJobId ? (
               <button type="button" className="btn-secondary" onClick={resetJob}>Cancel</button>
@@ -610,7 +1047,7 @@ export default function CustomerWork({ customer, onSaved }) {
             {bids.map((bid) => {
               const importedJob = jobs.find((job) => job.bidId && String(job.bidId) === String(bid._id));
               return (
-              <article key={bid._id} data-testid={`bid-row-${bid._id}`} className="border border-slate-200 rounded-xl p-4">
+              <article key={bid._id} data-testid={`bid-row-${bid._id}`} className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-md">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div>
                     <h3 className={`font-semibold ${importedJob ? 'text-green-700' : ''}`}>
@@ -621,13 +1058,10 @@ export default function CustomerWork({ customer, onSaved }) {
                     ) : null}
                     <p className="text-sm text-slate-600 capitalize">{bid.status}</p>
                     {bid.description ? <p className="text-sm text-slate-600">{bid.description}</p> : null}
-                    {labelFor(plans, bid.planId, (plan) => plan.name)
-                      ? <p className="text-sm text-slate-600">Project: {labelFor(plans, bid.planId, (plan) => plan.name)}</p>
-                      : null}
                     {(bid.lines || []).length > 0 ? (
                       <ul className="mt-2 space-y-1 text-sm text-slate-700">
                         {bid.lines.map((line, index) => (
-                          <li key={`${bid._id}-line-${index}`}>
+                          <li key={`${bid._id}-line-${index}`} className="rounded-2xl border border-emerald-200 bg-white px-3 py-2 shadow-md">
                             {line.description || 'Line'} · Qty {line.quantity ?? 0} · Est {money(line.estimate)} · {money(bidLineAmount(line))}
                           </li>
                         ))}
@@ -678,40 +1112,32 @@ export default function CustomerWork({ customer, onSaved }) {
             {bidError ? <p role="alert" className="text-red-700 mb-3">{bidError}</p> : null}
             <AlignedFormGrid className="mb-3">
               <AlignedFormField label="Bid name" htmlFor="bid-name" className="col-span-12 md:col-span-5">
-                <input id="bid-name" value={bidForm.name} onChange={(event) => setBidForm({ ...bidForm, name: event.target.value })} className={fieldClass} />
+                <input id="bid-name" value={bidForm.name} onChange={(event) => setBidForm({ ...bidForm, name: event.target.value })} className={compactFieldClass} />
               </AlignedFormField>
               <AlignedFormField label="Bid status" htmlFor="bid-status" className="col-span-12 md:col-span-3">
-                <select id="bid-status" value={bidForm.status} onChange={(event) => setBidForm({ ...bidForm, status: event.target.value })} className={fieldClass}>
+                <select id="bid-status" value={bidForm.status} onChange={(event) => setBidForm({ ...bidForm, status: event.target.value })} className={compactFieldClass}>
                   {BID_STATUSES.map((status) => (
                     <option key={status.value} value={status.value}>{status.label}</option>
                   ))}
                 </select>
               </AlignedFormField>
               <AlignedFormField label="Quoted amount" htmlFor="bid-quoted" className="col-span-12 md:col-span-2">
-                <input id="bid-quoted" type="number" min="0" step="0.01" value={bidForm.quotedAmount} onChange={(event) => setBidForm({ ...bidForm, quotedAmount: event.target.value })} className={fieldClass} />
+                <input id="bid-quoted" type="number" min="0" step="0.01" value={bidForm.quotedAmount} onChange={(event) => setBidForm({ ...bidForm, quotedAmount: event.target.value })} className={compactFieldClass} />
               </AlignedFormField>
-              <AlignedFormField label="Description" htmlFor="bid-description" className="col-span-12 md:col-span-8">
-                <input id="bid-description" value={bidForm.description} onChange={(event) => setBidForm({ ...bidForm, description: event.target.value })} className={fieldClass} />
-              </AlignedFormField>
-              <AlignedFormField label="Project" htmlFor="bid-plan" className="col-span-12 md:col-span-4">
-                <select id="bid-plan" value={bidForm.planId} onChange={(event) => setBidForm({ ...bidForm, planId: event.target.value })} className={fieldClass}>
-                  <option value="">No project</option>
-                  {plans.map((plan) => (
-                    <option key={plan._id} value={plan._id}>{plan.planNumber ? `${plan.planNumber} · ${plan.name}` : plan.name}</option>
-                  ))}
-                </select>
+              <AlignedFormField label="Description" htmlFor="bid-description" className="col-span-12">
+                <input id="bid-description" value={bidForm.description} onChange={(event) => setBidForm({ ...bidForm, description: event.target.value })} className={compactFieldClass} />
               </AlignedFormField>
             </AlignedFormGrid>
             {bidForm.lines.map((line, index) => (
               <AlignedFormGrid key={`bid-line-${index}`} className="mb-2">
                 <AlignedFormField label="Bid line description" htmlFor={`bid-line-desc-${index}`} className="col-span-12 md:col-span-6">
-                  <input id={`bid-line-desc-${index}`} value={line.description} onChange={(event) => updateBidLine(index, 'description', event.target.value)} className={fieldClass} />
+                  <input id={`bid-line-desc-${index}`} value={line.description} onChange={(event) => updateBidLine(index, 'description', event.target.value)} className={compactFieldClass} />
                 </AlignedFormField>
                 <AlignedFormField label="Bid quantity" htmlFor={`bid-line-qty-${index}`} className="col-span-6 md:col-span-2">
-                  <input id={`bid-line-qty-${index}`} type="number" min="0" step="1" value={line.quantity} onChange={(event) => updateBidLine(index, 'quantity', event.target.value)} className={fieldClass} />
+                  <input id={`bid-line-qty-${index}`} type="number" min="0" step="1" value={line.quantity} onChange={(event) => updateBidLine(index, 'quantity', event.target.value)} className={compactFieldClass} />
                 </AlignedFormField>
                 <AlignedFormField label="Estimate" htmlFor={`bid-line-est-${index}`} className="col-span-6 md:col-span-2">
-                  <input id={`bid-line-est-${index}`} type="number" min="0" step="0.01" value={line.estimate} onChange={(event) => updateBidLine(index, 'estimate', event.target.value)} className={fieldClass} />
+                  <input id={`bid-line-est-${index}`} type="number" min="0" step="0.01" value={line.estimate} onChange={(event) => updateBidLine(index, 'estimate', event.target.value)} className={compactFieldClass} />
                 </AlignedFormField>
               </AlignedFormGrid>
             ))}
@@ -725,73 +1151,6 @@ export default function CustomerWork({ customer, onSaved }) {
             <div className="flex gap-2">
               <button type="submit" className="btn-primary">Save bid</button>
               <button type="button" className="btn-secondary" onClick={() => setBidEditor(null)}>Cancel</button>
-            </div>
-          </form>
-          </SectionToggle>
-        ) : null}
-      </SectionToggle>
-
-      <SectionToggle
-        title="Projects"
-        actions={<button type="button" className="btn-secondary" onClick={openNewPlan}>Add project</button>}
-      >
-        {plans.length === 0 ? (
-          <p className="text-slate-600">No projects. A single job does not need one.</p>
-        ) : (
-          <div className="space-y-3 mb-4">
-            {plans.map((plan) => {
-              const rollup = planRollup(plan._id, { jobs, bids });
-              return (
-                <article key={plan._id} data-testid={`plan-row-${plan._id}`} className="border border-slate-200 rounded-xl p-4">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                    <div>
-                      <h3 className="font-semibold">{plan.planNumber ? `${plan.planNumber} · ${plan.name}` : plan.name}</h3>
-                      {plan.description ? <p className="text-sm text-slate-600">{plan.description}</p> : null}
-                      <p className="text-sm text-slate-600">{rollup.jobCount} job tickets · {rollup.bidCount} bids</p>
-                    </div>
-                    <div className="sm:text-right">
-                      <p className="text-sm">Quoted {money(rollup.quoted)}</p>
-                      <p className="text-sm">Due {money(rollup.amountDue)}</p>
-                      <p className="text-sm">Paid {money(rollup.paid)}</p>
-                      <div className="flex gap-2 sm:justify-end mt-2">
-                        <button type="button" className="btn-row btn-row-secondary" onClick={() => editPlan(plan)}>Edit</button>
-                        <button type="button" className="btn-row btn-row-danger" onClick={() => deletePlan(plan)}>Delete</button>
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-        {planEditor ? (
-          <SectionToggle
-            nested
-            title={planEditor === 'new' ? 'New project' : 'Edit project'}
-            open
-            onOpenChange={(next) => { if (!next) setPlanEditor(null); }}
-          >
-          <form aria-label="Project" onSubmit={savePlan}>
-            {planEditor !== 'new' ? (
-              <p className="text-sm text-slate-600 mb-3">
-                {plans.find((plan) => plan._id === planEditor)?.planNumber}
-              </p>
-            ) : null}
-            {planError ? <p role="alert" className="text-red-700 mb-3">{planError}</p> : null}
-            <AlignedFormGrid className="mb-3">
-              <AlignedFormField label="Project name" htmlFor="plan-name" className="col-span-12 md:col-span-4">
-                <input id="plan-name" value={planForm.name} onChange={(event) => setPlanForm({ ...planForm, name: event.target.value })} className={fieldClass} />
-              </AlignedFormField>
-              <AlignedFormField label="Project description" htmlFor="plan-description" className="col-span-12 md:col-span-5">
-                <input id="plan-description" value={planForm.description} onChange={(event) => setPlanForm({ ...planForm, description: event.target.value })} className={fieldClass} />
-              </AlignedFormField>
-              <AlignedFormField label="Target date" htmlFor="plan-target" className="col-span-12 md:col-span-3">
-                <input id="plan-target" type="date" value={planForm.targetDate} onChange={(event) => setPlanForm({ ...planForm, targetDate: event.target.value })} className={fieldClass} />
-              </AlignedFormField>
-            </AlignedFormGrid>
-            <div className="flex gap-2">
-              <button type="submit" className="btn-primary">Save project</button>
-              <button type="button" className="btn-secondary" onClick={() => setPlanEditor(null)}>Cancel</button>
             </div>
           </form>
           </SectionToggle>

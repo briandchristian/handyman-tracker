@@ -239,6 +239,49 @@ describe('customer job tickets, bids, and projects', () => {
     expect(summary.body.ar).toEqual({ billed: 160, paid: 160, balance: 0 });
   });
 
+  test('adds, edits, and deletes notes on a service job', async () => {
+    const Customer = mongoose.model('Customer');
+    const customer = await Customer.create({
+      name: 'Mike Dibble',
+      email: 'mike-notes@test.com',
+      phone: '555',
+      accountNumber: 'A-1006',
+      serviceJobs: [{
+        name: 'IP Cameras for property',
+        jobNumber: 'A-1006-J0001',
+        status: 'scheduled',
+        notes: 'Gate code is 1234',
+      }],
+    });
+    const jobId = customer.serviceJobs[0]._id.toString();
+    const added = await request(app)
+      .post(`/api/customers/${customer._id}/service-jobs/${jobId}/notes`)
+      .set(auth())
+      .send({ text: 'Dog in the yard' });
+    expect(added.status).toBe(201);
+    expect(added.body.map((note) => note.text)).toEqual(['Gate code is 1234', 'Dog in the yard']);
+
+    const noteId = added.body[1]._id;
+    const edited = await request(app)
+      .put(`/api/customers/${customer._id}/service-jobs/${jobId}/notes/${noteId}`)
+      .set(auth())
+      .send({ text: 'Dog is friendly' });
+    expect(edited.status).toBe(200);
+    expect(edited.body.notes.map((note) => note.text)).toEqual(['Gate code is 1234', 'Dog is friendly']);
+
+    const removed = await request(app)
+      .delete(`/api/customers/${customer._id}/service-jobs/${jobId}/notes/${noteId}`)
+      .set(auth());
+    expect(removed.status).toBe(200);
+    expect(removed.body.notes.map((note) => note.text)).toEqual(['Gate code is 1234']);
+
+    const blank = await request(app)
+      .post(`/api/customers/${customer._id}/service-jobs/${jobId}/notes`)
+      .set(auth())
+      .send({ text: '   ' });
+    expect(blank.status).toBe(400);
+  });
+
   test('a business lists its people and a private individual does not', async () => {
     const business = await request(app)
       .post('/api/customers')
@@ -270,5 +313,254 @@ describe('customer job tickets, bids, and projects', () => {
     const saved = await mongoose.model('Customer').findById(business.body._id);
     expect(saved.people).toHaveLength(1);
     expect(saved.people[0].phone).toBe('931-279-7879');
+  });
+
+  test('keeps a purchased line in inventory, then uses it on the job', async () => {
+    const supplier = await mongoose.model('Supplier').create({ name: 'Wave Electronics' });
+    const customer = await createCustomer();
+    const line = {
+      description: 'Switch',
+      sku: 'SW-1',
+      quantity: 2,
+      price: 500,
+      paid: 180,
+      supplierId: String(supplier._id),
+    };
+    const stocked = await request(app)
+      .post(`/api/customers/${customer._id}/service-jobs`)
+      .set(auth())
+      .send({
+        name: 'Cameras',
+        chargeLines: [{ ...line, inventoryDisposition: 'stock' }],
+      });
+    expect(stocked.status).toBe(201);
+    expect(stocked.body.chargeLines[0].inventoryDisposition).toBe('stock');
+    expect(String(stocked.body.chargeLines[0].supplierId)).toBe(String(supplier._id));
+
+    const item = await mongoose.model('InventoryItem').findOne({ sku: 'SW-1' });
+    expect(item.currentStock).toBe(2);
+    expect(String(item.preferredSupplier)).toBe(String(supplier._id));
+    const purchased = await mongoose.model('InventoryMovement').find({ itemId: item._id }).sort({ _id: 1 });
+    expect(purchased.map((movement) => movement.type)).toEqual(['receive']);
+    expect(purchased[0].reason).toMatch(/Purchased for Cameras/i);
+
+    const used = await request(app)
+      .put(`/api/customers/${customer._id}/service-jobs/${stocked.body._id}`)
+      .set(auth())
+      .send({
+        name: 'Cameras',
+        chargeLines: [{ ...line, inventoryDisposition: 'used', inventoryItemId: String(item._id) }],
+      });
+    expect(used.status).toBe(200);
+    const after = await mongoose.model('InventoryItem').findById(item._id);
+    expect(after.currentStock).toBe(0);
+    const movements = await mongoose.model('InventoryMovement').find({ itemId: item._id }).sort({ _id: 1 });
+    expect(movements.map((movement) => movement.type)).toEqual(['receive', 'use']);
+    expect(movements[1].reason).toMatch(/Used on Cameras/i);
+  });
+
+  test('leaves a SKU line out of inventory until that choice is made', async () => {
+    const customer = await createCustomer();
+    const res = await request(app)
+      .post(`/api/customers/${customer._id}/service-jobs`)
+      .set(auth())
+      .send({
+        name: 'Panel',
+        chargeLines: [{ description: 'Switch', sku: 'SW-9', quantity: 1, price: 40, paid: 20 }],
+      });
+    expect(res.status).toBe(201);
+    expect(await mongoose.model('InventoryItem').countDocuments({ sku: 'SW-9' })).toBe(0);
+  });
+
+  test('uses stock on hand and records the cost, price, and job', async () => {
+    const item = await mongoose.model('InventoryItem').create({
+      name: 'Switch',
+      sku: 'SW-1',
+      currentStock: 4,
+      lastPrice: 180,
+    });
+    const customer = await createCustomer();
+    const res = await request(app)
+      .post(`/api/customers/${customer._id}/service-jobs`)
+      .set(auth())
+      .send({
+        name: 'Cameras',
+        chargeLines: [{
+          description: 'Switch',
+          sku: 'SW-1',
+          quantity: 2,
+          price: 500,
+          paid: 180,
+          inventoryDisposition: 'draw',
+          inventoryItemId: String(item._id),
+        }],
+      });
+    expect(res.status).toBe(201);
+    const saved = await mongoose.model('InventoryItem').findById(item._id);
+    expect(saved.currentStock).toBe(2);
+    const movements = await mongoose.model('InventoryMovement').find({ itemId: item._id }).sort({ _id: 1 });
+    expect(movements).toHaveLength(1);
+    expect(movements[0].type).toBe('use');
+    expect(movements[0].quantity).toBe(2);
+    expect(movements[0].unitCost).toBe(180);
+    expect(movements[0].unitPrice).toBe(500);
+    expect(movements[0].reason).toMatch(/Used on Cameras/i);
+  });
+
+  test('adds an inventory item onto a job and draws the stock', async () => {
+    const item = await mongoose.model('InventoryItem').create({
+      name: 'Switch',
+      sku: 'SW-1',
+      currentStock: 4,
+      lastPrice: 180,
+    });
+    const customer = await createCustomer();
+    const created = await request(app)
+      .post(`/api/customers/${customer._id}/service-jobs`)
+      .set(auth())
+      .send({
+        name: 'Cameras',
+        hoursWorked: 1,
+        hourlyRate: 75,
+        chargeLines: [{ description: 'Keypad', quantity: 1, price: 85 }],
+      });
+    expect(created.status).toBe(201);
+
+    const res = await request(app)
+      .post(`/api/inventory/${item._id}/add-to-job`)
+      .set(auth())
+      .send({
+        customerId: String(customer._id),
+        jobId: String(created.body._id),
+        quantity: 1,
+        price: 500,
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.job.chargeLines).toHaveLength(2);
+    expect(res.body.job.chargeLines[1]).toMatchObject({
+      description: 'Switch',
+      sku: 'SW-1',
+      quantity: 1,
+      price: 500,
+      paid: 180,
+      inventoryDisposition: 'draw',
+    });
+    expect(res.body.job.amountDue).toBe(660);
+    const saved = await mongoose.model('InventoryItem').findById(item._id);
+    expect(saved.currentStock).toBe(3);
+    const movements = await mongoose.model('InventoryMovement').find({ itemId: item._id });
+    expect(movements).toHaveLength(1);
+    expect(movements[0].type).toBe('use');
+    expect(movements[0].unitCost).toBe(180);
+    expect(movements[0].unitPrice).toBe(500);
+    expect(movements[0].reason).toMatch(/Used on Cameras/i);
+  });
+
+  test('adds an out-of-stock inventory item onto a job without drawing it', async () => {
+    const item = await mongoose.model('InventoryItem').create({
+      name: 'Relay',
+      sku: 'RL-1',
+      currentStock: 0,
+      lastPrice: 22,
+    });
+    const customer = await createCustomer();
+    const created = await request(app)
+      .post(`/api/customers/${customer._id}/service-jobs`)
+      .set(auth())
+      .send({ name: 'Cameras' });
+    const res = await request(app)
+      .post(`/api/inventory/${item._id}/add-to-job`)
+      .set(auth())
+      .send({
+        customerId: String(customer._id),
+        jobId: String(created.body._id),
+        quantity: 1,
+        price: 40,
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.job.chargeLines[0]).toMatchObject({
+      description: 'Relay',
+      quantity: 1,
+      price: 40,
+      paid: 22,
+    });
+    expect(res.body.job.chargeLines[0].inventoryDisposition || '').toBe('');
+    expect(res.body.job.chargeLines[0].inventoryItemId || null).toBeNull();
+    expect((await mongoose.model('InventoryItem').findById(item._id)).currentStock).toBe(0);
+    expect(await mongoose.model('InventoryMovement').countDocuments({ itemId: item._id })).toBe(0);
+  });
+
+  test('puts a kept part back on the shelf when this job had removed it', async () => {
+    const supplier = await mongoose.model('Supplier').create({ name: 'Wave Electronics' });
+    const item = await mongoose.model('InventoryItem').create({
+      name: 'Door contact',
+      sku: 'Q9-QS1135840',
+      currentStock: 0,
+      lastPrice: 13.92,
+    });
+    const customer = await createCustomer();
+    const line = {
+      description: 'Door contact',
+      sku: 'Q9-QS1135840',
+      quantity: 1,
+      price: 0,
+      paid: 13.92,
+      inventoryDisposition: 'stock',
+      supplierId: String(supplier._id),
+      inventoryItemId: String(item._id),
+    };
+    const created = await request(app)
+      .post(`/api/customers/${customer._id}/service-jobs`)
+      .set(auth())
+      .send({ name: 'Cameras', chargeLines: [line] });
+    expect(created.status).toBe(201);
+    expect((await mongoose.model('InventoryItem').findById(item._id)).currentStock).toBe(1);
+
+    const unchanged = await request(app)
+      .put(`/api/customers/${customer._id}/service-jobs/${created.body._id}`)
+      .set(auth())
+      .send({ name: 'Cameras', chargeLines: [line] });
+    expect(unchanged.status).toBe(200);
+    expect((await mongoose.model('InventoryItem').findById(item._id)).currentStock).toBe(1);
+
+    await mongoose.model('InventoryItem').updateOne({ _id: item._id }, { currentStock: 0 });
+    await mongoose.model('InventoryMovement').create({
+      itemId: item._id,
+      sku: 'Q9-QS1135840',
+      type: 'remove',
+      quantity: 1,
+      previousStock: 1,
+      newStock: 0,
+      reason: 'Removed from inventory for Cameras',
+      source: { kind: 'service-job', id: `${customer._id}:${created.body._id}` },
+    });
+
+    const restored = await request(app)
+      .put(`/api/customers/${customer._id}/service-jobs/${created.body._id}`)
+      .set(auth())
+      .send({ name: 'Cameras', chargeLines: [line] });
+    expect(restored.status).toBe(200);
+    expect((await mongoose.model('InventoryItem').findById(item._id)).currentStock).toBe(1);
+  });
+
+  test('rejects an inventory purchase that has no supplier', async () => {
+    const customer = await createCustomer();
+    const res = await request(app)
+      .post(`/api/customers/${customer._id}/service-jobs`)
+      .set(auth())
+      .send({
+        name: 'Cameras',
+        chargeLines: [{
+          description: 'Switch',
+          sku: 'SW-2',
+          quantity: 1,
+          paid: 10,
+          inventoryDisposition: 'stock',
+        }],
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.msg).toMatch(/supplier/i);
+    expect(await mongoose.model('InventoryItem').countDocuments({ sku: 'SW-2' })).toBe(0);
   });
 });

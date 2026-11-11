@@ -1,9 +1,11 @@
 /**
  * Customer jobs are single tickets. Each line has a price.
  * Paid is optional and is the cost once the item is bought.
- * A SKU or a Paid amount is recorded in inventory.
+ * Keep in inventory purchases the line onto the shelf. Use on this job purchases it and then uses it.
+ * The supplier is who the part was bought from. A price alone stays a charge.
  * Amount due is hours × rate + travel + line prices. Variance is paid − due.
  * A bid is a separate quote until it is imported into a job. A project only groups tickets.
+ * Job notes are a list. A single saved sentence stays as the first note.
  */
 
 import { laborPay, reconcileVariance } from './subcontractorWorkOrders.js';
@@ -21,6 +23,47 @@ export const SERVICE_JOB_STATUS_VALUES = SERVICE_JOB_STATUSES.map((status) => st
 export const DEFAULT_SERVICE_JOB_STATUS = 'scheduled';
 
 /** A recorded payment counts as paid even when the ticket status was left on an earlier step. */
+/** A job note is one written entry. Older jobs stored that entry as a single string. */
+export function normalizeServiceJobNotes(value) {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text ? [{ text }] : [];
+  }
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((note) => {
+    if (typeof note === 'string') {
+      const text = note.trim();
+      return text ? [{ text }] : [];
+    }
+    const text = String(note?.text || '').trim();
+    if (!text) return [];
+    const entry = { text };
+    if (note?._id) entry._id = note._id;
+    if (note?.addedAt) entry.addedAt = note.addedAt;
+    return [entry];
+  });
+}
+
+/**
+ * Add, edit, or remove one note. A previous single string is kept as the first note.
+ * noteId matches a saved id, or the position of a note that has no id yet.
+ */
+export function changeServiceJobNotes(current, { type, noteId, text } = {}) {
+  const notes = normalizeServiceJobNotes(current);
+  const trimmed = String(text || '').trim();
+  if (type === 'add') {
+    if (!trimmed) return { error: 'Note text is required' };
+    return { notes: [...notes, { text: trimmed }] };
+  }
+  const index = notes.findIndex((note, position) => String(note._id ?? position) === String(noteId));
+  if (index < 0) return { error: 'Note not found' };
+  if (type === 'delete') return { notes: notes.filter((_, position) => position !== index) };
+  if (!trimmed) return { error: 'Note text is required' };
+  const next = notes.slice();
+  next[index] = { ...next[index], text: trimmed };
+  return { notes: next };
+}
+
 export function serviceJobHasPayment(job = {}) {
   return !(job.paidAmount === '' || job.paidAmount == null);
 }
@@ -117,8 +160,17 @@ function normalizedJobLine(line = {}, { priceFromSold = false } = {}) {
     quantity,
     price,
     ...(hasPaid ? { paid: asNonNegative(paidRaw) } : {}),
-    ...(line?.inventoryItemId ? { inventoryItemId: line.inventoryItemId } : {}),
+    ...(line?.inventoryDisposition === 'stock' || line?.inventoryDisposition === 'used' || line?.inventoryDisposition === 'draw'
+      ? { inventoryDisposition: line.inventoryDisposition }
+      : {}),
+    ...(objectId(line?.supplierId) ? { supplierId: objectId(line.supplierId) } : {}),
+    ...(objectId(line?.inventoryItemId) ? { inventoryItemId: objectId(line.inventoryItemId) } : {}),
   };
+}
+
+function objectId(value) {
+  const id = String(value?._id || value || '').trim();
+  return /^[a-f\d]{24}$/i.test(id) ? id : '';
 }
 
 /** One list. Older part rows are folded in, using Sold as the price. */
@@ -140,6 +192,8 @@ export function serviceJobLines(job = {}) {
     quantity: line?.quantity,
     price: line?.price,
     paid: line?.paid,
+    inventoryDisposition: line?.inventoryDisposition || '',
+    supplierId: line?.supplierId || '',
     inventoryItemId: line?.inventoryItemId,
   }));
   const legacy = (Array.isArray(job.parts) ? job.parts : []).map((line) => ({
@@ -148,6 +202,8 @@ export function serviceJobLines(job = {}) {
     quantity: line?.quantity,
     price: line?.sold,
     paid: line?.paid,
+    inventoryDisposition: line?.inventoryDisposition || '',
+    supplierId: line?.supplierId || '',
     inventoryItemId: line?.inventoryItemId,
   }));
   return [...charges, ...legacy];
@@ -162,7 +218,9 @@ export function withInventoryIds(lines = [], synced = []) {
     if (key) ids.set(key, line.inventoryItemId);
   });
   return (Array.isArray(lines) ? lines : []).map((line) => {
-    if (!lineTracksInventory(line)) {
+    const disposition = line?.inventoryDisposition;
+    const tracked = lineTracksInventory(line) || disposition === 'stock' || disposition === 'used' || disposition === 'draw';
+    if (!tracked) {
       const rest = { ...line };
       delete rest.inventoryItemId;
       return rest;
@@ -230,29 +288,30 @@ export function validateServiceJob(input = {}) {
   const chargeLines = normalizeServiceJobLines(input);
   const totals = computeServiceJobTotals({ hoursWorked, hourlyRate, travelPay, chargeLines });
 
-  return {
-    value: {
-      name,
-      siteName: String(input.siteName || '').trim(),
-      siteAddress: String(input.siteAddress || '').trim(),
-      siteCity: String(input.siteCity || '').trim(),
-      workType,
-      status,
-      scheduledDate,
-      completedDate,
-      notes: String(input.notes || '').trim(),
-      chargeLines,
-      parts: [],
-      paidAmount,
-      paidDate,
-      variance: reconcileVariance(totals.amountDue, paidAmount),
-      planId: String(input.planId || '').trim(),
-      bidId: String(input.bidId || '').trim(),
-      hoursWorked: asNonNegative(hoursWorked),
-      hourlyRate: asNonNegative(hourlyRate),
-      ...totals,
-    },
+  const value = {
+    name,
+    siteName: String(input.siteName || '').trim(),
+    siteAddress: String(input.siteAddress || '').trim(),
+    siteCity: String(input.siteCity || '').trim(),
+    workType,
+    status,
+    scheduledDate,
+    completedDate,
+    chargeLines,
+    parts: [],
+    paidAmount,
+    paidDate,
+    variance: reconcileVariance(totals.amountDue, paidAmount),
+    planId: String(input.planId || '').trim(),
+    bidId: String(input.bidId || '').trim(),
+    hoursWorked: asNonNegative(hoursWorked),
+    hourlyRate: asNonNegative(hourlyRate),
+    ...totals,
   };
+  if (Object.prototype.hasOwnProperty.call(input, 'notes')) {
+    value.notes = normalizeServiceJobNotes(input.notes);
+  }
+  return { value };
 }
 
 function normalizeBidLines(lines) {
@@ -293,7 +352,7 @@ export function jobDraftFromBid(bid = {}) {
       : []);
   return {
     name,
-    notes: String(bid.description || '').trim(),
+    notes: normalizeServiceJobNotes(bid.description),
     planId: String(bid.planId || ''),
     bidId: bid._id ? String(bid._id) : '',
     workType: DEFAULT_PROJECT_WORK_TYPE,

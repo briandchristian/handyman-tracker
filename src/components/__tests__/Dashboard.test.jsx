@@ -69,6 +69,19 @@ describe('Dashboard Component', () => {
     });
   });
 
+  test('keeps the customer column names in view while the job list scrolls', async () => {
+    axios.get.mockResolvedValue({ data: mockCustomers });
+    await renderDashboard();
+
+    const customers = screen.getByRole('region', { name: 'Customers' });
+    const columns = ['Job', 'Customer', 'Status', 'Bid Amount', 'Bill Amount', 'Schedule Date', 'Created', 'Actions'];
+    columns.forEach((name) => {
+      const header = within(customers).getByRole('columnheader', { name });
+      expect(header).toHaveClass('sticky', 'bg-white');
+    });
+    expect(within(customers).getByRole('table').parentElement).not.toHaveClass('overflow-x-auto');
+  });
+
   test('leaves section links to the staff bar instead of a crowded header', async () => {
     axios.get.mockResolvedValue({ data: [] });
 

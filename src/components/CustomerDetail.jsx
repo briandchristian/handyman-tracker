@@ -1,6 +1,6 @@
 /**
  * Staff page for one customer.
- * Contact is edited here. Jobs, bids, and projects are separate lists.
+ * Contact is shown on this page. Jobs, bids, and projects are separate lists.
  * Older combined records stay reachable from Earlier job records.
  */
 import { useCallback, useEffect, useState } from 'react';
@@ -124,13 +124,13 @@ export default function CustomerDetail() {
         </div>
       </div>
 
-      <SectionToggle
-        title="Contact"
-        className="mb-6"
-        actions={!editingContact ? (
-          <button type="button" onClick={startEditContact} className="btn-secondary">Edit contact</button>
-        ) : null}
-      >
+      <section aria-label="Contact" className="card-surface p-4 md:p-6 mb-6">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h2 className="text-xl font-semibold">Contact</h2>
+          {!editingContact ? (
+            <button type="button" onClick={startEditContact} className="btn-secondary">Edit contact</button>
+          ) : null}
+        </div>
         {editingContact ? (
           <div className="space-y-3">
             <AlignedFormGrid>
@@ -184,7 +184,7 @@ export default function CustomerDetail() {
             </div>
           </dl>
         )}
-      </SectionToggle>
+      </section>
 
       {customer.kind === 'business' && (
         <CustomerPeople customer={customer} onSaved={loadCustomer} />

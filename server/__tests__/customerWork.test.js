@@ -16,6 +16,7 @@ import {
   validateBid,
   validatePlan,
   jobDraftFromBid,
+  normalizeServiceJobNotes,
   validateServiceJob,
 } from '../lib/customerWork.js';
 
@@ -87,6 +88,29 @@ describe('customer job tickets', () => {
     expect(checked.value.jobNumber).toBeUndefined();
   });
 
+  test('keeps the inventory choice and the supplier on the line', () => {
+    const checked = validateServiceJob({
+      name: 'Cameras',
+      chargeLines: [{
+        description: 'Switch',
+        sku: 'SW-1',
+        quantity: 2,
+        price: 500,
+        paid: 180,
+        inventoryDisposition: 'stock',
+        supplierId: '64b0aaaaaaaaaaaaaaaaaaaa',
+      }],
+    });
+    expect(checked.value.chargeLines[0]).toEqual(expect.objectContaining({
+      description: 'Switch',
+      sku: 'SW-1',
+      quantity: 2,
+      paid: 180,
+      inventoryDisposition: 'stock',
+      supplierId: '64b0aaaaaaaaaaaaaaaaaaaa',
+    }));
+  });
+
   test('leaves variance empty until a paid amount is entered', () => {
     const checked = validateServiceJob({
       name: 'Panel check',
@@ -109,7 +133,7 @@ describe('customer job tickets', () => {
     });
     expect(draft).toMatchObject({
       name: 'Cameras and access',
-      notes: 'Four outdoor cameras',
+      notes: [{ text: 'Four outdoor cameras' }],
       planId: 'plan1',
       bidId: 'b1',
       status: 'scheduled',
@@ -119,6 +143,17 @@ describe('customer job tickets', () => {
     expect(jobDraftFromBid({ name: 'Lump sum', quotedAmount: 500, lines: [] }).chargeLines).toEqual([
       { description: 'Lump sum', quantity: 1, price: 500 },
     ]);
+  });
+
+  test('keeps a written job note and a list of notes', () => {
+    expect(normalizeServiceJobNotes('Gate code is 1234')).toEqual([{ text: 'Gate code is 1234' }]);
+    expect(normalizeServiceJobNotes('')).toEqual([]);
+    expect(normalizeServiceJobNotes([
+      { _id: 'n1', text: '  Call first  ' },
+      { text: '' },
+    ])).toEqual([{ _id: 'n1', text: 'Call first' }]);
+    const checked = validateServiceJob({ name: 'Cameras', notes: 'Gate code is 1234' });
+    expect(checked.value.notes).toEqual([{ text: 'Gate code is 1234' }]);
   });
 
   test('a job line bills its price and keeps an optional cost', () => {

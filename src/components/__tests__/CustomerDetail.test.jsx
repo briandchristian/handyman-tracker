@@ -70,9 +70,11 @@ async function renderPage() {
       </Routes>
     </MemoryRouter>
   );
-  const contact = await screen.findByRole('button', { name: 'Contact' }).catch(() => null);
-  if (!contact) return view;
-  for (const name of ['Contact', 'Jobs', 'Bids', 'Projects']) {
+  await waitFor(() => {
+    expect(screen.queryByText(/loading customer/i)).not.toBeInTheDocument();
+  });
+  if (!screen.queryByRole('heading', { name: 'John Doe' })) return view;
+  for (const name of ['Jobs', 'Bids', 'Projects']) {
     const button = screen.queryByRole('button', { name });
     if (button?.getAttribute('aria-expanded') === 'false') fireEvent.click(button);
   }
@@ -143,12 +145,16 @@ describe('CustomerDetail', () => {
         expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } })
       );
       expect(screen.getByText('john@example.com')).toBeInTheDocument();
+      expect(screen.getByText('555-123-4567')).toBeInTheDocument();
     });
+    expect(screen.queryByRole('button', { name: 'Contact' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Job number')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Quote number')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Jobs' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Bids' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Projects' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Projects' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add project' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Project')).not.toBeInTheDocument();
 
     const job = screen.getByTestId('job-ticket-j1');
     expect(job).toHaveTextContent('J-2001 · Replace keypad');
@@ -163,7 +169,6 @@ describe('CustomerDetail', () => {
     expect(bid).toHaveTextContent('$9,100.00');
     expect(bid).not.toHaveTextContent('Amount due');
 
-    expect(screen.getByTestId('plan-row-plan1')).toHaveTextContent('Building security');
     await userEvent.click(screen.getByRole('button', { name: 'Earlier job records' }));
     const earlier = screen.getByTestId('earlier-job-p1');
     expect(within(earlier).getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/projects/c1/p1');
@@ -206,6 +211,51 @@ describe('CustomerDetail', () => {
     });
   });
 
+  test('creates a draft purchase order from the job lines', async () => {
+    const jobCustomer = {
+      ...customer,
+      serviceJobs: [{
+        ...customer.serviceJobs[0],
+        chargeLines: [
+          { description: 'Switch', sku: 'SW-1', quantity: 1, price: 500, paid: 180 },
+        ],
+      }],
+    };
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/suppliers')) {
+        return Promise.resolve({ data: { suppliers: [{ _id: 's1', name: 'ADI' }] } });
+      }
+      return Promise.resolve({ data: jobCustomer });
+    });
+    axios.post.mockResolvedValue({ data: { _id: 'po1', poNumber: 'PO-2026-0004' } });
+    await renderPage();
+
+    const job = screen.getByTestId('job-ticket-j1');
+    await userEvent.click(within(job).getByRole('button', { name: 'Create PO' }));
+    await userEvent.selectOptions(await within(job).findByLabelText('PO supplier'), 's1');
+    await userEvent.click(within(job).getByRole('button', { name: 'Create purchase order' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/purchase-orders'),
+        expect.objectContaining({
+          supplier: 's1',
+          status: 'Draft',
+          items: [expect.objectContaining({
+            sku: 'SW-1',
+            description: 'Switch',
+            quantity: 1,
+            unitPrice: 180,
+            total: 180,
+          })],
+          notes: expect.stringContaining('J-2001'),
+        }),
+        expect.any(Object)
+      );
+    });
+    expect(await within(job).findByRole('link', { name: 'PO-2026-0004' })).toHaveAttribute('href', '/purchase-orders');
+  });
+
   test('edits a job as one list of lines with price and optional cost', async () => {
     axios.get.mockResolvedValue({
       data: {
@@ -222,6 +272,7 @@ describe('CustomerDetail', () => {
 
     const job = await screen.findByTestId('job-ticket-j1');
     await userEvent.click(within(job).getByRole('button', { name: 'Edit' }));
+    expect(screen.queryByLabelText('Project')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Parts used' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Lines' })).toBeInTheDocument();
     expect(screen.getByDisplayValue('Switch')).toBeInTheDocument();
@@ -242,7 +293,213 @@ describe('CustomerDetail', () => {
         }),
         expect.any(Object)
       );
+      expect(axios.put.mock.calls.at(-1)[1]).not.toHaveProperty('notes');
     });
+  });
+
+  test('adds a saved part onto a job line from the quick pick list', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/quick-picks')) {
+        return Promise.resolve({
+          data: {
+            quickPicks: [{
+              _id: 'qp1',
+              description: 'Switch',
+              sku: 'SW-1',
+              price: 500,
+              paid: 180,
+            }],
+          },
+        });
+      }
+      return Promise.resolve({ data: customer });
+    });
+    await renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+    expect(await screen.findByRole('option', { name: /Switch · SW-1/ })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Quick pick'), 'qp1');
+
+    expect(screen.getByLabelText('Line description')).toHaveValue('Switch');
+    expect(screen.getByLabelText('SKU')).toHaveValue('SW-1');
+    expect(screen.getByLabelText('Line quantity')).toHaveValue(1);
+    expect(screen.getByLabelText('Price')).toHaveValue(500);
+    expect(screen.getByLabelText('Line paid')).toHaveValue(180);
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+  });
+
+  test('saves a job line onto the quick pick list', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/quick-picks')) {
+        return Promise.resolve({ data: { quickPicks: [] } });
+      }
+      return Promise.resolve({ data: customer });
+    });
+    axios.post.mockImplementation((url) => {
+      if (String(url).includes('/api/quick-picks')) {
+        return Promise.resolve({
+          data: {
+            _id: 'qp2',
+            description: 'Relay',
+            sku: 'RL-1',
+            price: 40,
+            paid: 22,
+          },
+        });
+      }
+      return Promise.resolve({ data: { _id: 'j2' } });
+    });
+    await renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+    await userEvent.type(screen.getByLabelText('Line description'), 'Relay');
+    await userEvent.type(screen.getByLabelText('SKU'), 'RL-1');
+    await userEvent.type(screen.getByLabelText('Price'), '40');
+    await userEvent.type(screen.getByLabelText('Line paid'), '22');
+    await userEvent.click(screen.getByRole('button', { name: 'Save to Quick Pick' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/quick-picks'),
+        { description: 'Relay', sku: 'RL-1', price: '40', paid: '22' },
+        expect.any(Object)
+      );
+    });
+    expect(await screen.findByRole('option', { name: /Relay · RL-1/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove quick pick' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Saved to Quick Pick');
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+  });
+
+  test('shows whether a quick pick is missing, out of stock, or on the shelf', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/inventory')) {
+        return Promise.resolve({
+          data: [
+            { _id: 'stocked', name: 'Contact', sku: 'DC-1', currentStock: 4 },
+            { _id: 'empty', name: 'Relay', sku: 'RL-1', currentStock: 0 },
+          ],
+        });
+      }
+      if (String(url).includes('/api/quick-picks')) {
+        return Promise.resolve({
+          data: {
+            quickPicks: [
+              { _id: 'missing', description: 'Keypad', sku: 'KP-1', price: 85, paid: 40 },
+              { _id: 'empty-pick', description: 'Relay', sku: 'RL-1', price: 40, paid: 22 },
+              { _id: 'stocked-pick', description: 'Contact', sku: 'DC-1', price: 32, paid: 14 },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: customer });
+    });
+    await renderPage();
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+
+    const picks = await screen.findByRole('list', { name: 'Quick picks' });
+    expect(within(picks).getByText('Not in inventory')).toBeInTheDocument();
+    expect(within(picks).getByText('Out of stock')).toBeInTheDocument();
+    expect(within(picks).getByText('In stock, 4 on hand')).toBeInTheDocument();
+
+    await userEvent.click(within(picks).getByRole('button', { name: 'Add Contact to the line' }));
+    expect(screen.getByLabelText('Inventory')).toHaveValue('draw');
+    expect(screen.getByLabelText('Line description')).toHaveValue('Contact');
+    expect(screen.getByLabelText('Line quantity')).toHaveValue(1);
+
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+  });
+
+  test('adds a quick pick that is not in inventory yet', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/inventory')) return Promise.resolve({ data: [] });
+      if (String(url).includes('/api/quick-picks')) {
+        return Promise.resolve({
+          data: { quickPicks: [{ _id: 'qp1', description: 'Switch', sku: 'SW-1', price: 500, paid: 180 }] },
+        });
+      }
+      return Promise.resolve({ data: customer });
+    });
+    axios.post.mockImplementation((url) => {
+      if (String(url).includes('/api/inventory')) {
+        return Promise.resolve({ data: { _id: 'item9', name: 'Switch', sku: 'SW-1', currentStock: 0 } });
+      }
+      return Promise.resolve({ data: { _id: 'j2' } });
+    });
+    await renderPage();
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Add to inventory' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/inventory'),
+        expect.objectContaining({ name: 'Switch', sku: 'SW-1', currentStock: 0, lastPrice: 180 }),
+        expect.any(Object)
+      );
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+  });
+
+  test('saves a line kept in inventory for the selected supplier', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/suppliers')) {
+        return Promise.resolve({ data: { suppliers: [{ _id: 's1', name: 'Wave Electronics' }] } });
+      }
+      if (String(url).includes('/api/quick-picks')) {
+        return Promise.resolve({ data: { quickPicks: [] } });
+      }
+      return Promise.resolve({ data: customer });
+    });
+    axios.post.mockResolvedValue({ data: { _id: 'j2' } });
+    await renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+    await userEvent.type(screen.getByLabelText('Job name'), 'Cameras');
+    await userEvent.type(screen.getByLabelText('Line description'), 'Switch');
+    await userEvent.type(screen.getByLabelText('SKU'), 'SW-1');
+    await userEvent.type(screen.getByLabelText('Line quantity'), '2');
+    await userEvent.type(screen.getByLabelText('Line paid'), '180');
+    expect(screen.getByRole('option', { name: 'Use on this job' })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Inventory'), 'stock');
+    expect(await screen.findByRole('option', { name: 'Wave Electronics' })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Supplier'), 's1');
+    await userEvent.click(screen.getByRole('button', { name: 'Add job' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/customers/c1/service-jobs'),
+        expect.objectContaining({
+          name: 'Cameras',
+          chargeLines: [expect.objectContaining({
+            description: 'Switch',
+            sku: 'SW-1',
+            quantity: '2',
+            paid: '180',
+            inventoryDisposition: 'stock',
+            supplierId: 's1',
+          })],
+        }),
+        expect.any(Object)
+      );
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+  });
+
+  test('stacks the job editor in sections with the same fields as the bid form', async () => {
+    await renderPage();
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
+
+    const form = screen.getByRole('form', { name: 'Job ticket' });
+    expect(within(form).getByRole('heading', { name: 'Job' })).toBeInTheDocument();
+    expect(within(form).getByRole('heading', { name: 'Site' })).toBeInTheDocument();
+    expect(within(form).getByRole('heading', { name: 'Schedule' })).toBeInTheDocument();
+    expect(within(form).getByRole('heading', { name: 'Lines' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Job name')).toHaveClass('field');
+    expect(screen.getByLabelText('Line description')).toHaveClass('field');
+    expect(screen.getByLabelText('Line description').closest('.rounded-2xl')).toHaveClass('border-emerald-200', 'shadow-md');
+    expect(form.querySelector('.grid-cols-12')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'New job' }));
   });
 
   test('adds a job ticket with a charge line and does not post it as a bid', async () => {
@@ -335,6 +592,33 @@ describe('CustomerDetail', () => {
     expect(job).toHaveTextContent('Q-1001');
   });
 
+  test('adds a note on a job without opening the project', async () => {
+    axios.get.mockResolvedValue({
+      data: {
+        ...customer,
+        serviceJobs: [{
+          ...customer.serviceJobs[0],
+          notes: 'Gate code is 1234',
+        }],
+      },
+    });
+    axios.post.mockResolvedValue({ data: [] });
+    await renderPage();
+
+    const job = screen.getByTestId('job-ticket-j1');
+    expect(job).toHaveTextContent('Gate code is 1234');
+    await userEvent.type(within(job).getByLabelText('Note for J-2001'), 'Dog in the yard');
+    await userEvent.click(within(job).getByRole('button', { name: 'Add note' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/customers/c1/service-jobs/j1/notes'),
+        { text: 'Dog in the yard' },
+        expect.any(Object)
+      );
+    });
+  });
+
   test('shows a bid in green once a job is linked to it', async () => {
     axios.get.mockResolvedValue({
       data: {
@@ -383,7 +667,7 @@ describe('CustomerDetail', () => {
           name: 'Cameras and access',
           bidId: 'b1',
           planId: 'plan1',
-          notes: 'Four outdoor cameras',
+          notes: [{ text: 'Four outdoor cameras' }],
           chargeLines: [expect.objectContaining({
             description: 'Quoted camera',
             quantity: 4,

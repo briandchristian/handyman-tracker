@@ -7,6 +7,7 @@ export {
   SERVICE_JOB_STATUS_VALUES,
   computeServiceJobTotals,
   jobDraftFromBid,
+  normalizeServiceJobNotes,
   planRollup,
   serviceJobMatchesStatus,
   validateBid,

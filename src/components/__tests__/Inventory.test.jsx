@@ -1097,4 +1097,75 @@ describe('Inventory Component - Phase 2C', () => {
     });
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Quantity becomes 3'));
   });
+
+  test('shows purchases, uses, cost, price, and the job for a part', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/movements')) {
+        return Promise.resolve({
+          data: [
+            { type: 'receive', quantity: 4, unitCost: 4, unitPrice: 9, reason: 'Purchased for Alarm', newStock: 4 },
+            { type: 'use', quantity: 2, unitCost: 4, unitPrice: 9, reason: 'Used on Alarm', newStock: 2 },
+          ],
+        });
+      }
+      if (String(url).includes('/suppliers')) {
+        return Promise.resolve({ data: { suppliers: [], stats: {} } });
+      }
+      if (String(url).includes('/customers')) return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: mockInventoryData });
+    });
+
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+    const activityButtons = await screen.findAllByRole('button', { name: 'Activity for 2x4 Lumber' });
+    fireEvent.click(activityButtons[0]);
+
+    const activity = await screen.findByRole('region', { name: 'Stock activity for 2x4 Lumber' });
+    expect(activity).toHaveTextContent('Purchased 4');
+    expect(activity).toHaveTextContent('Used 2');
+    expect(activity).toHaveTextContent('Cost $4.00');
+    expect(activity).toHaveTextContent('Sold $9.00');
+    expect(activity).toHaveTextContent('Used on Alarm');
+    expect(activity).toHaveTextContent('Purchased for Alarm');
+  });
+
+  test('adds an inventory item onto a service job', async () => {
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/suppliers')) {
+        return Promise.resolve({ data: { suppliers: [], stats: {} } });
+      }
+      if (String(url).includes('/customers')) {
+        return Promise.resolve({
+          data: [{
+            _id: 'cust1',
+            name: 'Job Co',
+            accountNumber: 'A-1001',
+            serviceJobs: [{ _id: 'job1', name: 'Cameras', jobNumber: 'A-1001-J0001' }],
+          }],
+        });
+      }
+      return Promise.resolve({ data: mockInventoryData });
+    });
+    axios.post.mockResolvedValue({ data: { job: { _id: 'job1' }, item: { currentStock: 48 } } });
+
+    render(<BrowserRouter><Inventory /></BrowserRouter>);
+    const addButtons = await screen.findAllByRole('button', { name: 'Add 2x4 Lumber to a job' });
+    fireEvent.click(addButtons[0]);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Add 2x4 Lumber to a job' });
+    expect(dialog).toHaveTextContent('In stock, 50 on hand');
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Job' }), {
+      target: { value: 'cust1:job1' },
+    });
+    fireEvent.change(within(dialog).getByLabelText('Quantity'), { target: { value: '2' } });
+    fireEvent.change(within(dialog).getByLabelText('Price'), { target: { value: '9' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add to this job' }));
+
+    await waitFor(() => {
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/inventory/item1/add-to-job'),
+        { customerId: 'cust1', jobId: 'job1', quantity: 2, price: 9 },
+        expect.any(Object)
+      );
+    });
+  });
 });

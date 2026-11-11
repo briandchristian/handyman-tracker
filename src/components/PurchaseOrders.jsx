@@ -24,6 +24,7 @@ import {
   collectAdiShipments,
   deriveAdiInquiryStatus,
   extractAdiOrderNumber,
+  isAdiSupplier,
   plainAdiItemMessage,
   splitCatalogSku,
   validateAdiGenerateOrder,
@@ -436,6 +437,7 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
   const [receivedDate, setReceivedDate] = useState(safeFormatDate(po?.receivedDate));
   const [paidDate, setPaidDate] = useState(safeFormatDate(po?.paidDate));
   const supplierAdiAccount = po?.supplier?.adiAccount || {};
+  const showAdi = isAdiSupplier(po?.supplier);
   const [adiCustomerNumber, setAdiCustomerNumber] = useState(
     supplierAdiAccount.customerNumber || po?.adiIntegration?.customerNumber || ''
   );
@@ -1193,6 +1195,7 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
             </div>
           </SectionToggle>
 
+          {showAdi ? (
           <SectionToggle title="ADI" className="mb-6">
             {adiCustomerNumber.trim() && !editingAccount ? (
               <p className="text-sm text-black mb-3">
@@ -1530,21 +1533,28 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
               <p className="text-sm text-gray-700 mt-3">{adiLastMessage}</p>
             )}
           </SectionToggle>
+          ) : null}
 
           <SectionToggle title="Line Items" className="mb-6">
             <div className="bg-gray-50 border border-gray-300 rounded-lg overflow-hidden">
               <table aria-label="Line items" className="w-full">
                 <thead>
                   <tr className="border-b border-gray-300 bg-gray-100">
-                    <th className="text-left p-3 text-black text-sm">Manufacturer part</th>
-                    <th className="text-left p-3 text-black text-sm">ADI item</th>
+                    {showAdi ? (
+                      <th className="text-left p-3 text-black text-sm">Manufacturer part</th>
+                    ) : null}
+                    <th className="text-left p-3 text-black text-sm">{showAdi ? 'ADI item' : 'SKU'}</th>
                     <th className="text-left p-3 text-black text-sm">Description</th>
                     <th className="text-left p-3 text-black text-sm">Qty</th>
                     <th className="text-left p-3 text-black text-sm">Unit</th>
-                    <th className="text-left p-3 text-black text-sm">Your price</th>
-                    <th className="text-left p-3 text-black text-sm">ADI price</th>
-                    <th className="text-left p-3 text-black text-sm">Stock</th>
-                    <th className="text-left p-3 text-black text-sm">Can buy</th>
+                    <th className="text-left p-3 text-black text-sm">{showAdi ? 'Your price' : 'Price'}</th>
+                    {showAdi ? (
+                      <>
+                        <th className="text-left p-3 text-black text-sm">ADI price</th>
+                        <th className="text-left p-3 text-black text-sm">Stock</th>
+                        <th className="text-left p-3 text-black text-sm">Can buy</th>
+                      </>
+                    ) : null}
                     <th className="text-left p-3 text-black text-sm">Total</th>
                   </tr>
                 </thead>
@@ -1563,22 +1573,28 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
                       const sale = [quote?.saleStartDate, quote?.saleEndDate].filter(Boolean).join(' – ');
                       return (
                       <tr key={idx} className="border-b border-gray-200">
-                        <td className="p-3 text-black text-sm">{parts.manufacturerPart || '—'}</td>
+                        {showAdi ? (
+                          <td className="p-3 text-black text-sm">{parts.manufacturerPart || '—'}</td>
+                        ) : null}
                         <td className="p-3 text-black text-sm">
-                          {parts.adiItemNumber || '—'}
-                          {note && <p className="text-xs text-gray-600 mt-1">{note}</p>}
-                          {supportCode && <p className="text-xs text-gray-500">{supportCode}</p>}
+                          {(showAdi ? parts.adiItemNumber : item.sku) || '—'}
+                          {showAdi && note && <p className="text-xs text-gray-600 mt-1">{note}</p>}
+                          {showAdi && supportCode && <p className="text-xs text-gray-500">{supportCode}</p>}
                         </td>
                         <td className="p-3 text-black">{item.description || 'N/A'}</td>
                         <td className="p-3 text-black">{item.quantity || 0}</td>
                         <td className="p-3 text-black text-sm">{item.unit || ''}</td>
                         <td className="p-3 text-black">${(item.unitPrice || 0).toFixed(2)}</td>
-                        <td className="p-3 text-black">
-                          {adiPrice}
-                          {sale && <p className="text-xs text-gray-600">{sale}</p>}
-                        </td>
-                        <td className="p-3 text-black text-sm">{quote?.nationalInventory || '—'}</td>
-                        <td className="p-3 text-black text-sm">{adiAllowedLabel(quote?.allowedToBuy) || '—'}</td>
+                        {showAdi ? (
+                          <>
+                            <td className="p-3 text-black">
+                              {adiPrice}
+                              {sale && <p className="text-xs text-gray-600">{sale}</p>}
+                            </td>
+                            <td className="p-3 text-black text-sm">{quote?.nationalInventory || '—'}</td>
+                            <td className="p-3 text-black text-sm">{adiAllowedLabel(quote?.allowedToBuy) || '—'}</td>
+                          </>
+                        ) : null}
                         <td className="p-3 text-black font-medium">${(item.total || 0).toFixed(2)}</td>
                       </tr>
                       );
@@ -1586,21 +1602,21 @@ export function PODetailModal({ po, onClose, onUpdate, onSync }) {
                   </tbody>
                   <tfoot>
                     <tr className="border-t-2 border-gray-300">
-                      <td colSpan="9" className="p-3 text-right font-medium text-black">Subtotal:</td>
+                      <td colSpan={showAdi ? 9 : 5} className="p-3 text-right font-medium text-black">Subtotal:</td>
                       <td className="p-3 font-medium text-black">${(displayTotals.subtotal || 0).toFixed(2)}</td>
                     </tr>
                     <tr>
-                      <td colSpan="9" className="p-3 text-right text-gray-600 text-sm">Tax:</td>
+                      <td colSpan={showAdi ? 9 : 5} className="p-3 text-right text-gray-600 text-sm">Tax:</td>
                       <td className="p-3 text-gray-600 text-sm">${(displayTotals.tax || 0).toFixed(2)}</td>
                     </tr>
                     {(displayTotals.shipping || 0) > 0 && (
                       <tr>
-                        <td colSpan="9" className="p-3 text-right text-gray-600 text-sm">Shipping:</td>
+                        <td colSpan={showAdi ? 9 : 5} className="p-3 text-right text-gray-600 text-sm">Shipping:</td>
                         <td className="p-3 text-gray-600 text-sm">${(displayTotals.shipping || 0).toFixed(2)}</td>
                       </tr>
                     )}
                     <tr className="bg-gray-100">
-                      <td colSpan="9" className="p-3 text-right font-bold text-black text-lg">TOTAL:</td>
+                      <td colSpan={showAdi ? 9 : 5} className="p-3 text-right font-bold text-black text-lg">TOTAL:</td>
                       <td className="p-3 font-bold text-black text-lg">${(displayTotals.total || 0).toFixed(2)}</td>
                     </tr>
                   </tfoot>

@@ -1,5 +1,6 @@
 /**
- * Customer directory. Contact edits and job add/edit/remove live on the customer page.
+ * Customer directory. The list is open on this page. Add New Customer stays collapsed.
+ * Contact edits and job add/edit/remove live on the customer page.
  * A customer created from the public Request a Bid page keeps that source on the card.
  */
 import { useEffect, useState } from 'react';
@@ -88,9 +89,8 @@ export default function Customers() {
         <h1 className="text-2xl text-black">Customers</h1>
       </div>
 
-      <div className="flex-1 overflow-auto mb-6">
-        <SectionToggle title="Customer Management">
-            <SectionToggle title="Add New Customer" defaultOpen={false} nested>
+      <div className="flex-1 mb-6">
+            <SectionToggle title="Add New Customer" defaultOpen={false}>
                 <AlignedFormGrid testId="add-customer-grid">
                   <AlignedFormField label="Name" htmlFor="new-customer-name" className="col-span-12 md:col-span-3">
                     <input
@@ -159,7 +159,8 @@ export default function Customers() {
                 </AlignedFormGrid>
             </SectionToggle>
 
-            <div className="mb-3 mt-4">
+            <section aria-label="Customer directory" className="card-surface p-4 md:p-6 mt-4">
+            <div className="mb-3">
               <label className="block text-gray-700 mb-2 font-medium text-base md:text-sm" htmlFor="customer-directory-search">
                 Find a customer
               </label>
@@ -173,7 +174,6 @@ export default function Customers() {
               />
             </div>
 
-            <SectionToggle title="Customer List" nested>
             <div className="space-y-3">
               {visibleCustomers.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">
@@ -211,8 +211,7 @@ export default function Customers() {
                 </article>
               ))}
             </div>
-            </SectionToggle>
-        </SectionToggle>
+            </section>
       </div>
     </div>
   );

@@ -53,6 +53,7 @@ describe('MarketingHome', () => {
     expect(screen.getAllByText(/2622 Alarm Contracting Company/i).length).toBeGreaterThan(0);
 
     expect(screen.getAllByText('Burglar alarms').length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Burglar alarms/i })).toHaveClass('border-emerald-200', 'shadow-md');
 
     expect(screen.getAllByText('Fire alarms').length).toBeGreaterThan(0);
 

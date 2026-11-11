@@ -6,7 +6,9 @@ import API_BASE_URL from '../config/api';
 import { INVENTORY_CATEGORIES } from '../constants/inventoryCategories';
 import { findItemBySku, normalizeSkuCode } from '../utils/inventorySkuMatch';
 import { duplicateIdentityGroups, mergedInventoryFields } from '../utils/inventoryIdentity';
-import { filterJobs, jobsFromCustomers } from '../utils/inventoryJobs';
+import { filterJobs, jobsFromCustomers, serviceJobsForInventory } from '../utils/inventoryJobs';
+import { lineForInventoryOnJob } from '../../server/lib/inventoryJobLine.js';
+import { inventoryActivity } from '../utils/inventoryActivity';
 import { fetchAdiPriceInventory } from '../services/adiSupplierApi';
 import SectionToggle from './SectionToggle';
 import {
@@ -40,6 +42,9 @@ export default function Inventory() {
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [customers, setCustomers] = useState([]);
+  const [activityItem, setActivityItem] = useState(null);
+  const [activity, setActivity] = useState(null);
+  const [jobItem, setJobItem] = useState(null);
 
   const categories = INVENTORY_CATEGORIES;
 
@@ -165,6 +170,25 @@ export default function Inventory() {
     setSelectedItem(item);
     setShowAdjustModal(true);
   };
+
+  const openActivity = async (item) => {
+    setActivityItem(item);
+    setActivity(null);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/inventory/${item._id}/movements`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      setActivity(inventoryActivity(res.data));
+    } catch (err) {
+      setActivity({ purchased: 0, used: 0, rows: [], error: err.response?.data?.msg || 'Could not load stock activity' });
+    }
+  };
+
+  const moneyText = (value) => (
+    value == null || Number.isNaN(Number(value))
+      ? '—'
+      : `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  );
 
   const handleBarcodeScan = (code) => {
     const normalized = normalizeSkuCode(code);
@@ -457,6 +481,21 @@ export default function Inventory() {
                       >
                         Edit Item
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => openActivity(item)}
+                        className="mt-2 w-full border border-slate-300 bg-white text-slate-800 text-center py-3 rounded font-medium"
+                      >
+                        {`Activity for ${item.name}`}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Add ${item.name} to a job`}
+                        onClick={() => setJobItem(item)}
+                        className="mt-2 w-full border border-slate-300 bg-white text-slate-800 text-center py-3 rounded font-medium"
+                      >
+                        Add to job
+                      </button>
                     </div>
                   </div>
                 );
@@ -533,6 +572,21 @@ export default function Inventory() {
                             >
                               Edit
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => openActivity(item)}
+                              className="text-slate-800 hover:text-slate-950 text-sm font-medium"
+                            >
+                              {`Activity for ${item.name}`}
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Add ${item.name} to a job`}
+                              onClick={() => setJobItem(item)}
+                              className="text-slate-800 hover:text-slate-950 text-sm font-medium"
+                            >
+                              Add to job
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -543,6 +597,29 @@ export default function Inventory() {
             </div>
           </>
         )}
+        {activityItem && activity ? (
+          <section aria-label={`Stock activity for ${activityItem.name}`} className="border-t border-slate-200 p-4">
+            <h3 className="text-base font-semibold text-slate-900">{activityItem.name}</h3>
+            {activity.error ? <p className="mt-2 text-sm text-red-700">{activity.error}</p> : (
+              <>
+                <p className="mt-2 text-sm text-slate-700">Purchased {activity.purchased} · Used {activity.used}</p>
+                {activity.rows.length === 0 ? (
+                  <p className="mt-2 text-sm text-slate-600">No stock activity yet.</p>
+                ) : (
+                  <ul className="mt-3 space-y-2">
+                    {activity.rows.map((row, index) => (
+                      <li key={`${row.label}-${index}`} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800">
+                        {`${row.label} ${row.quantity} · Cost ${moneyText(row.unitCost)} · Sold ${moneyText(row.unitPrice)}`}
+                        {row.job ? ` · ${row.job}` : ''}
+                        {row.onHand != null ? ` · On hand ${row.onHand}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </section>
+        ) : null}
       </div>
 
       {/* Item Detail/Edit Modal */}
@@ -563,6 +640,18 @@ export default function Inventory() {
           }}
         />
       )}
+
+      {jobItem ? (
+        <AddToJobModal
+          item={jobItem}
+          customers={customers}
+          onClose={() => setJobItem(null)}
+          onSave={async () => {
+            setJobItem(null);
+            await fetchInventory();
+          }}
+        />
+      ) : null}
 
       {/* Stock Adjustment Modal */}
       {showAdjustModal && selectedItem && (
@@ -1169,6 +1258,158 @@ function ItemModal({ item, items = [], suppliers, categories, onClose, onSave })
           onClose={() => setShowSkuScanner(false)}
         />
       )}
+    </div>
+  );
+}
+
+function AddToJobModal({ item, customers = [], onClose, onSave }) {
+  const [jobKey, setJobKey] = useState('');
+  const [jobQuery, setJobQuery] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [price, setPrice] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const jobs = filterJobs(serviceJobsForInventory(customers), jobQuery);
+  const onHand = Number(item.currentStock) || 0;
+  const cue = onHand > 0 ? `In stock, ${onHand} on hand` : 'Out of stock';
+  const cost = Number(item.lastPrice);
+  const costText = Number.isFinite(cost)
+    ? `$${cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : '—';
+
+  const handleSave = async () => {
+    const built = lineForInventoryOnJob(item, { quantity, price });
+    if (built.error) {
+      setError(built.error);
+      return;
+    }
+    if (!jobKey.includes(':')) {
+      setError('Choose a job');
+      return;
+    }
+    const [customerId, jobId] = jobKey.split(':');
+    setSaving(true);
+    setError('');
+    try {
+      await axios.post(`${API_BASE_URL}/api/inventory/${item._id}/add-to-job`, {
+        customerId,
+        jobId,
+        quantity: Number(quantity),
+        price: price === '' ? 0 : Number(price),
+      }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      await onSave();
+    } catch (err) {
+      setError(err.response?.data?.msg || 'Failed to add this part to the job');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto overscroll-contain bg-black/50 p-2 sm:p-4 py-4"
+      role="dialog"
+      aria-label={`Add ${item.name} to a job`}
+    >
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[min(100dvh,100svh)] sm:max-h-[90vh] flex flex-col overflow-hidden my-auto">
+        <div className="bg-white border-b border-gray-300 p-4 md:p-6 flex justify-between items-center shrink-0">
+          <h2 className="text-xl font-bold text-black">Add to job</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-600 hover:text-gray-900 text-3xl md:text-2xl font-bold w-11 h-11 md:w-8 md:h-8 flex items-center justify-center"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className="p-4 md:p-6 space-y-4 overflow-y-auto overscroll-y-contain flex-1 min-h-0">
+          <div>
+            <p className="font-semibold text-black text-lg">{item.name}</p>
+            <p className={`mt-1 text-sm font-medium ${onHand > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>{cue}</p>
+            <p className="mt-1 text-sm text-gray-600">Cost {costText}</p>
+          </div>
+          <div>
+            <label htmlFor="find-service-job" className="block text-base md:text-sm font-medium text-black mb-2">
+              Find a job
+            </label>
+            <input
+              id="find-service-job"
+              type="search"
+              value={jobQuery}
+              onChange={(event) => setJobQuery(event.target.value)}
+              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+              placeholder="Search by customer, job, or number"
+            />
+          </div>
+          <div>
+            <label htmlFor="add-to-job" className="block text-base md:text-sm font-medium text-black mb-2">
+              Job
+            </label>
+            <select
+              id="add-to-job"
+              value={jobKey}
+              onChange={(event) => setJobKey(event.target.value)}
+              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+            >
+              <option value="">Choose a job</option>
+              {jobs.map((job) => (
+                <option key={job.value} value={job.value}>{job.label}</option>
+              ))}
+            </select>
+            {jobs.length === 0 ? <p className="text-sm text-gray-600 mt-1">No jobs yet</p> : null}
+          </div>
+          <div>
+            <label htmlFor="add-to-job-quantity" className="block text-base md:text-sm font-medium text-black mb-2">
+              Quantity
+            </label>
+            <input
+              id="add-to-job-quantity"
+              type="number"
+              min="0"
+              step="1"
+              value={quantity}
+              onChange={(event) => setQuantity(event.target.value)}
+              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="add-to-job-price" className="block text-base md:text-sm font-medium text-black mb-2">
+              Price
+            </label>
+            <input
+              id="add-to-job-price"
+              type="number"
+              min="0"
+              step="0.01"
+              value={price}
+              onChange={(event) => setPrice(event.target.value)}
+              className="w-full p-4 md:p-2 border border-gray-300 rounded text-black bg-white text-base md:text-sm"
+              placeholder="Price charged on the job"
+            />
+          </div>
+          {error ? <p className="text-sm text-red-700" role="alert">{error}</p> : null}
+        </div>
+        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-300 p-4 md:p-6 flex flex-col sm:flex-row justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-6 py-3 md:px-4 md:py-2 border border-gray-300 rounded text-black bg-white hover:bg-gray-100 font-medium text-base md:text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="px-6 py-3 md:px-4 md:py-2 bg-blue-500 text-white rounded hover:bg-blue-600 font-medium text-base md:text-sm"
+          >
+            Add to this job
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

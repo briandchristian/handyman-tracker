@@ -35,10 +35,14 @@ import {
 import { buildAccountingSummary, serviceJobForAccounting } from './lib/accountingSummary.js';
 import { categorizeCheckingLine, inventoryReleaseError, noteOnCheckingLine, parseCheckingCsv, planCheckingImport } from './lib/checkingImport.js';
 import { subcontractorJobForAccounting, syncPartLines } from './lib/jobParts.js';
+import { stockStillOwed, syncServiceJobInventory } from './lib/jobLineInventory.js';
+import { lineForInventoryOnJob, totalsForJobLines } from './lib/inventoryJobLine.js';
+import { normalizeServiceJobLines, serviceJobLines } from './lib/customerWork.js';
 import { reorderByIds } from '../src/utils/bidMaterialsOrder.js';
 import { inventoryItemsFromBidLines, inventoryConflictMessage } from '../src/utils/inventoryFromBid.js';
 import { mergedInventoryFields } from '../src/utils/inventoryIdentity.js';
 import { supplierPriceLookupAccount } from '../src/utils/adiIntegration.js';
+import { compareQuickPicks, matchingQuickPick, normalizeQuickPick } from '../src/utils/quickPicks.js';
 import { normalizeCostCenterCode } from './lib/costCenters.js';
 import { isKnownLaborWorkType, normalizeLaborWorkType } from './lib/laborWorkTypes.js';
 import { normalizeProjectWorkType, serviceHistoryTypeFromProjectWorkType } from './lib/projectWorkTypes.js';
@@ -422,6 +426,8 @@ const customerSchema = new mongoose.Schema({
       price: Number,
       sku: { type: String, default: '' },
       paid: Number,
+      inventoryDisposition: { type: String, enum: ['', 'stock', 'used', 'draw'], default: '' },
+      supplierId: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier' },
       inventoryItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryItem' },
     }],
     parts: [{
@@ -432,7 +438,7 @@ const customerSchema = new mongoose.Schema({
       sold: Number,
       inventoryItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryItem' },
     }],
-    notes: { type: String, default: '' },
+    notes: { type: mongoose.Schema.Types.Mixed, default: [] },
     paidAmount: { type: Number, default: null },
     paidDate: Date,
     variance: { type: Number, default: null },
@@ -752,6 +758,16 @@ const inventoryItemSchema = new mongoose.Schema({
 });
 const InventoryItem = mongoose.model('InventoryItem', inventoryItemSchema);
 
+// Parts reused on job lines: description, SKU, price charged, and amount paid.
+const quickPickSchema = new mongoose.Schema({
+  description: { type: String, default: '', trim: true },
+  sku: { type: String, default: '', trim: true },
+  price: { type: Number, default: null },
+  paid: { type: Number, default: null },
+  updatedAt: { type: Date, default: Date.now },
+});
+const QuickPick = mongoose.model('QuickPick', quickPickSchema);
+
 /** Ledger of inventory qty changes (manual adjust, PO receive, job usage). */
 const inventoryMovementSchema = new mongoose.Schema({
   itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryItem', required: true },
@@ -765,6 +781,7 @@ const inventoryMovementSchema = new mongoose.Schema({
   previousStock: Number,
   newStock: Number,
   unitCost: Number,
+  unitPrice: Number,
   reason: { type: String, default: '' },
   source: {
     kind: { type: String, default: 'manual' },
@@ -3310,6 +3327,7 @@ async function applyAndRecordStockMovement({
   quantity,
   reason = '',
   unitCost,
+  unitPrice,
   source,
   userId,
 }) {
@@ -3340,6 +3358,9 @@ async function applyAndRecordStockMovement({
     previousStock: result.previousStock,
     newStock: result.newStock,
     unitCost: unitCost != null ? Number(unitCost) : item.lastPrice,
+    ...(unitPrice != null && unitPrice !== '' && Number.isFinite(Number(unitPrice))
+      ? { unitPrice: Number(unitPrice) }
+      : {}),
     reason: reason ? String(reason) : '',
     source: source || { kind: 'manual' },
     createdBy: userId,
@@ -3348,27 +3369,36 @@ async function applyAndRecordStockMovement({
   return { item, movement };
 }
 
-async function findOrCreatePartItem({ description, sku, paid }) {
+async function findOrCreatePartItem({ description, sku, paid, supplierId }) {
   const skuValue = normalizeSku(sku);
+  const supplier = supplierId && mongoose.Types.ObjectId.isValid(String(supplierId)) ? supplierId : null;
+  const assignSupplier = async (item) => {
+    if (!supplier) return item;
+    item.preferredSupplier = supplier;
+    await item.save();
+    return item;
+  };
   if (skuValue) {
     const existing = await InventoryItem.findOne({ sku: skuValue });
-    if (existing) return existing;
+    if (existing) return assignSupplier(existing);
     return InventoryItem.create({
       name: description || skuValue,
       sku: skuValue,
       currentStock: 0,
       lastPrice: Number(paid) || 0,
+      ...(supplier ? { preferredSupplier: supplier } : {}),
     });
   }
   const name = String(description || '').trim();
   if (!name) return null;
   const named = await InventoryItem.find({ name });
   const unnamedSku = named.find((item) => !normalizeSku(item.sku));
-  if (unnamedSku) return unnamedSku;
+  if (unnamedSku) return assignSupplier(unnamedSku);
   return InventoryItem.create({
     name,
     currentStock: 0,
     lastPrice: Number(paid) || 0,
+    ...(supplier ? { preferredSupplier: supplier } : {}),
   });
 }
 
@@ -3383,6 +3413,59 @@ function syncJobParts({ previous, next, source, reason, userId }) {
       ...movement,
       userId,
     }),
+  });
+}
+
+async function repairKeptStock({ lines, source, reason, userId }) {
+  const groups = new Map();
+  for (const line of lines || []) {
+    if (line?.inventoryDisposition !== 'stock') continue;
+    const quantity = Number(line.quantity) || 0;
+    const itemId = String(line.inventoryItemId || '');
+    if (quantity <= 0 || !itemId) continue;
+    const group = groups.get(itemId) || { quantity: 0, paid: line.paid, price: line.price };
+    group.quantity += quantity;
+    if (line.paid != null && line.paid !== '') group.paid = line.paid;
+    if (line.price != null && line.price !== '') group.price = line.price;
+    groups.set(itemId, group);
+  }
+  for (const [itemId, group] of groups) {
+    const item = await InventoryItem.findById(itemId);
+    if (!item) continue;
+    const movements = await InventoryMovement.find({
+      itemId: item._id,
+      'source.kind': source.kind,
+      'source.id': source.id,
+    });
+    const owed = stockStillOwed(group.quantity, movements);
+    if (owed <= 0) continue;
+    await applyAndRecordStockMovement({
+      item,
+      type: 'receive',
+      quantity: owed,
+      unitCost: group.paid,
+      unitPrice: group.price,
+      reason: `Purchased for ${reason}`,
+      source,
+      userId,
+    });
+  }
+}
+
+function syncServiceJobParts({ previous, next, source, reason, userId }) {
+  return syncServiceJobInventory({
+    previous,
+    next,
+    source,
+    reason,
+    findOrCreate: findOrCreatePartItem,
+    applyMovement: (movement) => applyAndRecordStockMovement({
+      ...movement,
+      userId,
+    }),
+  }).then(async (synced) => {
+    await repairKeptStock({ lines: synced?.lines || next, source, reason, userId });
+    return synced;
   });
 }
 
@@ -3575,6 +3658,50 @@ app.post('/api/inventory/:id/stock', authMiddleware, async (req, res) => {
   }
 });
 
+app.post('/api/inventory/:id/add-to-job', authMiddleware, async (req, res) => {
+  try {
+    const item = await InventoryItem.findById(req.params.id);
+    if (!item) return res.status(404).json({ msg: 'Inventory item not found' });
+    const built = lineForInventoryOnJob(item, req.body || {});
+    if (built.error) return res.status(400).json({ msg: built.error });
+
+    const customerId = String(req.body?.customerId || '');
+    const jobId = String(req.body?.jobId || '');
+    if (!mongoose.Types.ObjectId.isValid(customerId) || !mongoose.Types.ObjectId.isValid(jobId)) {
+      return res.status(400).json({ msg: 'Choose a job' });
+    }
+    const customer = await Customer.findById(customerId);
+    if (!customer) return res.status(404).json({ msg: 'Customer not found' });
+    const job = customer.serviceJobs.id(jobId);
+    if (!job) return res.status(404).json({ msg: 'Job not found' });
+
+    const previous = serviceJobLines(job);
+    const next = [...previous, built.line];
+    const synced = await syncServiceJobParts({
+      previous,
+      next,
+      source: { kind: 'service-job', id: `${customer._id}:${job._id}` },
+      reason: job.name,
+      userId: req.user.id,
+    });
+    const chargeLines = normalizeServiceJobLines({ chargeLines: synced?.lines || next });
+    const totals = totalsForJobLines(job, chargeLines);
+    job.chargeLines = chargeLines;
+    job.parts = [];
+    job.laborPay = totals.laborPay;
+    job.linesTotal = totals.linesTotal;
+    job.amountDue = totals.amountDue;
+    job.variance = totals.variance;
+    await customer.save();
+    const savedItem = await InventoryItem.findById(item._id);
+    res.status(201).json({ job, item: savedItem });
+  } catch (err) {
+    if (err.statusCode === 400) return res.status(400).json({ msg: err.message });
+    console.error('Error adding inventory to a job:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
 app.get('/api/inventory/:id/movements', authMiddleware, async (req, res) => {
   try {
     const item = await InventoryItem.findById(req.params.id);
@@ -3637,6 +3764,58 @@ app.delete('/api/inventory/:id', authMiddleware, async (req, res) => {
     res.json({ msg: 'Inventory item deleted' });
   } catch (err) {
     console.error('Error deleting inventory item:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.get('/api/quick-picks', authMiddleware, async (req, res) => {
+  try {
+    const picks = await QuickPick.find({}).lean();
+    picks.sort(compareQuickPicks);
+    res.json({ quickPicks: picks });
+  } catch (err) {
+    console.error('Error listing quick picks:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.post('/api/quick-picks', authMiddleware, async (req, res) => {
+  try {
+    const checked = normalizeQuickPick(req.body);
+    if (!checked.ok) return res.status(400).json({ msg: checked.error });
+    const existing = matchingQuickPick(await QuickPick.find({}).lean(), checked.value);
+    const sku = existing?.sku && String(existing.sku).trim().toLowerCase() === checked.value.sku.toLowerCase()
+      ? existing.sku
+      : checked.value.sku;
+    const fields = {
+      description: checked.value.description,
+      sku,
+      price: checked.value.price,
+      paid: checked.value.paid,
+      updatedAt: new Date(),
+    };
+    if (existing) {
+      const saved = await QuickPick.findByIdAndUpdate(existing._id, fields, { new: true });
+      return res.json(saved);
+    }
+    const created = await QuickPick.create(fields);
+    res.status(201).json(created);
+  } catch (err) {
+    console.error('Error saving quick pick:', err);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+});
+
+app.delete('/api/quick-picks/:id', authMiddleware, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ msg: 'Quick pick not found' });
+    }
+    const removed = await QuickPick.findByIdAndDelete(req.params.id);
+    if (!removed) return res.status(404).json({ msg: 'Quick pick not found' });
+    res.json({ msg: 'Quick pick removed' });
+  } catch (err) {
+    console.error('Error removing quick pick:', err);
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });
@@ -4212,7 +4391,7 @@ registerCustomerWorkRoutes(app, {
   Customer,
   authMiddleware,
   adminMiddleware,
-  syncParts: syncJobParts,
+  syncInventory: syncServiceJobParts,
 });
 registerCustomerPeopleRoutes(app, { Customer, authMiddleware, adminMiddleware });
 

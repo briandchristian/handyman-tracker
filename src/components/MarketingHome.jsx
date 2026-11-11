@@ -435,7 +435,7 @@ export default function MarketingHome() {
 
                   to={service.path}
 
-                  className="group flex flex-1 flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:border-emerald-200 hover:shadow-md text-left md:text-center md:items-center"
+                  className="group flex flex-1 flex-col rounded-2xl border border-emerald-200 bg-white p-6 shadow-md text-left md:text-center md:items-center"
 
                 >
 

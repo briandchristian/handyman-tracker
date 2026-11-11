@@ -52,6 +52,9 @@ function countNote(visible, total) {
   return visible !== total ? `${visible} of ${total}` : null;
 }
 
+/** Stays under the staff bar while the job rows scroll past it. */
+const customerColumnHeaderClass = 'sticky top-36 z-10 border-b border-gray-200 bg-white p-3 text-left text-sm font-semibold text-black lg:top-[65px]';
+
 export default function Dashboard() {
   const [projects, setProjects] = useState([]);
   const [bidNotices, setBidNotices] = useState([]);
@@ -368,25 +371,25 @@ export default function Dashboard() {
               ))}
             </div>
 
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full border-collapse min-w-[900px]">
+            <div className="hidden md:block">
+              <table className="w-full border-separate border-spacing-0 min-w-[900px]">
                 <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left p-3 text-black text-sm font-semibold">Job</th>
-                    <th className="text-left p-3 text-black text-sm font-semibold">Customer</th>
-                    <th className="text-left p-3 text-black text-sm font-semibold">Status</th>
-                    <th className="text-left p-3 text-black text-sm font-semibold">Bid Amount</th>
-                    <th className="text-left p-3 text-black text-sm font-semibold">Bill Amount</th>
-                    <th className="text-left p-3 text-black text-sm font-semibold">Schedule Date</th>
-                    <th className="text-left p-3 text-black text-sm font-semibold">Created</th>
-                    <th className="text-left p-3 text-black text-sm font-semibold">Actions</th>
+                  <tr>
+                    <th className={customerColumnHeaderClass}>Job</th>
+                    <th className={customerColumnHeaderClass}>Customer</th>
+                    <th className={customerColumnHeaderClass}>Status</th>
+                    <th className={customerColumnHeaderClass}>Bid Amount</th>
+                    <th className={customerColumnHeaderClass}>Bill Amount</th>
+                    <th className={customerColumnHeaderClass}>Schedule Date</th>
+                    <th className={customerColumnHeaderClass}>Created</th>
+                    <th className={customerColumnHeaderClass}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleCustomers.map((project, index) => (
-                    <tr key={project._id || index} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="p-3 text-black font-medium text-sm">{formatJobLabel(project)}</td>
-                      <td className="p-3 text-sm">
+                    <tr key={project._id || index} className="group">
+                      <td className="border-b border-gray-100 bg-white p-3 text-black font-medium text-sm group-hover:bg-gray-50">{formatJobLabel(project)}</td>
+                      <td className="border-b border-gray-100 bg-white p-3 text-sm group-hover:bg-gray-50">
                         <Link
                           to={`/customers/${project.customerId}`}
                           className="text-emerald-700 font-medium underline"
@@ -397,32 +400,32 @@ export default function Dashboard() {
                           })}
                         </Link>
                       </td>
-                      <td className="p-3">
+                      <td className="border-b border-gray-100 bg-white p-3 group-hover:bg-gray-50">
                         <span className={`px-2 py-1 rounded text-sm ${statusClass(project.status)}`}>
                           {shownStatus(project)}
                         </span>
                       </td>
-                      <td className="p-3 text-black text-sm">
+                      <td className="border-b border-gray-100 bg-white p-3 text-black text-sm group-hover:bg-gray-50">
                         {project.bidAmount
                           ? `$${project.bidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
                           : '-'}
                       </td>
-                      <td className="p-3 text-black text-sm">
+                      <td className="border-b border-gray-100 bg-white p-3 text-black text-sm group-hover:bg-gray-50">
                         {project.billAmount
                           ? `$${project.billAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
                           : '-'}
                       </td>
-                      <td className="p-3 text-black text-sm">
+                      <td className="border-b border-gray-100 bg-white p-3 text-black text-sm group-hover:bg-gray-50">
                         {project.scheduleDate
                           ? format(new Date(project.scheduleDate), 'MMM d, yyyy')
                           : '-'}
                       </td>
-                      <td className="p-3 text-gray-600 text-sm">
+                      <td className="border-b border-gray-100 bg-white p-3 text-gray-600 text-sm group-hover:bg-gray-50">
                         {project.createdAt
                           ? format(new Date(project.createdAt), 'MMM d, yyyy')
                           : 'N/A'}
                       </td>
-                      <td className="p-3">
+                      <td className="border-b border-gray-100 bg-white p-3 group-hover:bg-gray-50">
                         <Link
                           to={project.href || `/projects/${project.customerId}/${project._id}`}
                           className="text-blue-500 hover:text-blue-700 text-sm font-medium"
